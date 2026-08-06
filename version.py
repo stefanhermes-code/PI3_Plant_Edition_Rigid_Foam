@@ -17,12 +17,23 @@ PI3_Rigid_Foam_Edition_Change_Impact_Assessment.docx for what carries over
 unchanged vs. what needs rework for rigid foam manufacturing.
 
 Database: shares the flexible app's Supabase project/database (no separate
-project) - decided 2026-08-06. Rigid-foam tables will live in their own
-Postgres schema ("rigid_foam"), not in the flexible app's "public" schema,
-to avoid name collisions while keeping one project/one bill. Not yet
-implemented as of v0.1.3 - db.py still targets the default public schema;
-schema-scoping and the WP0 migration-framework choice are upcoming work.
+project) - decided 2026-08-06. As of v0.2.0, db.py scopes every model to
+its own Postgres schema, "rigid_foam" (RIGID_FOAM_SCHEMA), instead of the
+flexible app's "public" schema - no name collisions, one project/one bill.
+The schema and all 40 tables were created directly against the shared
+Supabase project (aazkdsqpytjciiqtvnfj) the same day, ahead of first
+deploy, from this exact ORM metadata (see the "create_rigid_foam_schema"
+and "create_rigid_foam_tables" migrations in Supabase's migration history -
+there is no separate migrations-file convention in this repo, matching
+the flexible app's own established practice). NOTE: unlike the flexible
+app's public-schema tables, Row Level Security is NOT enabled on any
+rigid_foam table yet - flagged to Stefan, not auto-applied (enabling RLS
+with no policies would block all access). WP0's migration-framework
+question (Alembic vs. hand-rolled) is resolved the same way: continue the
+project's existing lightweight practice (SQLAlchemy models + ad-hoc SQL
+applied directly to Supabase) rather than introducing Alembic, consistent
+with how every schema change has been made across this whole project.
 See README.md, "Deploying to Streamlit Community Cloud" section.
 """
 
-APP_VERSION = "0.1.3"
+APP_VERSION = "0.2.0"

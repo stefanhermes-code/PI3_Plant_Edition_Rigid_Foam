@@ -104,10 +104,24 @@ the flexible app does not automatically get access to the rigid app —
 that's governed by the app-level `Company`/`User`/`Role` rows, which this
 schema-level separation does not by itself grant or deny.
 
-This is not yet implemented — `db.py`'s SQLAlchemy models and `init_db()`
-still create everything in the default `public` schema, same as the
-flexible app. Wiring the models to a dedicated schema (and choosing the
-migration framework, per WP0) is upcoming work, not done yet.
+**Implemented as of v0.2.0.** `db.py` scopes every model to the `rigid_foam`
+schema automatically (`RIGID_FOAM_SCHEMA`, set whenever `DATABASE_URL` is
+Postgres) — no `search_path` tricks or per-connection setup needed, since
+SQLAlchemy schema-qualifies every generated statement once this is set.
+The `rigid_foam` schema and all 40 tables already exist in the shared
+Supabase project, created directly ahead of first deploy so the fork has
+its own real table structure in place now. `init_db()` will just find
+them already there on first app run (and create anything new the same
+way, going forward, as the schema evolves).
+
+**Known gap, flagged not fixed:** unlike the flexible app's `public`-schema
+tables, Row Level Security is **not enabled** on any `rigid_foam` table.
+This only matters for Supabase's own client-library access (anon/
+authenticated keys via PostgREST) — this app talks to Postgres directly
+over `psycopg2`, not through that surface — but it's a real gap from the
+flexible app's posture and worth a deliberate decision (enable + write
+policies, or confirm it's fine as-is) before this app is exposed to a real
+customer, not left as an oversight.
 
 1. Reuse the flexible app's existing Supabase project — do **not** create
    a second one.
@@ -119,10 +133,6 @@ migration framework, per WP0) is upcoming work, not done yet.
    `postgresql://postgres.xxxxx:[PASSWORD]@aws-0-xxxx.pooler.supabase.com:5432/postgres`
 4. Rewrite the scheme to use the psycopg2 driver explicitly:
    `postgresql+psycopg2://postgres.xxxxx:[PASSWORD]@aws-0-xxxx.pooler.supabase.com:5432/postgres`
-5. Once the schema-separation work lands, the rigid app's connection will
-   set its SQLAlchemy models/session to target the `rigid_foam` schema
-   (e.g. via `-csearch_path=rigid_foam` on the connection string, or
-   per-table `schema=` args) — same URL, same database, different schema.
 
 ### 2. This repo
 

@@ -1,6 +1,6 @@
 """
-PI3 Plant Edition - v0.1 internal prototype
-Database layer: SQLAlchemy models for the 16 approved v0.1 entities.
+PI3 Rigid Foam Edition - forked from PI3 Plant Edition (flexible slabstock
+foam). Database layer: SQLAlchemy models.
 
 Connection:
 - Production / Streamlit Cloud: set st.secrets["DATABASE_URL"] to a Supabase
@@ -10,6 +10,14 @@ Connection:
   DATABASE_URL is not set. Do NOT rely on SQLite for the deployed app -
   Streamlit Community Cloud's filesystem is not guaranteed to persist
   across reboots/redeploys.
+
+Schema separation (decided 2026-08-06, see version.py): this app shares the
+flexible app's Supabase PROJECT (same database, same connection string) but
+NOT its tables. Every table this app defines lives in its own Postgres
+schema, "rigid_foam", instead of the flexible app's "public" schema - see
+RIGID_FOAM_SCHEMA below. This only applies when the target database is
+Postgres; the local SQLite dev fallback has no meaningful schema concept
+and keeps using its single default namespace, unchanged.
 """
 
 import datetime as dt
@@ -24,10 +32,12 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    MetaData,
     String,
     Text,
     UniqueConstraint,
     create_engine,
+    text,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
@@ -56,9 +66,6 @@ class _NoDeepCopyMixin:
         return self
 
 
-Base = declarative_base(cls=_NoDeepCopyMixin)
-
-
 def _database_url() -> str:
     # 1. Streamlit secrets (Streamlit Cloud deployment)
     try:
@@ -73,7 +80,24 @@ def _database_url() -> str:
     return "sqlite:///pi3_local.db"
 
 
-ENGINE = create_engine(_database_url(), pool_pre_ping=True, pool_recycle=280)
+DATABASE_URL = _database_url()
+
+# Postgres (Supabase) only: give every table in this app its own schema so
+# it can share the flexible app's project/database without colliding with
+# or migrating alongside the flexible app's "public"-schema tables. Every
+# CREATE TABLE and every generated SELECT/INSERT/UPDATE/DELETE is
+# automatically schema-qualified (e.g. "rigid_foam"."production_runs") once
+# this is set on the declarative Base's MetaData - no per-model change
+# needed, and no DATABASE_URL/search_path trick required either.
+#
+# SQLite (local dev fallback) has no comparable schema concept worth
+# reproducing here, so it keeps using the engine's single default
+# namespace - RIGID_FOAM_SCHEMA is None in that case.
+RIGID_FOAM_SCHEMA = "rigid_foam" if DATABASE_URL.startswith("postgresql") else None
+
+Base = declarative_base(cls=_NoDeepCopyMixin, metadata=MetaData(schema=RIGID_FOAM_SCHEMA))
+
+ENGINE = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=280)
 # expire_on_commit=False: keep already-loaded attributes readable after a
 # commit, since the session below is reused across Streamlit reruns rather
 # than recreated each time.
@@ -1507,7 +1531,15 @@ def _ensure_schema_ready():
     """st.cache_resource caches the return value in-process, shared across
     every browser session this server handles - so this body runs exactly
     once per process, not once per rerun. Returns a value (rather than
-    None) only so the cache has something to store; callers never use it."""
+    None) only so the cache has something to store; callers never use it.
+
+    On Postgres, the "rigid_foam" schema itself (see RIGID_FOAM_SCHEMA
+    above) is created here too, before create_all - Postgres does not
+    auto-create a schema just because a table definition names one, and
+    CREATE TABLE fails with "no schema has been selected" without this."""
+    if RIGID_FOAM_SCHEMA:
+        with ENGINE.begin() as conn:
+            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{RIGID_FOAM_SCHEMA}"'))
     Base.metadata.create_all(bind=ENGINE)
     return True
 
