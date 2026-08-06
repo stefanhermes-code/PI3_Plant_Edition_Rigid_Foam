@@ -17,4 +17,4 @@ PI3_Rigid_Foam_Edition_Change_Impact_Assessment.docx for what carries over
 unchanged vs. what needs rework for rigid foam manufacturing.
 """
 
-APP_VERSION = "0.1.1"
+APP_VERSION = "0.1.2"

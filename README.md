@@ -1,84 +1,96 @@
-# PI3 Plant Edition — v0.1 internal prototype
+# PI3 Rigid Foam Edition
 
-Flexible slabstock foam expert system for HTC Global Co. Ltd. Captures and
-connects recipe versions, production runs, runtime data, quality test
-results, and quality issues, across the three parents a run/trial can
-belong to (Production Run, Customer Trial, Optimization Trial) — with a
-controlled advisory boundary and optional PI3/AI connectivity add-on. Built
-per `CharlieC_Build_Prompt_Pack_PI3_Plant_Edition`.
+## Status (read this first)
 
-This is a controlled prototype: flexible slabstock foam only, manual-entry
-first with CSV/Excel import, no ERP or live machine integration, no
-autonomous formulation optimization.
+This repository is a **fork of PI3 Plant Edition** (the flexible slabstock
+foam application), created 2026-08-05 from the flexible app's v2.0.1 commit,
+with the v2.0.2 fix ported in by hand on 2026-08-06 (see `version.py`). It
+has its **own version history starting at 0.1.x** and its own GitHub repo
+(`stefanhermes-code/PI3_Plant_Edition_Rigid_Foam`) — pushing here never
+touches the flexible-foam app or its repo, and vice versa.
+
+**As of v0.1.1, every screen, table, and piece of business logic in this
+repo is still the flexible-slabstock-foam version, unchanged.** Nothing
+here has been adapted for rigid foam yet. This is deliberate: forking gave
+the rigid-foam build a working starting point (auth, multi-tenancy, PI3/AI,
+reports, the Industrial Intelligence pages) without risk to the flexible
+app's live pilot customer — see the two planning documents below for what
+changes and in what order.
+
+Planning documents (in the parent `15. PI3 Plant Edition` folder, not
+inside this repo):
+
+- `PI3_Rigid_Foam_Edition_Change_Impact_Assessment.docx` — engineering-side
+  scoping: what carries over unchanged vs. what needs new design work.
+- `PI3_Rigid_Foam_Edition_Technical_Research_and_Data_Population_Plan.docx`
+  — the technical content/data plan (chemistry, process settings, property
+  specs, defect taxonomy) that will replace the flexible-foam-specific data
+  model described below.
+- `PI3_Rigid_Foam_Plan_Feedback_for_Charlie.docx` — engineering feedback on
+  that plan (scope-to-timeline sizing, recommended build sequence, the
+  baseline-version note resolved in this README/`version.py`).
+
+Everything below this point describes the **flexible-foam content this
+fork currently still contains** and the **mechanics of the app itself**
+(structure, local dev, deployment, troubleshooting) — the mechanics stay
+true regardless of foam type; the content (screens, schema, terminology)
+is exactly what's scheduled to change.
 
 ## Structure
 
 - `app.py` — Dashboard (Screen 1, entry point)
-- `pages/` — the remaining 11 screens (see below)
-- `db.py` — SQLAlchemy models for the 16 v0.1 entities, plus the multi-
-  tenant layer (`Company`, `SubscriptionType`, `Role`, `RolePagePermission`,
-  `User`)
+- `pages/` — the remaining screens (see below)
+- `db.py` — SQLAlchemy models: the flexible-foam operational schema, plus
+  the multi-tenant layer (`Company`, `SubscriptionType`, `Role`,
+  `RolePagePermission`, `User`) — the multi-tenant layer is expected to
+  carry over as-is; the operational schema is what the rigid-foam data
+  plan replaces.
 - `auth.py` — database-backed login (hashed passwords, per-user validity
   window), falling back to `secrets.toml` only on a fresh/unmigrated
   deployment with no `users` rows yet
 - `access_control.py` — shared page-visibility rules: which pages a role
   can see, and which a company's subscription gates
 - `helpers.py` — shared UI helpers, advisory disclaimer text
-- `demo_data.py` — seeds the internal demonstration case (no real client
-  data); not wired into the UI anymore (the Demo Data Admin page was
-  removed 2026-07-31) - call `seed_demo_data(session)` directly for a
+- `analytics.py` — shared data-assembly helpers behind the five Industrial
+  Intelligence pages; `PHASE_SETTING_FIELDS`/`PHASE_SETTING_LABELS` here
+  is the flexible-foam machine-settings list the rigid plan's "method-aware
+  settings" work replaces
+- `demo_data.py` — seeds the flexible-foam internal demonstration case (no
+  real client data); call `seed_demo_data(session)` directly for a
   throwaway local/dev database
 
-## Screens
+## Screens (still flexible-foam content, unchanged from the fork point)
 
-1. Dashboard (`app.py`)
-2. Plant & Foam Equipment Overview
-3. Product Family & Foam Grade Profile
-4. Recipes
-5. Production Run (also handles runtime data entry + CSV import)
-6. Quality Test Result
-7. Quality Issue
-8. PI3 Connectivity (platform-owner only: per-plant PI3/AI on-off switch)
-9. User Accounts (a company's own admin manages their own users; platform owner manages every company's)
-10. User Roles (a company's own admin narrows their own built-in-role clones + custom roles; platform owner manages every company's)
-11. Default User Roles (platform-owner only: the template new companies' built-in roles are seeded from)
-12. Companies (platform-owner only: the tenant boundary)
-13. Subscription Types (platform-owner only: commercial tiers, limits/features, list prices)
+Covers plant/equipment setup, product family & foam grade profiles,
+recipes, production runs (with runtime data entry + CSV import), quality
+test results, quality issues, samples & trials (Production Samples,
+Customer Trials & Samples, Optimization Trials & Samples), the five
+Industrial Intelligence pages (Trend Analysis, Process-Property
+Correlation, Recipe Optimization, Root-Cause Assistant, Machine Settings
+Optimization), Expert Notes, Reports, and the platform-admin pages
+(Companies, Subscription Types, User Roles, User Accounts, PI3
+Connectivity, Performance). Treat `app.py`'s own nav-section lists as the
+source of truth for the exact current screen set, not a fixed count here —
+this list will be rewritten once rigid-foam screens replace or extend
+these.
 
-This list predates several pages added since (Raw Materials, Production
-Samples, Customer Trials & Samples, Optimization Trials & Samples, the
-five Industrial Intelligence screens, Report, Expert Notes) and postdates
-several removals: Similar Case Retrieval (dropped 2026-08-01), the Trial /
-Experiment + Adjustment & Conclusion + Approval & Review trio (dropped
-2026-08-04, once Customer Trial/Optimization Trial made that separate
-trial-closeout workflow redundant — see `access_control.py`'s docstring
-and `PI3_Gaps_and_Ambiguities.docx`), and conditioning tracking (dropped
-2026-08-04 per user direction — samples now live directly on the page for
-their source: Production Samples / Customer Trials & Samples /
-Optimization Trials & Samples, all under the Samples & Trials nav
-section, with no conditioning history behind them). Treat `app.py`'s own
-nav-section lists as the actual source of truth for what screens exist,
-not this list's exact count.
-
-## Trial data model
+## Trial data model (current, flexible-foam)
 
 A quality test result or quality issue always belongs to exactly one of
 three parents: a Production Run, a Customer Trial, or an Optimization
 Trial (`db.SAMPLE_SOURCE_TYPES`). Customer Trials and Optimization Trials
 are their own independent lab-trial flows (`pages/11_Customer_Trials.py`,
 `pages/12_Optimization_Trials.py`) — they don't hang off a Production Run.
-
-## The one rule that can't be bypassed
-
-A Customer Trial cannot be closed unless `outcome`, `reviewed_by`, and
-`date_closed` are all present; an Optimization Trial additionally requires
-`conclusion`, `reuse_recommendation`, and `approved_by`. This is enforced
-in `db.py` (`CustomerTrial.can_close()` / `OptimizationTrial.can_close()`)
-and checked again in `pages/11_Customer_Trials.py` /
-`pages/12_Optimization_Trials.py` before the "Close trial" button is
-enabled.
+Whether this same shape fits rigid foam's sample/trial patterns is one of
+the open questions in the technical research plan.
 
 ## Deploying to Streamlit Community Cloud
+
+This repo has **not been deployed anywhere yet** — no Streamlit Cloud app,
+no Supabase project of its own. It currently shares nothing at runtime
+with the flexible app's deployment; setting up its own deployment is future
+work, not something already configured. When that's ready, the mechanics
+are the same as the flexible app's:
 
 ### 1. Database — Supabase Postgres
 
@@ -86,7 +98,8 @@ Streamlit Community Cloud's filesystem is not guaranteed to persist across
 app reboots or redeploys, so this app is built to use a hosted Postgres
 database rather than a local SQLite file.
 
-1. Create a free project at supabase.com.
+1. Create a **new, separate** Supabase project for the rigid-foam edition
+   (do not point this app at the flexible app's project/database).
 2. Go to **Project Settings > Database > Connection string > URI**, and copy
    the **Session pooler** connection string (works better than the direct
    connection from serverless/app-hosting environments).
@@ -95,26 +108,24 @@ database rather than a local SQLite file.
 4. Rewrite the scheme to use the psycopg2 driver explicitly:
    `postgresql+psycopg2://postgres.xxxxx:[PASSWORD]@aws-0-xxxx.pooler.supabase.com:5432/postgres`
 
-### 2. Push this folder to a GitHub repo
+### 2. This repo
 
-```
-git init
-git add .
-git commit -m "PI3 Plant Edition v0.1 prototype"
-git remote add origin <your-repo-url>
-git push -u origin main
-```
+Already created and pushed:
+`https://github.com/stefanhermes-code/PI3_Plant_Edition_Rigid_Foam`, branch
+`main`. Future changes just need the normal `git add` / `git commit` /
+`git push` — no `git init`/`remote add` needed again.
 
 (`.streamlit/secrets.toml.example` is safe to commit. Never commit a real
 `secrets.toml`.)
 
 ### 3. Deploy on Streamlit Community Cloud
 
-1. Go to share.streamlit.io and create a new app from your repo, branch
+1. Go to share.streamlit.io and create a new app from this repo, branch
    `main`, main file `app.py`.
 2. In the app's **Settings > Secrets**, paste the contents of
-   `.streamlit/secrets.toml.example`, filled in with your real Supabase
-   connection string and real user accounts (see below).
+   `.streamlit/secrets.toml.example`, filled in with your real (new,
+   rigid-foam-specific) Supabase connection string and real user accounts
+   (see below).
 3. Deploy. The app will create all tables automatically on first load
    (`init_db()` runs on every page).
 
@@ -130,18 +141,13 @@ use **Companies** to add the tenant, **Subscription Types** to assign it a
 commercial tier (user/plant limits, feature flags), and **User Accounts**
 to create its first admin user. That company's own admin can then manage
 their own users and any custom roles (**User Roles**) without seeing other
-companies' data — plants, raw materials, and suppliers are scoped by
-`company_id`; recipe/production/quality data inherits that scoping through
-the plant it's keyed to. This is still not full SSO/identity management —
-adequate for direct commercial deployment to a handful of customers, not
-for enterprise identity federation.
+companies' data.
 
 ### 5. Load demo data (optional, local/dev only)
 
-The Demo Data Admin page was removed from the UI (not needed once real
-customer data exists). To seed the hardness-drift/shrinkage demonstration
-case from `04_PI3_Plant_Edition_Demonstration_Case.docx` into a local/dev
-database, run:
+To seed the flexible-foam demonstration case into a local/dev database
+(useful only for exercising the current, unmodified screens — not
+representative of rigid foam), run:
 
 ```
 python -c "from db import get_session, init_db; from demo_data import seed_demo_data; init_db(); print(seed_demo_data(get_session()))"
@@ -156,158 +162,70 @@ streamlit run app.py
 
 Without a `DATABASE_URL` secret or environment variable, the app falls back
 to a local SQLite file (`pi3_local.db`) for convenience — do not rely on
-this for the deployed app.
+this for a deployed app.
 
-## Required one-time step: backfill PI3 vector store tenant tags (2026-08-02)
+## Troubleshooting
 
-PI3's semantic search (file_search) is now scoped so a company only sees
-its own pushed documents (Expert Notes) plus a shared general reference
-library — see `ai_assistant._file_search_filters()` and
-`ai_assistant.push_document_to_vector_store()`'s docstring (fixes Gate 3,
-Item 21 of the Duroflex pilot readiness list). This only works for vector
-store files that carry the right tags, and files pushed before this fix
-don't yet carry them. Run this once, right after deploying this change,
-against the real production vector store:
+The mechanics below are inherited from the flexible-foam app's own
+deployment history and apply identically here, since the tech stack
+(`requirements.txt`) was copied over unchanged. None of this is rigid-foam
+specific.
 
-```
-python backfill_vector_store_tenant_tags.py          # dry run - prints what would change
-python backfill_vector_store_tenant_tags.py --apply   # writes the changes
-```
-
-Safe to re-run (already-tagged files are skipped). Needs `OPENAI_API_KEY`,
-`PI3_VECTOR_STORE_ID`, and `DATABASE_URL` available the same way the app
-itself reads them (Streamlit secrets or environment variables). Anything
-the script flags as "NEEDS ATTENTION" was left untouched on purpose — see
-the script's own docstring for why guessing on those would be worse than
-leaving them for a human to check.
-
-## Troubleshooting: sidebar reverts to a plain page list
+### Sidebar reverts to a plain page list
 
 Symptom: the sidebar shows a flat, alphabetical/numeric list of page names
-straight from the filenames (e.g. "Plant Installation Overview", "Production
-Run Trial Record") with no logo, no version number, no section headers, and
-no icons — as if `app.py`'s custom navigation code doesn't exist.
+straight from the filenames, with no logo, no version number, no section
+headers, and no icons — as if `app.py`'s custom navigation code doesn't
+exist.
 
 This is not a code regression (check `app.py` still has `st.navigation(...,
 position="hidden")` and the custom `with st.sidebar:` block first if in
 doubt) — it's Streamlit Community Cloud serving a stale cached build. Fix:
 open the app on share.streamlit.io, click the **⋮** menu (top right) →
-**Clear cache**. A plain reboot does not always clear this; Clear cache did
-(confirmed 2026-07-22, v1.6.1). Repository/branch/main-file settings are not
-usually the cause if this has worked before.
+**Clear cache**. A plain reboot does not always clear this.
 
-## Troubleshooting: ImportError "cannot import name 'X' from 'helpers'" (or any module) after a push
-
-Symptom: right after pushing a commit that adds a new function/name to a
-shared module (`helpers.py`, `db.py`, `cascades.py`, ...), the deployed app
-throws `ImportError: cannot import name 'X' from 'Y'` even though the file
-on GitHub's `main` branch clearly contains that name.
+### ImportError "cannot import name 'X' from 'helpers'" (or any module) after a push
 
 This is a different failure mode from the sidebar issue above: it's not a
 stale build, it's a stale **Python process**. Streamlit Community Cloud's
-"pull code changes from GitHub" step (visible in the deploy log) doesn't
-always restart the underlying Python process — it can just re-run the
-script against modules already sitting in `sys.modules` from before the
-push. **Clear cache does not fix this** (it only clears
+"pull code changes from GitHub" step doesn't always restart the underlying
+Python process. **Clear cache does not fix this** (it only clears
 `@st.cache_data`/`@st.cache_resource`, not Python's module cache). The fix
-is a full **Reboot app** (a separate action from Clear cache, restarts the
-container/process so every module is freshly imported) — confirmed
-2026-07-24, v1.10.0/v1.10.1. If no distinct "Reboot app" option is visible,
+is a full **Reboot app**. If no distinct "Reboot app" option is visible,
 delete and redeploy the app from the same repo/branch as a fallback.
 
 Check the deploy log (Manage app → logs) for the real traceback first —
 Streamlit's on-screen error message is redacted, but the log shows the
-exact `ImportError` and whether a "Pulling code changes from Github" line
-appears right before the failure without a following full dependency
-install / "Uvicorn server started" sequence, which is the tell for this
-stale-process scenario versus an actual code bug.
+exact `ImportError`.
 
-## Troubleshooting: sidebar reverts to a plain page list, and Clear cache / Reboot app don't fix it
+### Sidebar reverts to a plain page list, and Clear cache / Reboot app don't fix it
 
-Symptom looks identical to the stale-build case above, but neither Clear
-cache nor a full Reboot app resolves it. Check the deploy log's dependency
-install section (right after "Pulling code changes from Github") for the
-actual `streamlit`/`pandas`/`pyarrow` versions installed and the Python
-version the container is using.
+Check the deploy log's dependency install section for the actual
+`streamlit`/`pandas`/`pyarrow` versions installed and the Python version
+the container is using. `requirements.txt` pins these exactly (see the
+comment block at the top of that file) precisely because an unbound
+`>=`-only dependency once silently broke `st.navigation()`'s custom-sidebar
+routing on the flexible app — Streamlit Community Cloud forces the Python
+version (no `runtime.txt` support), and a too-old Streamlit on a too-new
+Python fails this way with no traceback. Don't "roll back" a Streamlit pin
+as a first instinct here; check what Python version Cloud is forcing first.
 
-`requirements.txt` originally left `streamlit`/`pandas`/`numpy` unbounded
-(`>=` only), so Streamlit Community Cloud's `uv pip install` was free to
-resolve to whatever the newest release was at deploy time. On 2026-07-31 a
-routine reboot triggered a fresh dependency resolution that picked up
-streamlit 1.60.0, pandas 3.0.5, and pyarrow's latest on Python 3.14. Two
-real, separate things came out of that:
+### App shows "Oops" on every load, deploy log full of "GZipResponder.__init__() missing 1 required keyword-only argument: 'thread_minimum_size'"
 
-1. The Subscription Types page threw a hard `pyarrow.lib.ArrowTypeError`
-   from a column that mixed `int` and `str` values, which pandas 3.0's
-   stricter Arrow interop no longer tolerates - a genuine code bug, fixed
-   regardless of dependency version.
-2. The **first** fix attempt pinned `streamlit<1.60` to roll back to the
-   last version this app had been tested against - which made the sidebar
-   problem worse, not better. Streamlit Community Cloud forces the Python
-   version (no `runtime.txt` support, and by this date its only offered
-   version was 3.14 - check Advanced settings → Python version), and
-   Streamlit itself only gained real Python 3.14 support in 1.60.0 (a PEP
-   649 deferred-annotation-evaluation fix). Running streamlit<1.60 on a
-   Python-3.14-only host silently breaks `st.navigation()`'s custom-sidebar
-   routing - no traceback, it just falls back to Streamlit's default flat
-   page list and default centered layout. The fix is the opposite of the
-   instinct to roll back: pin streamlit **>=1.60**, not below it, and keep
-   pandas <3.0 separately (verified `streamlit>=1.60,<1.61` + `pandas<3.0`
-   + `pyarrow<25` resolves cleanly to streamlit 1.60.0 / pandas 2.3.3 /
-   pyarrow 24.0.0 - see the comment in `requirements.txt`).
+Different failure mode from the two sidebar cases above — this one crashes
+every single request. Cause: an upstream incompatibility between
+`streamlit==1.60.0` and `starlette` releases newer than 1.3.1 (see the
+comment above the `starlette==1.3.1` pin in `requirements.txt` for the full
+root-cause chain). Already pinned correctly in this repo; re-verify the pin
+before ever bumping `streamlit` past 1.60.0.
 
-If this recurs, compare the deploy log's installed versions against these
-pins - and specifically check what Python version Cloud is forcing
-(Advanced settings → Python version) before assuming a lower dependency
-version is the safe choice. "Newer Python forces a newer Streamlit
-minimum" is the opposite of the usual "pin everything down" instinct and
-is easy to get backwards under pressure, as happened here.
+## What this fork deliberately does not do (yet)
 
-## Troubleshooting: app shows "Oops" on every load, deploy log full of "GZipResponder.__init__() missing 1 required keyword-only argument: 'thread_minimum_size'"
-
-Different failure mode from the two sidebar cases above - this one crashes
-every single request (the deploy log shows the Streamlit server responding
-500 to its own health checks right after boot), so the app never renders
-at all, not even a broken sidebar.
-
-Cause: `streamlit==1.60.0` declares its own dependency on `starlette` as a
-wide, unpinned range (`starlette<2,>=0.40.0`) - nothing in this app's own
-`requirements.txt` constrained it further before 2026-08-05. On a routine
-reboot, `uv pip install` resolved that range to the newest release
-satisfying it, `starlette==1.4.0`. That starlette release added a new
-required keyword-only argument (`thread_minimum_size`) to its internal
-`GZipResponder.__init__` - and streamlit 1.60.0's own vendored subclass
-(`streamlit/web/server/starlette/starlette_gzip_middleware.py`) doesn't
-pass it, so every request crashes with the `TypeError` above before it
-ever reaches this app's code. Confirmed by installing streamlit 1.60.0
-with no other constraints in a clean venv: it resolves starlette to 1.4.0
-and fails the same way, so this is squarely an upstream
-streamlit/starlette incompatibility, not a bug introduced by this app.
-
-Fix (already applied, 2026-08-05): pin `starlette==1.3.1` explicitly in
-`requirements.txt` - the last release before that breaking change.
-Confirmed by running streamlit 1.60.0 against starlette 1.3.1 directly:
-the server boots and responds 200 to its own health check with no GZip
-error. If this recurs after a future streamlit upgrade, re-check what
-starlette version the new streamlit release actually needs before
-re-pinning - don't just bump the pin blindly.
-
-## What v0.1 deliberately does not do
-
-No ERP integration, no live machine connection, no autonomous formulation
-optimization, no complex billing engine (subscription tiers enforce
-user/plant limits and feature flags, but there's no payment processing),
-no customer complaint platform. Root-Cause Assistant and every other
-PI3-touching screen never issues formulation instructions — PI3 only
-surfaces historical records and hypotheses for human review.
-
-Multi-tenancy is "shared database, `company_id` column," not a database
-per customer. Plants, raw materials, and suppliers are scoped directly by
-their own `company_id` column; every other operational page (production
-runs, quality results, recipes, trials, approvals, similar case
-retrieval, expert notes, the industrial intelligence pages, the report
-page) is scoped via `tenant_scope.apply_scope()` / `run_ids_for_company()`
-through the plant/recipe hierarchy it's keyed to. This retrofit pass
-completed 2026-08-01 (confirmed by direct reading of `tenant_scope.py`
-and every operational page) - this paragraph previously described it as
-future work, which was stale by the time it was caught.
+No rigid-foam-specific schema, screens, terminology, property master data,
+process settings, or defect taxonomy — that's the entire scope of the
+planned build (see the planning documents at the top of this file). Beyond
+that, the same limits as the flexible app still apply: no ERP integration,
+no live machine connection, no autonomous formulation optimization, no
+complex billing engine, no customer complaint platform. PI3 never issues
+formulation instructions — it only surfaces historical records and
+hypotheses for human review.
