@@ -130,8 +130,21 @@ vocabulary findings from this pass, both to raise with Charlie: RMC-120
 ORI-THERM-THROUGH-THICKNESS (found by JC - used throughout WP2's own
 SPEC-UAT-THERM-001/SCTX-THERM-001 and all of WP3, but never declared in
 any WP1/WP2 orientation-vocabulary sheet; added here as a provisional
-row pending her confirmation). The application UI/report page remains
+row pending his confirmation). The application UI/report page remains
 the next step.
+
+2026-08-06 (later still): appended "- Rigid Foam" to every user-visible
+"PI3 Plant Edition" branding string (login title, sidebar branding,
+forgot-password email subject/body) so this deployment is clearly
+distinguishable from the flexible-foam app in Streamlit Cloud - same
+motivation as the app_rigid_foam.py filename rename above. Also fixed
+the login page's caption, which still said "Flexible slabstock foam
+expert system" (stale, carried over from the fork). Documented the
+existing AUTH_DISABLED dev-bypass secret (auth.py already had this from
+the flexible app) in secrets.toml.example - no code change, since the
+bypass logic was already there; only needed setting AUTH_DISABLED = true
+in this deployment's own Streamlit Cloud secrets, which Stefan does
+directly since it's a Cloud dashboard setting, not a repo file.
 """
 
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.3.3"

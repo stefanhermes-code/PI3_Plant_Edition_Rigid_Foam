@@ -380,7 +380,7 @@ if _visible("report"):
 # always renders its automatic nav menu first, before any other sidebar
 # content, regardless of where in the script that content is written.
 pg = st.navigation(
-    {"PI3 Plant Edition": top_pages, **nav_sections},
+    {"PI3 Plant Edition - Rigid Foam": top_pages, **nav_sections},
     position="hidden",
 )
 
@@ -388,7 +388,7 @@ with st.sidebar:
     logo_col, version_col = st.columns([1, 1.4], vertical_alignment="center")
     logo_col.image(LOGO_PATH, width=140)
     with version_col:
-        st.markdown("**PI3 Plant Edition**")
+        st.markdown("**PI3 Plant Edition - Rigid Foam**")
         st.caption(f"v{APP_VERSION}")
     st.divider()
 
