@@ -194,12 +194,38 @@ def _grade_id_list(foam_grade_id):
 # directly off ProductionPhase wherever a page genuinely wants the
 # observed outcome (e.g. Trend Analysis, or the Runtime Data tab's own
 # display) - just no longer treated as a lever to "optimize".
+#
+# ratio_index removed from this list on 2026-08-05 for the same class of
+# bug, different cause: it's not a measured outcome, it's a recipe-level
+# formulation constant (the isocyanate index), moved from
+# ProductionPhase.ratio_index to RecipeVersion.ratio_index back on
+# 2026-08-03 (see db.py) specifically because every run of a given recipe
+# version uses the same value - it isn't something an operator sets per
+# production run the way mixer rpm or air pressure is. run_settings_
+# dataframe below was correctly updated on 2026-08-03 to source its value
+# from the recipe rather than the phase, but nobody removed it from this
+# field/label list at the same time, so it kept showing up in the "Process
+# setting" drill-down dropdowns and the correlation/optimization rankings
+# on pages 17 and 19 as if it were a machine setting - a user correctly
+# flagged this on 2026-08-05. It's still fully available as a recipe
+# property wherever that's the right frame (pages/3_Recipe_Version_
+# Record.py, and the Recipe report sections in reports.py) - just not
+# ranked here as a lever an operator can "optimize" on a given run.
+#
+# Ported into PI3_Rigid_Foam_Edition_App on 2026-08-06: this fork was
+# created from the flexible-foam app's v2.0.1 commit, one day before this
+# fix shipped as v2.0.2 on the flexible side, so the fork was carrying the
+# same stale-list bug. Applied identically here rather than re-deciding it,
+# since it's a defect in inherited code, not a rigid-foam design choice -
+# the rigid schema still needs its own settings model per the Technical
+# Research and Data Population Plan (method-aware settings, not this
+# Maxfoam-specific list), but that's separate, larger work - see
+# version.py for the baseline note.
 PHASE_SETTING_FIELDS = [
     "mixer_rpm",
     "conveyor_speed",
     "air_injection_rate",
     "air_pressure_bar",
-    "ratio_index",
     "sidewall_width_mm",
     "top_flat_system_used",
 ]
@@ -209,7 +235,6 @@ PHASE_SETTING_LABELS = {
     "conveyor_speed": "Conveyor speed (m/min)",
     "air_injection_rate": "Air injection rate",
     "air_pressure_bar": "Air pressure (bar)",
-    "ratio_index": "Ratio / index",
     "sidewall_width_mm": "Tunnel width (mm)",
     "top_flat_system_used": "Top-flat system in use",
 }
@@ -294,13 +319,7 @@ def run_settings_dataframe(_session, foam_grade_id=None):
             "machine": run.machine.name if run.machine else None,
         }
         for field in PHASE_SETTING_FIELDS:
-            if field == "ratio_index":
-                # Recipe-level formulation constant since 2026-08-03 (see
-                # RecipeVersion.ratio_index in db.py), not a per-phase
-                # setting - sourced from the run's recipe version instead of
-                # getattr(phase, ...) like every other field here.
-                row[field] = run.recipe_version.ratio_index if run.recipe_version else None
-            elif field in BOOLEAN_SETTING_FIELDS:
+            if field in BOOLEAN_SETTING_FIELDS:
                 # Coerced to 0.0/1.0/NaN (not left as True/False/None) right
                 # here - the single point every downstream consumer (.corr(),
                 # pd.qcut, reports.py's getattr loop, Root-Cause Assistant's
