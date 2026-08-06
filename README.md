@@ -114,14 +114,14 @@ its own real table structure in place now. `init_db()` will just find
 them already there on first app run (and create anything new the same
 way, going forward, as the schema evolves).
 
-**Known gap, flagged not fixed:** unlike the flexible app's `public`-schema
-tables, Row Level Security is **not enabled** on any `rigid_foam` table.
-This only matters for Supabase's own client-library access (anon/
-authenticated keys via PostgREST) — this app talks to Postgres directly
-over `psycopg2`, not through that surface — but it's a real gap from the
-flexible app's posture and worth a deliberate decision (enable + write
-policies, or confirm it's fine as-is) before this app is exposed to a real
-customer, not left as an oversight.
+Row Level Security is **enabled** on all 40 `rigid_foam` tables, matching
+the flexible app's `public`-schema tables exactly (enabled, no policies
+defined on either side). This app talks to Postgres directly over
+`psycopg2` using the project's owner-level connection role, which bypasses
+RLS regardless — so, same as on the flexible app, this has no effect on
+how the app functions. It only matters for Supabase's own client-library
+access (anon/authenticated keys via PostgREST), which this app doesn't
+use.
 
 1. Reuse the flexible app's existing Supabase project — do **not** create
    a second one.

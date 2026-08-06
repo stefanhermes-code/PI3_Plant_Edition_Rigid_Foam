@@ -25,10 +25,11 @@ Supabase project (aazkdsqpytjciiqtvnfj) the same day, ahead of first
 deploy, from this exact ORM metadata (see the "create_rigid_foam_schema"
 and "create_rigid_foam_tables" migrations in Supabase's migration history -
 there is no separate migrations-file convention in this repo, matching
-the flexible app's own established practice). NOTE: unlike the flexible
-app's public-schema tables, Row Level Security is NOT enabled on any
-rigid_foam table yet - flagged to Stefan, not auto-applied (enabling RLS
-with no policies would block all access). WP0's migration-framework
+the flexible app's own established practice). Row Level Security is
+enabled on all 40 rigid_foam tables (matching the flexible app's
+public-schema tables exactly - enabled, no policies on either side; the
+app's own connection uses the project's owner-level role, which bypasses
+RLS regardless, same as the flexible app). WP0's migration-framework
 question (Alembic vs. hand-rolled) is resolved the same way: continue the
 project's existing lightweight practice (SQLAlchemy models + ad-hoc SQL
 applied directly to Supabase) rather than introducing Alembic, consistent
@@ -36,4 +37,4 @@ with how every schema change has been made across this whole project.
 See README.md, "Deploying to Streamlit Community Cloud" section.
 """
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
