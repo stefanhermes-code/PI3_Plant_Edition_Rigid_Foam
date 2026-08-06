@@ -412,7 +412,22 @@ class Machine(Base):
     notes = Column(Text)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
+    # --- WP3 additions (2026-08-06): rigid-foam closed-mold metering machine
+    # is the same underlying concept as this table's existing flexible-foam
+    # foaming line - both are "the equipment that actually ran this
+    # production" - so this is extended in place rather than adding a
+    # parallel "MeteringMachine" table. production_unit_id links it under a
+    # higher-level asset grouping (WP3's ProductionUnit, e.g. "High-pressure
+    # metering unit") that has no flexible-foam equivalent and so is
+    # nullable; production_method_id records which method-aware family this
+    # asset serves (nullable - existing flexible-foam Machine rows have no
+    # method concept and are unaffected).
+    production_unit_id = Column(Integer, ForeignKey("production_units.id"))
+    production_method_id = Column(Integer, ForeignKey("production_methods.id"))
+
     plant = relationship("Plant")
+    production_unit = relationship("ProductionUnit")
+    production_method = relationship("ProductionMethod")
 
 
 # ---------------------------------------------------------------------------
@@ -456,10 +471,34 @@ class FoamGrade(Base):
     notes = Column(Text)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
+    # --- WP3 additions (2026-08-06): this is Charlie's "ProductGrade"
+    # concept - it maps directly onto the grade that already exists here,
+    # not a separate table. All four nullable: flexible-foam grades have no
+    # chemistry/method/application/construction concept and are unaffected.
+    # There is no separate "approved_recipe_id" column - the grade's
+    # approved/current recipe is whichever RecipeVersion has is_active=True
+    # for this grade (see RecipeVersion.is_active and
+    # helpers.activate_recipe_version), the same rule this app already uses
+    # everywhere else; duplicating that as a second column here would just
+    # create a second place it could go stale.
+    chemistry_id = Column(Integer, ForeignKey("chemistries.id"))
+    production_method_id = Column(Integer, ForeignKey("production_methods.id"))
+    application_id = Column(Integer, ForeignKey("applications.id"))
+    construction_id = Column(Integer, ForeignKey("product_constructions.id"))
+    status = Column(String(50))  # e.g. UAT_ONLY, ACTIVE - controlled-ID grades only; NULL for flexible-foam grades
+    production_use = Column(String(200))  # free note, e.g. "No production release" for UAT-only grades
+
     product_family = relationship("ProductFamily", back_populates="foam_grades")
     recipe_versions = relationship("RecipeVersion", back_populates="foam_grade")
     target_properties = relationship(
         "FoamGradeTargetProperty", back_populates="foam_grade", cascade="all, delete-orphan"
+    )
+    chemistry = relationship("Chemistry")
+    production_method = relationship("ProductionMethod")
+    application = relationship("Application")
+    construction = relationship("ProductConstruction")
+    specifications = relationship(
+        "GradeSpecification", back_populates="foam_grade", cascade="all, delete-orphan"
     )
 
 
@@ -525,9 +564,44 @@ class RecipeVersion(Base):
     # for the (now-legacy, read-only) per-phase field this replaced.
     ratio_index = Column(Float)
 
+    # --- WP3 additions (2026-08-06). All nullable - existing flexible-foam
+    # recipes have none of this and are unaffected.
+    #
+    # chemistry/method/application/construction: normally the same as the
+    # parent FoamGrade's (a recipe is formulated FOR that grade's context),
+    # repeated here because a reference/UAT recipe can exist and be
+    # evaluated before a grade is finalized around it - see
+    # RCP-UAT-DCP-EX1-V1 in the WP3 package, which carries its own context.
+    chemistry_id = Column(Integer, ForeignKey("chemistries.id"))
+    production_method_id = Column(Integer, ForeignKey("production_methods.id"))
+    application_id = Column(Integer, ForeignKey("applications.id"))
+    construction_id = Column(Integer, ForeignKey("product_constructions.id"))
+    # Free-text description of the formula basis, e.g. "100 parts formulated
+    # polyol blend plus 13 parts cyclopentane and 136 parts pMDI" - needed
+    # because ratio_index alone doesn't say what's counted in each side of
+    # the ratio (see RCP-UAT-DCP-EX1-V1's A:B calculation).
+    recipe_basis = Column(Text)
+    # Separate from approval_status (the Draft/Review/Approved/Rejected
+    # workflow above): validation_status tracks whether this recipe's DATA
+    # is real plant data or a locked external/UAT reference, e.g.
+    # REFERENCE_LOCKED or APPROVED_UAT_ONLY. A recipe can be
+    # "Approved" (workflow-wise) while still being REFERENCE_LOCKED
+    # (content-wise) - those are two different questions.
+    validation_status = Column(String(50))
+    # e.g. "Plant validation required before production use" - shown
+    # wherever this recipe is surfaced, so a UAT/reference recipe is never
+    # mistaken for something ready to run.
+    production_use_rule = Column(Text)
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+
     foam_grade = relationship("FoamGrade", back_populates="recipe_versions")
     components = relationship("RecipeComponent", back_populates="recipe_version")
     production_runs = relationship("ProductionRun", back_populates="recipe_version")
+    chemistry = relationship("Chemistry")
+    production_method = relationship("ProductionMethod")
+    application = relationship("Application")
+    construction = relationship("ProductConstruction")
+    source = relationship("SourceRegister")
 
 
 # ---------------------------------------------------------------------------
@@ -584,7 +658,17 @@ class RawMaterial(Base):
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
+    # --- WP3 additions (2026-08-06). Nullable, additive: category (free
+    # text above) is untouched and still what every existing page reads;
+    # category_id is the controlled-vocabulary equivalent (Charlie's RMC-*
+    # rows) for rigid-foam data going forward. source_id records where this
+    # material's master data (e.g. its TDS) came from.
+    category_id = Column(Integer, ForeignKey("raw_material_categories.id"))
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+
     company = relationship("Company")
+    material_category = relationship("RawMaterialCategory")
+    source = relationship("SourceRegister")
 
 
 # ---------------------------------------------------------------------------
@@ -602,8 +686,15 @@ class RecipeComponent(Base):
     role_in_formulation = Column(String(200))
     notes = Column(Text)
 
+    # --- WP3 addition (2026-08-06). Nullable: where this component's php
+    # figure came from (supplier TDS, internal trial, the WP3 UAT package,
+    # ...) - separate from RecipeVersion.source_id, since two components of
+    # the same recipe can each trace back to a different document.
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+
     recipe_version = relationship("RecipeVersion", back_populates="components")
     raw_material = relationship("RawMaterial")
+    source = relationship("SourceRegister")
 
 
 # ---------------------------------------------------------------------------
@@ -881,7 +972,15 @@ class RawMaterialLotUse(Base):
     notes = Column(Text)
     source_file_reference = Column(String(300))
 
+    # --- WP3 addition (2026-08-06). Nullable: supplier_lot_no (above) stays
+    # the field of record every existing page reads/writes; this optionally
+    # links the same row to a real RawMaterialLot entity (task #543) when
+    # one exists, so a lot's full receipt/CoA data can be traced from here
+    # without retyping it.
+    raw_material_lot_id = Column(Integer, ForeignKey("raw_material_lots.id"))
+
     production_run = relationship("ProductionRun")
+    raw_material_lot = relationship("RawMaterialLot")
 
 
 # ---------------------------------------------------------------------------
@@ -905,9 +1004,21 @@ class Sample(Base):
     # "curing time" field that isn't really a thing in practice).
     notes = Column(Text)
 
+    # --- WP3 additions (2026-08-06). All nullable - existing flexible-foam
+    # samples use zone_label above and are unaffected. Rigid-foam properties
+    # like thermal conductivity are direction- and location-sensitive in a
+    # way flexible slabstock sampling never needed to capture.
+    location_id = Column(Integer, ForeignKey("locations.id"))
+    orientation_id = Column(Integer, ForeignKey("orientations.id"))
+    sample_scope = Column(String(50))  # e.g. "Bulk", "Core", "Skin"
+    thickness_mm = Column(Float)
+    age_hours = Column(Float)  # time between demold/cut and this sample being tested, if tracked
+
     production_run = relationship("ProductionRun")
     customer_trial = relationship("CustomerTrial")
     optimization_trial = relationship("OptimizationTrial")
+    location = relationship("Location")
+    orientation = relationship("Orientation")
 
 
 # ---------------------------------------------------------------------------
@@ -1088,6 +1199,10 @@ class PhysicalPropertyDefinition(Base):
     category = Column(String(20))  # Comfort / Technical / Both
     is_common = Column(Boolean, default=False)
     sort_order = Column(Integer)
+    # --- WP3 addition (2026-08-06). Nullable: Charlie's PROP-* controlled ID
+    # for rigid-foam properties (e.g. "PROP-005" for thermal conductivity).
+    # Flexible-foam's existing 84 property rows have none and are unaffected.
+    controlled_id = Column(String(50), unique=True)
 
 
 class PhysicalPropertyMethod(Base):
@@ -1097,6 +1212,9 @@ class PhysicalPropertyMethod(Base):
     property_definition_id = Column(Integer, ForeignKey("physical_property_definitions.id"), nullable=False)
     method_code = Column(String(300), nullable=False)  # e.g. "ASTM D3574 Test A"
     sort_order = Column(Integer)
+    # --- WP3 addition (2026-08-06). Nullable: Charlie's MTH-* controlled ID
+    # (e.g. "MTH-016").
+    controlled_id = Column(String(50), unique=True)
 
 
 class PhysicalPropertyUOM(Base):
@@ -1106,6 +1224,12 @@ class PhysicalPropertyUOM(Base):
     property_definition_id = Column(Integer, ForeignKey("physical_property_definitions.id"), nullable=False)
     unit_label = Column(String(50), nullable=False)
     sort_order = Column(Integer)
+    # --- WP3 addition (2026-08-06). Nullable: optional cross-reference from
+    # this per-property unit label to the general UnitOfMeasure master
+    # (unit_label stays the field of record every page reads/writes).
+    unit_id = Column(Integer, ForeignKey("units_of_measure.id"))
+
+    unit = relationship("UnitOfMeasure")
 
 
 # ---------------------------------------------------------------------------
@@ -1136,10 +1260,25 @@ class PhysicalPropertyResult(Base):
     tested_at = Column(Date)
     notes = Column(Text)
 
+    # --- WP3 additions (2026-08-06). All nullable - existing flexible-foam
+    # results are unaffected. Needed because a rigid-foam property result
+    # (e.g. thermal conductivity) isn't fully specified by test_method
+    # alone - which edition of the standard, under what aging/temperature
+    # condition, and at what orientation/location, all change the number.
+    method_edition = Column(String(50))  # e.g. "2017" for an ISO/ASTM edition year
+    condition_id = Column(Integer, ForeignKey("test_conditions.id"))
+    orientation_id = Column(Integer, ForeignKey("orientations.id"))
+    location_id = Column(Integer, ForeignKey("locations.id"))
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+
     sample = relationship("Sample")
     production_run = relationship("ProductionRun")
     customer_trial = relationship("CustomerTrial")
     optimization_trial = relationship("OptimizationTrial")
+    condition = relationship("TestCondition")
+    orientation = relationship("Orientation")
+    location = relationship("Location")
+    source = relationship("SourceRegister")
 
 
 # ---------------------------------------------------------------------------
@@ -1450,6 +1589,525 @@ class RoleChangeLog(Base):
     company = relationship("Company")
 
 
+# ===========================================================================
+# WP3 - Thermal Conductivity Vertical Slice (Converged Joint Implementation
+# Plan, section 7.3; see PI3_Rigid_Foam_Edition_WP3_Technical_Build_Pack_and_
+# Gate_2_Specification.docx and the accompanying WP3 Excel package). Added
+# 2026-08-06. Every table/column below is new to this rigid_foam schema only
+# - nothing here touches the flexible app's public-schema tables.
+#
+# Charlie's WP1/WP2 deliverables use a controlled-ID vocabulary (CHM-010,
+# PM-120, APP-210, PC-140, PROP-005, MTH-016, UOM-002, CTX-THERM-INIT-10C-7D,
+# RMC-*, PS-*, LOC-*, ORI-*, SRC-*, ...) throughout. Every lookup table below
+# carries a `controlled_id` column so those IDs are real, importable,
+# FK-referenceable rows - not free text - which is what lets WP4's
+# comparability/analytics logic eventually join on them reliably.
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# WP3a. Controlled-vocabulary lookup tables (task list #542)
+#
+# All follow the same shape deliberately: id / controlled_id / name /
+# description / sort_order. Kept as separate tables per concept (rather than
+# one shared "lookup_values" table with a type discriminator) so each can be
+# a normal FK target and a normal picker dropdown, matching how every other
+# controlled vocabulary in this app already works (Supplier, MACHINE_OEMS-
+# style constants, etc.) - not a generic EAV-of-lookups pattern.
+# ---------------------------------------------------------------------------
+class Chemistry(Base):
+    """Charlie's CHM-* vocabulary, e.g. "Polyurethane - Polyol/pMDI",
+    "Polyisocyanurate". What a grade/recipe is chemically built from -
+    distinct from ProductionMethod (how it's processed)."""
+
+    __tablename__ = "chemistries"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "CHM-010"
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    sort_order = Column(Integer)
+
+
+class ProductionMethod(Base):
+    """Charlie's PM-* vocabulary, e.g. "Discontinuous Panel (DCP)",
+    "Continuous Lamination", "Spray Applied", "Pour-in-Place/RIM". Drives
+    which ProcessSettingDefinition rows apply (method-aware settings, see
+    WP3e below) and which equipment hierarchy makes sense for a given
+    Machine/ProductionUnit."""
+
+    __tablename__ = "production_methods"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "PM-120"
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    sort_order = Column(Integer)
+
+
+class Application(Base):
+    """Charlie's APP-* vocabulary, e.g. "Building Insulation - Wall Panel",
+    "Refrigeration", "Pipe Insulation" - the end-use the grade is designed
+    for."""
+
+    __tablename__ = "applications"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "APP-210"
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    sort_order = Column(Integer)
+
+
+class ProductConstruction(Base):
+    """Charlie's PC-* vocabulary, e.g. "Metal-faced sandwich panel",
+    "Unfaced board", "Sprayed-in-place layer" - the physical form the
+    finished product takes."""
+
+    __tablename__ = "product_constructions"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "PC-140"
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    sort_order = Column(Integer)
+
+
+class Orientation(Base):
+    """Charlie's ORI-* vocabulary for sample/test orientation relative to
+    the foam rise direction, e.g. "Parallel to rise", "Perpendicular to
+    rise" - thermal conductivity and mechanical properties are directional
+    in rigid foam, unlike flexible slabstock, so this has no equivalent in
+    the flexible app's schema."""
+
+    __tablename__ = "orientations"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "ORI-010"
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    sort_order = Column(Integer)
+
+
+class Location(Base):
+    """Charlie's LOC-* vocabulary for where in the part/panel a sample was
+    taken, e.g. "Core", "Skin", "Top face", "Bottom face" - distinct from
+    Sample.zone_label (Top/Middle/Bottom/Whole, the flexible-foam bun-slicing
+    convention), which is left untouched for flexible-foam use."""
+
+    __tablename__ = "locations"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "LOC-020"
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    sort_order = Column(Integer)
+
+
+class TestCondition(Base):
+    """Charlie's CTX-* vocabulary, e.g. "CTX-THERM-INIT-10C-7D" -
+    conditioning/test context (mean temperature, aging duration, etc.) that
+    a physical-property result was measured under. Structured fields below
+    are populated where the controlled_id encodes them; description always
+    carries the full human-readable text regardless."""
+
+    __tablename__ = "test_conditions"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(100), unique=True)  # e.g. "CTX-THERM-INIT-10C-7D"
+    name = Column(String(200), nullable=False)
+    mean_temperature_c = Column(Float)
+    duration_days = Column(Float)
+    description = Column(Text)
+    sort_order = Column(Integer)
+
+
+class RawMaterialCategory(Base):
+    """Charlie's RMC-* vocabulary, e.g. "Polyol", "Isocyanate", "Blowing
+    Agent", "Catalyst", "Surfactant", "Flame Retardant" - a controlled
+    replacement for RawMaterial.category's free text (kept as-is for
+    flexible-foam/back-compat; see RawMaterial.category_id below)."""
+
+    __tablename__ = "raw_material_categories"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "RMC-030"
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    sort_order = Column(Integer)
+
+
+class UnitOfMeasure(Base):
+    """Charlie's UOM-* general unit master, e.g. "W/m*K" (thermal
+    conductivity), "kg/m3" (density), "%" (percentage). Deliberately
+    separate from PhysicalPropertyUOM (the existing per-property picklist
+    further down this file, e.g. only the units valid for "Compression
+    set") - this is the flat, general-purpose master those per-property
+    rows can optionally reference (see PhysicalPropertyUOM.unit_id below),
+    and the general unit FK target for WP3 tables (ProcessSettingDefinition,
+    GradeSpecification, ...) that aren't tied to one specific property."""
+
+    __tablename__ = "units_of_measure"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "UOM-002"
+    symbol = Column(String(50), nullable=False)  # e.g. "W/m*K"
+    name = Column(String(200))  # e.g. "Watts per metre-Kelvin"
+    quantity_type = Column(String(100))  # e.g. "Thermal conductivity", "Density"
+    sort_order = Column(Integer)
+
+
+class SourceRegister(Base):
+    """Charlie's SRC-* provenance vocabulary - where a piece of reference
+    data (a UAT recipe, a grade specification limit, a test condition
+    definition, ...) actually came from: supplier TDS, internal lab,
+    published literature, a UAT/reference dataset, etc. Every WP3 table that
+    can trace back to a specific documented source carries a nullable
+    source_id FK to this table, so "where did this number come from" is
+    always answerable, not just asserted in a docstring."""
+
+    __tablename__ = "source_registers"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "SRC-005"
+    source_type = Column(String(100))  # e.g. "Supplier TDS", "Internal Lab", "Literature", "UAT Dataset"
+    reference = Column(String(500))  # document/report/dataset name
+    retrieved_date = Column(Date)
+    description = Column(Text)
+    notes = Column(Text)
+
+
+# ---------------------------------------------------------------------------
+# WP3b. Raw materials + lots (task list #543)
+# ---------------------------------------------------------------------------
+class RawMaterialLot(Base):
+    """A specific supplier-lot delivery of a raw material, with its own
+    certificate-of-analysis / receipt data - distinct from
+    RawMaterialLotUse (which raw_material_lot_uses.supplier_lot_no already
+    records as free text per production run). This table is the actual lot
+    ENTITY (one row per lot received), so RawMaterialLotUse can optionally
+    point at a real lot row via raw_material_lot_id below instead of only
+    ever repeating the lot number as text."""
+
+    __tablename__ = "raw_material_lots"
+
+    id = Column(Integer, primary_key=True)
+    raw_material_id = Column(Integer, ForeignKey("raw_materials.id"), nullable=False)
+    supplier_id = Column(Integer, ForeignKey("suppliers.id"))
+    lot_number = Column(String(200), nullable=False)
+    coa_reference = Column(String(300))  # certificate of analysis document/filename
+    received_date = Column(Date)
+    expiry_date = Column(Date)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    raw_material = relationship("RawMaterial")
+    supplier = relationship("Supplier")
+
+
+# ---------------------------------------------------------------------------
+# WP3c. Equipment / tooling hierarchy (task list #545)
+#
+# Rigid closed-mold/panel production has an equipment concept with no
+# flexible-foam-slabstock equivalent: a metering unit feeds a mixhead, which
+# fills a tool (mold), which has one or more cavities, each with its own
+# fill point(s) and vent configuration. None of this maps onto the
+# flexible app's single "Machine = foaming line" model, so it is new here
+# rather than an extension of an existing table (unlike Machine/FoamGrade
+# above, which ARE the same underlying concept re-used).
+# ---------------------------------------------------------------------------
+class ProductionUnit(Base):
+    """A higher-level asset grouping above Machine, e.g. "High-pressure
+    metering unit #2" - already referenced by Machine.production_unit_id
+    above. One production unit can serve more than one Machine row over
+    its life (e.g. re-piped to a different line), so this is its own table
+    rather than a column on Machine."""
+
+    __tablename__ = "production_units"
+
+    id = Column(Integer, primary_key=True)
+    plant_id = Column(Integer, ForeignKey("plants.id"), nullable=False)
+    controlled_id = Column(String(50))
+    name = Column(String(200), nullable=False)
+    unit_type = Column(String(200))  # e.g. "High-pressure metering unit"
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    plant = relationship("Plant")
+
+
+class Mixhead(Base):
+    __tablename__ = "mixheads"
+
+    id = Column(Integer, primary_key=True)
+    production_unit_id = Column(Integer, ForeignKey("production_units.id"), nullable=False)
+    name = Column(String(200), nullable=False)
+    controlled_id = Column(String(50))
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    production_unit = relationship("ProductionUnit")
+
+
+class Tool(Base):
+    """A mold/tool - fed by a mixhead, contains one or more cavities."""
+
+    __tablename__ = "tools"
+
+    id = Column(Integer, primary_key=True)
+    production_unit_id = Column(Integer, ForeignKey("production_units.id"))
+    name = Column(String(200), nullable=False)
+    controlled_id = Column(String(50))
+    tool_type = Column(String(100))  # e.g. "Panel mold", "Block mold"
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    production_unit = relationship("ProductionUnit")
+
+
+class Cavity(Base):
+    __tablename__ = "cavities"
+
+    id = Column(Integer, primary_key=True)
+    tool_id = Column(Integer, ForeignKey("tools.id"), nullable=False)
+    cavity_number = Column(Integer, nullable=False)
+    name = Column(String(200))
+    volume_l = Column(Float)
+    notes = Column(Text)
+
+    tool = relationship("Tool")
+
+
+class FillPoint(Base):
+    __tablename__ = "fill_points"
+
+    id = Column(Integer, primary_key=True)
+    cavity_id = Column(Integer, ForeignKey("cavities.id"), nullable=False)
+    fill_point_number = Column(Integer, nullable=False)
+    name = Column(String(200))
+    notes = Column(Text)
+
+    cavity = relationship("Cavity")
+
+
+class VentConfiguration(Base):
+    __tablename__ = "vent_configurations"
+
+    id = Column(Integer, primary_key=True)
+    cavity_id = Column(Integer, ForeignKey("cavities.id"), nullable=False)
+    vent_count = Column(Integer)
+    vent_type = Column(String(100))
+    notes = Column(Text)
+
+    cavity = relationship("Cavity")
+
+
+class CalibrationRecord(Base):
+    """Deliberately simple and NOT polymorphically FK'd to a specific
+    equipment table (mixheads/tools/etc.) - equipment_type + equipment_label
+    are free text identifying what was calibrated. A metering-pump-level
+    calibration_status/calibration_note already exists per stream reading
+    (see ComponentStreamReading above, unchanged); this table is for
+    equipment-level calibration events (mixhead, tool, scale, ...) that
+    aren't tied to one specific production run."""
+
+    __tablename__ = "calibration_records"
+
+    id = Column(Integer, primary_key=True)
+    equipment_type = Column(String(100), nullable=False)  # e.g. "Mixhead", "Tool", "Metering pump"
+    equipment_label = Column(String(200), nullable=False)  # free-text identifier of the specific asset
+    calibration_date = Column(Date)
+    next_due_date = Column(Date)
+    status = Column(String(50))  # Valid / Expired / Failed / Not Verified
+    certificate_reference = Column(String(300))
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# WP3d. Product grade specification (task list #546)
+#
+# Generalizes FoamGradeTargetProperty (kept as-is, unchanged, for
+# flexible-foam-style simple target+unit specs) with an explicit comparison
+# operator, upper/lower limits, and full test context (method/condition/
+# orientation/location) - what WP3's Gate 2 conformance check (task #549)
+# actually needs to evaluate a rigid-foam grade spec correctly, since
+# "meets spec" for thermal conductivity depends on orientation and aging
+# condition, not just a single target number.
+# ---------------------------------------------------------------------------
+GRADE_SPEC_OPERATORS = ["<=", ">=", "=", "between"]
+
+
+class GradeSpecification(Base):
+    __tablename__ = "grade_specifications"
+
+    id = Column(Integer, primary_key=True)
+    foam_grade_id = Column(Integer, ForeignKey("foam_grades.id"), nullable=False)
+    property_definition_id = Column(Integer, ForeignKey("physical_property_definitions.id"))
+    property_method_id = Column(Integer, ForeignKey("physical_property_methods.id"))
+    property_name = Column(String(200), nullable=False)  # snapshot text, auto-filled from the chosen definition
+    target_operator = Column(String(20), default="<=")  # see GRADE_SPEC_OPERATORS
+    target_value = Column(Float)
+    lower_limit = Column(Float)  # used when target_operator == "between"
+    upper_limit = Column(Float)  # used when target_operator == "between", or as the pass/fail ceiling for "<="
+    unit = Column(String(50))
+    condition_id = Column(Integer, ForeignKey("test_conditions.id"))
+    orientation_id = Column(Integer, ForeignKey("orientations.id"))
+    location_id = Column(Integer, ForeignKey("locations.id"))
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    foam_grade = relationship("FoamGrade", back_populates="specifications")
+    condition = relationship("TestCondition")
+    orientation = relationship("Orientation")
+    location = relationship("Location")
+    source = relationship("SourceRegister")
+
+
+# ---------------------------------------------------------------------------
+# WP3e. Cycle / shot + output item (task list #547, #548)
+#
+# Rigid discontinuous-panel/closed-mold production runs in discrete cycles
+# (one mold-fill-cure-demold cycle can itself contain several shots, e.g.
+# a multi-drop pour) rather than the flexible app's continuous-line
+# Setup/Finalized phase snapshot model - genuinely new structure, not an
+# extension of ProductionPhase. A ProductionRun can still have zero cycles
+# recorded (e.g. continuous lamination method, or data not yet captured at
+# this granularity) - all links below are nullable/optional.
+# ---------------------------------------------------------------------------
+class ProductionCycle(Base):
+    __tablename__ = "production_cycles"
+
+    id = Column(Integer, primary_key=True)
+    production_run_id = Column(Integer, ForeignKey("production_runs.id"), nullable=False)
+    cycle_number = Column(Integer, nullable=False)
+    tool_id = Column(Integer, ForeignKey("tools.id"))
+    mixhead_id = Column(Integer, ForeignKey("mixheads.id"))
+    cycle_start = Column(DateTime)
+    cycle_end = Column(DateTime)
+    notes = Column(Text)
+
+    production_run = relationship("ProductionRun")
+    tool = relationship("Tool")
+    mixhead = relationship("Mixhead")
+
+
+class ProductionShot(Base):
+    __tablename__ = "production_shots"
+
+    id = Column(Integer, primary_key=True)
+    production_cycle_id = Column(Integer, ForeignKey("production_cycles.id"), nullable=False)
+    shot_number = Column(Integer, nullable=False)
+    shot_ts = Column(DateTime)
+    cavity_id = Column(Integer, ForeignKey("cavities.id"))
+    fill_point_id = Column(Integer, ForeignKey("fill_points.id"))
+    notes = Column(Text)
+
+    production_cycle = relationship("ProductionCycle")
+    cavity = relationship("Cavity")
+    fill_point = relationship("FillPoint")
+
+
+class OutputItem(Base):
+    """One physical output (panel/board/part) resulting from a cycle - the
+    rigid-foam equivalent of the flexible app's "block" concept
+    (ProductionRun.block_reference), but as a real row rather than a text
+    field, since a single rigid cycle/shot can yield more than one
+    discrete item (e.g. several panels demolded from one multi-cavity
+    tool)."""
+
+    __tablename__ = "output_items"
+
+    id = Column(Integer, primary_key=True)
+    production_run_id = Column(Integer, ForeignKey("production_runs.id"), nullable=False)
+    production_cycle_id = Column(Integer, ForeignKey("production_cycles.id"))
+    production_shot_id = Column(Integer, ForeignKey("production_shots.id"))
+    item_type = Column(String(100))  # e.g. "Panel", "Block", "Part"
+    item_reference = Column(String(200))
+    quantity = Column(Float)
+    unit = Column(String(50))
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    production_run = relationship("ProductionRun")
+    production_cycle = relationship("ProductionCycle")
+    production_shot = relationship("ProductionShot")
+
+
+# ---------------------------------------------------------------------------
+# WP3f. Method-aware process settings (EAV) (task list #547)
+#
+# Per the Converged Plan's architecture principle (section 5): "Machines
+# carry a production method. Setup and actual values reference controlled
+# parameter definitions with data type, unit and validation range." Unlike
+# the flexible app's ProductionPhase (a fixed set of named columns, since
+# every flexible-foam line has the same handful of settings), rigid-foam
+# methods each have their own distinct parameter set (DCP panel lines vs.
+# spray vs. RIM), so a fixed-column table would need a different table per
+# method or a wide table full of method-specific nulls. A controlled
+# definition catalogue (ProcessSettingDefinition, Charlie's PS-* vocabulary)
+# plus a generic planned/actual value table (ProcessParameterValue) avoids
+# both, at the cost of needing a join to read - an accepted, deliberate
+# trade-off for this method-aware part of the schema only. ProductionPhase
+# itself is untouched; this is additive, not a replacement.
+# ---------------------------------------------------------------------------
+PROCESS_SETTING_DATA_TYPES = ["Float", "Integer", "String", "Boolean"]
+PROCESS_PARAMETER_SNAPSHOT_TYPES = ["Planned", "Actual"]  # mirrors Setup/Finalized on ProductionPhase
+
+
+class ProcessSettingDefinition(Base):
+    __tablename__ = "process_setting_definitions"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "PS-070"
+    name = Column(String(200), nullable=False)
+    data_type = Column(String(20), default="Float")  # see PROCESS_SETTING_DATA_TYPES
+    unit_id = Column(Integer, ForeignKey("units_of_measure.id"))
+    min_value = Column(Float)  # validation range - nullable, not every setting has known bounds yet
+    max_value = Column(Float)
+    # Nullable: a method-agnostic setting (e.g. ambient temperature) has no
+    # production_method_id; a method-specific setting (e.g. a DCP-only
+    # laydown parameter) is scoped to that one ProductionMethod row.
+    production_method_id = Column(Integer, ForeignKey("production_methods.id"))
+    description = Column(Text)
+    sort_order = Column(Integer)
+
+    unit = relationship("UnitOfMeasure")
+    production_method = relationship("ProductionMethod")
+
+
+class ProcessParameterValue(Base):
+    """One planned-or-actual value for one setting, on one cycle/shot/run.
+
+    Exactly one of production_run_id / production_cycle_id /
+    production_shot_id is expected to be set, matching the same "exactly
+    one of N optional FKs" pattern already used by Sample and
+    PhysicalPropertyResult above - lets a setting be recorded at whichever
+    granularity the method actually operates at (a whole-run setting like
+    ambient humidity vs. a per-cycle setting like fill pressure)."""
+
+    __tablename__ = "process_parameter_values"
+
+    id = Column(Integer, primary_key=True)
+    setting_definition_id = Column(Integer, ForeignKey("process_setting_definitions.id"), nullable=False)
+    production_run_id = Column(Integer, ForeignKey("production_runs.id"))
+    production_cycle_id = Column(Integer, ForeignKey("production_cycles.id"))
+    production_shot_id = Column(Integer, ForeignKey("production_shots.id"))
+    snapshot_type = Column(String(20), default="Actual")  # see PROCESS_PARAMETER_SNAPSHOT_TYPES
+    numeric_value = Column(Float)
+    text_value = Column(String(500))
+    boolean_value = Column(Boolean)
+    unit = Column(String(50))  # snapshot text, auto-filled from the definition's unit at entry time
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    setting_definition = relationship("ProcessSettingDefinition")
+    production_run = relationship("ProductionRun")
+    production_cycle = relationship("ProductionCycle")
+    production_shot = relationship("ProductionShot")
+
+
 # ---------------------------------------------------------------------------
 # 16. maintenance_and_license_records
 # ---------------------------------------------------------------------------
@@ -1497,6 +2155,7 @@ ALL_MODELS = [
     ExpertNote,
     PI3AIConnectionSetting,
     PerformanceLog,
+    PageLoadLog,
     LoginEvent,
     PageViewEvent,
     PI3InteractionLog,
@@ -1504,6 +2163,31 @@ ALL_MODELS = [
     ErrorLog,
     ExportLog,
     RoleChangeLog,
+    # --- WP3 vertical-slice additions (2026-08-06) ---
+    Chemistry,
+    ProductionMethod,
+    Application,
+    ProductConstruction,
+    Orientation,
+    Location,
+    TestCondition,
+    RawMaterialCategory,
+    UnitOfMeasure,
+    SourceRegister,
+    RawMaterialLot,
+    ProductionUnit,
+    Mixhead,
+    Tool,
+    Cavity,
+    FillPoint,
+    VentConfiguration,
+    CalibrationRecord,
+    GradeSpecification,
+    ProductionCycle,
+    ProductionShot,
+    OutputItem,
+    ProcessSettingDefinition,
+    ProcessParameterValue,
 ]
 
 
