@@ -43,7 +43,7 @@ persist a Pass/Fail verdict and trust it forever - a stored value only
 ever reflects the tolerance rule in effect at the moment it was written,
 so every screen that reports a pass rate or an Achieved/Not-achieved
 verdict must call compute_pass_fail() live from target_value/actual_value
-at read time (see analytics.property_results_dataframe, app.py's
+at read time (see analytics.property_results_dataframe, app_rigid_foam.py's
 dashboard KPI, and reports.py's report builders). That is what makes a
 tolerance correction here take effect everywhere immediately, without a
 separate recompute step every time this table changes.

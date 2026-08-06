@@ -38,7 +38,7 @@ is exactly what's scheduled to change.
 
 ## Structure
 
-- `app.py` — Dashboard (Screen 1, entry point)
+- `app_rigid_foam.py` — Dashboard (Screen 1, entry point)
 - `pages/` — the remaining screens (see below)
 - `db.py` — SQLAlchemy models: the flexible-foam operational schema, plus
   the multi-tenant layer (`Company`, `SubscriptionType`, `Role`,
@@ -69,7 +69,7 @@ Industrial Intelligence pages (Trend Analysis, Process-Property
 Correlation, Recipe Optimization, Root-Cause Assistant, Machine Settings
 Optimization), Expert Notes, Reports, and the platform-admin pages
 (Companies, Subscription Types, User Roles, User Accounts, PI3
-Connectivity, Performance). Treat `app.py`'s own nav-section lists as the
+Connectivity, Performance). Treat `app_rigid_foam.py`'s own nav-section lists as the
 source of truth for the exact current screen set, not a fixed count here —
 this list will be rewritten once rigid-foam screens replace or extend
 these.
@@ -192,7 +192,7 @@ Already created and pushed:
 ### 3. Deploy on Streamlit Community Cloud
 
 1. Go to share.streamlit.io and create a new app from this repo, branch
-   `main`, main file `app.py`.
+   `main`, main file `app_rigid_foam.py`.
 2. In the app's **Settings > Secrets**, paste the contents of
    `.streamlit/secrets.toml.example`, filled in with your real (new,
    rigid-foam-specific) Supabase connection string and real user accounts
@@ -228,7 +228,7 @@ python -c "from db import get_session, init_db; from demo_data import seed_demo_
 
 ```
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run app_rigid_foam.py
 ```
 
 Without a `DATABASE_URL` secret or environment variable, the app falls back
@@ -246,10 +246,10 @@ specific.
 
 Symptom: the sidebar shows a flat, alphabetical/numeric list of page names
 straight from the filenames, with no logo, no version number, no section
-headers, and no icons — as if `app.py`'s custom navigation code doesn't
+headers, and no icons — as if `app_rigid_foam.py`'s custom navigation code doesn't
 exist.
 
-This is not a code regression (check `app.py` still has `st.navigation(...,
+This is not a code regression (check `app_rigid_foam.py` still has `st.navigation(...,
 position="hidden")` and the custom `with st.sidebar:` block first if in
 doubt) — it's Streamlit Community Cloud serving a stale cached build. Fix:
 open the app on share.streamlit.io, click the **⋮** menu (top right) →

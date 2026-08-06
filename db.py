@@ -1406,7 +1406,7 @@ class PerformanceLog(Base):
 # logged once per Streamlit rerun of ANY page - both a fresh navigation and
 # every widget-triggered rerun on that same page, since a rerun re-executes
 # the whole page script top to bottom under Streamlit's model. Measured
-# around app.py's single pg.run() call (see st.navigation()) - the one
+# around app_rigid_foam.py's single pg.run() call (see st.navigation()) - the one
 # choke point every page's script runs through - so this fires for every
 # page with no change needed to any of the ~27 individual page files.
 #
@@ -2197,8 +2197,8 @@ def init_db():
     server process (see _ensure_schema_ready below), not once per call.
 
     Before 2026-08-05 this called Base.metadata.create_all() directly and
-    was invoked from app.py's module-level code, which reruns on EVERY
-    Streamlit widget interaction anywhere in the app (app.py is the
+    was invoked from app_rigid_foam.py's module-level code, which reruns on EVERY
+    Streamlit widget interaction anywhere in the app (app_rigid_foam.py is the
     st.navigation entry point - its top-level code re-executes on every
     click, not just on navigation). That meant a full schema check
     (Inspector round trip(s) against all ~39 mapped tables) against the
@@ -2243,7 +2243,7 @@ def get_session():
     IMPORTANT - see close_out_session() below: reusing one session across
     reruns means every read this session does opens a transaction that, if
     never explicitly closed, stays open for as long as that browser tab's
-    Streamlit session lives - not just for this rerun. app.py must call
+    Streamlit session lives - not just for this rerun. app_rigid_foam.py must call
     close_out_session() once, after routing to whichever page ran, on
     every single rerun. Do not call get_session() from anywhere that isn't
     already covered by that (e.g. a background job), without also arranging

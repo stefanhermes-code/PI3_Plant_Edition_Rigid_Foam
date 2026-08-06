@@ -75,10 +75,30 @@ from Charlie's literal build pack, which specifies stored
 ConformanceEvaluation/ReportRecord/AnalyticsRecord tables; this app's own
 "pass/fail computed live, never stored" lesson (see the flexible app's
 history) applies here too, and was flagged to Charlie/Stefan rather than
-decided silently. Application-layer work (import of Charlie's WP2/WP3
-controlled-vocabulary data, UI pages, and the 10 UAT test cases) is the
-next step, tracked separately - this version covers the schema/backend
-build only.
+decided silently. tests/test_wp3_uat_cases.py runs Charlie's real 10 WP3
+Gate 2 UAT test cases (from the WP3 package's "19_UAT_Test_Cases" sheet)
+against wp3_conformance.py's logic directly (SimpleNamespace stand-ins,
+no live DB needed) - all 10 pass. Two real logic gaps were found and
+fixed while making these pass: _specs_match_result() was missing method/
+unit checks (so a wrong-method or wrong-unit result would have been
+wrongly evaluated instead of excluded), and there was no
+validate_result_completeness() check at all (so a result missing
+orientation or sample thickness would have been wrongly evaluated
+instead of marked invalid). Seeding the actual WP2/WP3 controlled-
+vocabulary and UAT record-chain data into the live Supabase rigid_foam
+schema, and the application UI/report page, remain the next steps,
+tracked separately - this version covers the schema/backend/conformance-
+logic build only.
+
+2026-08-06 (later same day): renamed the app's Streamlit entry point from
+app.py to app_rigid_foam.py (and the local launcher .bat to
+Start_PI3_Rigid_Foam_Edition.bat) - both were identical in name to the
+flexible-foam app's own files, which made the two apps hard to tell apart
+in Streamlit Community Cloud's app list and in any editor with both repos
+open. No functional change. Anyone with an existing Streamlit Community
+Cloud deployment of this app needs to update that app's "Main file path"
+setting from app.py to app_rigid_foam.py (Settings > General) - Streamlit
+Cloud does not pick this up automatically from a git rename.
 """
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"

@@ -7,7 +7,7 @@ of these run on a fixed schedule:
 
 1. Page load time (PageLoadLog) - the FULL page-script execution time,
    logged once per Streamlit rerun of ANY page (a fresh navigation and
-   every widget-triggered rerun on that same page - see app.py's single
+   every widget-triggered rerun on that same page - see app_rigid_foam.py's single
    st.navigation() pg.run() call, timed centrally there so no individual
    page file needed to be touched). This is the direct answer to the
    original complaint ("a simple screen-build takes 15-20 seconds").

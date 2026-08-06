@@ -151,7 +151,7 @@ def analysis_unit_picker(grades, key_prefix):
 def page_setup(title: str):
     """Kept for compatibility with existing pages, which all call this as
     their first Streamlit command. Page config, sidebar logo, and global
-    styling are now set once in app.py (which runs first on every page view
+    styling are now set once in app_rigid_foam.py (which runs first on every page view
     under st.navigation), so this is otherwise a no-op — calling
     st.set_page_config() a second time would raise an error.
 

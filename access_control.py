@@ -81,7 +81,7 @@ this order by `page_visible()`:
    a literal admin role-name check, not by can_use.
 
 PAGE_CATALOG is the single source of truth for page_key -> display title,
-used both to build app.py's nav and to render the permission grid on the
+used both to build app_rigid_foam.py's nav and to render the permission grid on the
 User Roles / Default User Roles admin pages.
 """
 
@@ -138,7 +138,7 @@ STRUCTURALLY_REQUIRED_ROLE_NAMES = frozenset({"company admin"})
 ADMIN_ROLE_NAMES = frozenset({"company admin", "platform admin"})
 
 # page_key -> title (title kept here only for the permission-matrix editor;
-# app.py's own st.Page(..., title=...) calls remain the source of truth for
+# app_rigid_foam.py's own st.Page(..., title=...) calls remain the source of truth for
 # what's actually shown in the sidebar).
 PAGE_CATALOG = {
     "plant_overview": "Plant & Foam Equipment Overview",
@@ -181,7 +181,7 @@ PLATFORM_ONLY_KEYS = frozenset(
 def denied_page_keys(_session, role_id):
     """Every page_key this role has an explicit can_view=False row for.
 
-    Cached (2026-08-05, performance audit): this runs from app.py's
+    Cached (2026-08-05, performance audit): this runs from app_rigid_foam.py's
     module-level code, which reruns on every single widget interaction
     anywhere in the app - previously that meant a fresh DB round trip for
     nav visibility on every click. `_session` is underscore-prefixed so

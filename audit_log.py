@@ -87,7 +87,7 @@ def log_page_view_if_new(session, session_state, user_id, company_id, page_name)
 
 def log_page_load(session, page_name, duration_ms):
     """Added 2026-08-05 for the v2.0 performance audit's Performance-page
-    expansion (page load time, by page). Called from app.py around the
+    expansion (page load time, by page). Called from app_rigid_foam.py around the
     single st.navigation() pg.run() call - the one choke point every
     page's script runs through - so this fires for every page, on every
     rerun, without touching any individual page file. Unlike
