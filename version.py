@@ -99,6 +99,39 @@ open. No functional change. Anyone with an existing Streamlit Community
 Cloud deployment of this app needs to update that app's "Main file path"
 setting from app.py to app_rigid_foam.py (Settings > General) - Streamlit
 Cloud does not pick this up automatically from a git rename.
+
+2026-08-06 (later still): seeded the real WP2/WP3 controlled-vocabulary
+and UAT record chain into the live Supabase rigid_foam schema - the one
+complete "raw material through report" chain the WP3 package specifies
+(00_Read_Me / 02_Record_Chain): 1 chemistry/method/application/
+construction, 5 orientations (LOC-060 through LOC-063 plus the flagged
+ORI-THERM-THROUGH-THICKNESS provisional row - see below), 2 locations,
+1 test condition, 10 raw material categories, 2 units of measure, 5
+source registers, 1 property definition/method/UOM (Thermal
+conductivity/ISO 8301/W-per-mK), 11 raw materials + lots + lot uses (lot
+use masses computed proportionally from the recipe's 249-part formula
+basis against the actual 2.376 kg core mass), 1 product family/grade/
+recipe version/11 recipe components, 1 grade specification, the full
+equipment/tooling hierarchy (production unit, mixhead, tool, cavity,
+fill point, vent configuration, calibration record, machine), 1
+production run/cycle/shot/output item, 39 process setting definitions +
+64 process parameter values (several - cavity volume, core density,
+A:B flows, dispense duration/end-time, yield - computed from the
+workbook's own stated formulas against its given inputs, not
+fabricated), and 1 sample + physical property result (0.023 W/(m.K),
+matching UAT-01/UAT-10's measured value). Verified by re-querying the
+seeded rows directly: the result's method/condition/orientation/unit
+match the spec exactly, thickness and orientation are both present, and
+0.023 <= the spec's 0.024 upper limit - reproducing UAT-01's PASS and
+UAT-10's UAT_PASS_NO_RELEASE against real database rows, not just the
+SimpleNamespace stand-ins in tests/test_wp3_uat_cases.py. Two controlled-
+vocabulary findings from this pass, both to raise with Charlie: RMC-120
+(already self-flagged by Charlie in 01_Controlled_Delta) and
+ORI-THERM-THROUGH-THICKNESS (found by JC - used throughout WP2's own
+SPEC-UAT-THERM-001/SCTX-THERM-001 and all of WP3, but never declared in
+any WP1/WP2 orientation-vocabulary sheet; added here as a provisional
+row pending her confirmation). The application UI/report page remains
+the next step.
 """
 
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
