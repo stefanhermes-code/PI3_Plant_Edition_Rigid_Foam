@@ -170,6 +170,18 @@ AUTH_DISABLED from Streamlit Cloud's secrets later won't lock him out.
 Temporary password given to Stefan directly in chat, not committed
 anywhere - he should change it via the User Accounts admin page once
 logged in for real.
+
+2026-08-07 (later same day): fixed the main-content header on Overview
+(and every other page routed under it, since this markup lives in
+app_rigid_foam.py's shared header block) - it still said "PI3 —
+Flexible PU Foam Intelligence" / "Flexible slabstock foam expert
+system", stale text carried over from the fork and missed in the
+earlier branding pass because it was worded differently enough from
+"PI3 Plant Edition" to look out of scope at the time. Stefan caught it
+from a live screenshot. Now reads "PI3 — Rigid Foam Intelligence" /
+"Rigid foam expert system". Also fixed the matching page_title (browser
+tab) and the same stale subtitle on the report cover page in
+reports.py.
 """
 
-APP_VERSION = "0.3.4"
+APP_VERSION = "0.3.5"

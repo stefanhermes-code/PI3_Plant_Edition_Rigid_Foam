@@ -2449,7 +2449,7 @@ def render_pi3_qa_report_docx(data):
     title_run.font.size = Pt(20)
     title_run.font.color.rgb = _HTC_BLUE
     subtitle_p = title_cell.add_paragraph()
-    subtitle_run = subtitle_p.add_run("Flexible slabstock foam expert system | HTC Global Co. Ltd")
+    subtitle_run = subtitle_p.add_run("Rigid foam expert system | HTC Global Co. Ltd")
     subtitle_run.italic = True
     subtitle_run.font.size = Pt(10)
     subtitle_run.font.color.rgb = _HTC_GREY

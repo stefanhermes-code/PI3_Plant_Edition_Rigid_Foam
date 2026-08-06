@@ -2,8 +2,8 @@
 PI3 Plant Edition
 Main entry point / navigation router.
 
-HTC Global Co. Ltd - flexible slabstock foam expert system, commercialised
-as PI3 - Flexible PU Foam Intelligence.
+HTC Global Co. Ltd - rigid foam expert system, commercialised
+as PI3 - Rigid Foam Intelligence.
 
 This file sets page config, sidebar branding, and global styling once (it
 always runs first, on every page view, under st.navigation), then routes to
@@ -44,7 +44,7 @@ from version import APP_VERSION
 
 LOGO_PATH = "assets/htc_global_logo_blue_steel.png"
 
-st.set_page_config(page_title="PI3 - Flexible PU Foam Intelligence", page_icon="🧪", layout="wide")
+st.set_page_config(page_title="PI3 - Rigid Foam Intelligence", page_icon="🧪", layout="wide")
 
 # Light styling on top of the .streamlit/config.toml color theme.
 st.markdown(
@@ -93,9 +93,9 @@ def render_overview():
     with header_logo:
         st.image(LOGO_PATH, width=90)
     with header_text:
-        st.title("PI3 — Flexible PU Foam Intelligence")
+        st.title("PI3 — Rigid Foam Intelligence")
         st.caption(
-            "Product Dashboard | Flexible slabstock foam expert system | "
+            "Product Dashboard | Rigid foam expert system | "
             "HTC Global Co. Ltd"
         )
     render_function_action_intro(
