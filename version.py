@@ -145,6 +145,31 @@ the flexible app) in secrets.toml.example - no code change, since the
 bypass logic was already there; only needed setting AUTH_DISABLED = true
 in this deployment's own Streamlit Cloud secrets, which Stefan does
 directly since it's a Cloud dashboard setting, not a repo file.
+
+2026-08-07: closed the gap Stefan flagged - turning AUTH_DISABLED off
+later would have locked everyone out, because the rigid_foam schema's
+entire multi-tenant auth layer (roles, users, subscription_types,
+role_page_permissions) was completely empty. Root cause: the one
+Company row (HTC Global) was created via raw seed SQL during WP3
+seeding, not through the normal Companies admin-page flow, so
+role_provisioning.clone_builtin_roles_for_company() was never triggered
+and no Role templates existed yet to clone from anyway. Fixed by
+seeding, directly against Supabase: the 3 built-in Role templates
+(Company Admin/technical/viewer, company_id NULL - matching the
+flexible app's convention), their clone for HTC Global (company_id=1),
+and one real User row for Stefan (stefan.hermes@htcglobal.asia,
+bcrypt-hashed password, role_id = HTC Global's own "Company Admin"
+clone, is_super_admin=True). is_super_admin was the deliberate choice
+over relying on role/permission rows: access_control.page_visible() and
+can_use_page() both short-circuit to full access whenever
+is_super_admin is True, independent of RolePagePermission/subscription
+state - the same unconditional-bypass escape hatch already documented
+on db.py's User model. This gives Stefan the exact same full access
+AUTH_DISABLED gives today, but as a persisted DB account, so removing
+AUTH_DISABLED from Streamlit Cloud's secrets later won't lock him out.
+Temporary password given to Stefan directly in chat, not committed
+anywhere - he should change it via the User Accounts admin page once
+logged in for real.
 """
 
-APP_VERSION = "0.3.3"
+APP_VERSION = "0.3.4"
