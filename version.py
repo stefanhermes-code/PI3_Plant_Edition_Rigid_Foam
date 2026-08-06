@@ -15,6 +15,14 @@ mismatch flagged in the Technical Research and Data Population Plan
 (section 2D). Starts its own version history from 0.1.0; see
 PI3_Rigid_Foam_Edition_Change_Impact_Assessment.docx for what carries over
 unchanged vs. what needs rework for rigid foam manufacturing.
+
+Database: shares the flexible app's Supabase project/database (no separate
+project) - decided 2026-08-06. Rigid-foam tables will live in their own
+Postgres schema ("rigid_foam"), not in the flexible app's "public" schema,
+to avoid name collisions while keeping one project/one bill. Not yet
+implemented as of v0.1.3 - db.py still targets the default public schema;
+schema-scoping and the WP0 migration-framework choice are upcoming work.
+See README.md, "Deploying to Streamlit Community Cloud" section.
 """
 
-APP_VERSION = "0.1.2"
+APP_VERSION = "0.1.3"

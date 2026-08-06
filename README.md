@@ -86,27 +86,43 @@ the open questions in the technical research plan.
 
 ## Deploying to Streamlit Community Cloud
 
-This repo has **not been deployed anywhere yet** — no Streamlit Cloud app,
-no Supabase project of its own. It currently shares nothing at runtime
-with the flexible app's deployment; setting up its own deployment is future
-work, not something already configured. When that's ready, the mechanics
-are the same as the flexible app's:
+This repo has **not been deployed anywhere yet** — no Streamlit Cloud app
+of its own. It currently shares nothing at runtime with the flexible app's
+deployment; setting up its own deployment is future work, not something
+already configured. When that's ready, the mechanics are the same as the
+flexible app's, except for the database step below.
 
-### 1. Database — Supabase Postgres
+### 1. Database — Supabase Postgres, same project, separate schema
 
-Streamlit Community Cloud's filesystem is not guaranteed to persist across
-app reboots or redeploys, so this app is built to use a hosted Postgres
-database rather than a local SQLite file.
+This app reuses the **same Supabase project/database as the flexible
+app** (project `aazkdsqpytjciiqtvnfj`) — it does not get its own project.
+Rigid-foam tables live in their **own Postgres schema** (e.g. `rigid_foam`),
+kept separate from the flexible app's `public` schema, so there's no
+table-name collision and a migration for one app can't touch the other
+app's tables. Tenants/users are still separate: a company with access to
+the flexible app does not automatically get access to the rigid app —
+that's governed by the app-level `Company`/`User`/`Role` rows, which this
+schema-level separation does not by itself grant or deny.
 
-1. Create a **new, separate** Supabase project for the rigid-foam edition
-   (do not point this app at the flexible app's project/database).
+This is not yet implemented — `db.py`'s SQLAlchemy models and `init_db()`
+still create everything in the default `public` schema, same as the
+flexible app. Wiring the models to a dedicated schema (and choosing the
+migration framework, per WP0) is upcoming work, not done yet.
+
+1. Reuse the flexible app's existing Supabase project — do **not** create
+   a second one.
 2. Go to **Project Settings > Database > Connection string > URI**, and copy
    the **Session pooler** connection string (works better than the direct
-   connection from serverless/app-hosting environments).
+   connection from serverless/app-hosting environments). This is the same
+   connection string the flexible app uses.
 3. It will look like:
    `postgresql://postgres.xxxxx:[PASSWORD]@aws-0-xxxx.pooler.supabase.com:5432/postgres`
 4. Rewrite the scheme to use the psycopg2 driver explicitly:
    `postgresql+psycopg2://postgres.xxxxx:[PASSWORD]@aws-0-xxxx.pooler.supabase.com:5432/postgres`
+5. Once the schema-separation work lands, the rigid app's connection will
+   set its SQLAlchemy models/session to target the `rigid_foam` schema
+   (e.g. via `-csearch_path=rigid_foam` on the connection string, or
+   per-table `schema=` args) — same URL, same database, different schema.
 
 ### 2. This repo
 
