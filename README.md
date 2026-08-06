@@ -123,6 +123,51 @@ how the app functions. It only matters for Supabase's own client-library
 access (anon/authenticated keys via PostgREST), which this app doesn't
 use.
 
+### Migration procedure (WP0 — engineering baseline and migration foundation)
+
+**Framework decision:** no Alembic (or any migration-file framework) in
+this repo, by design — this continues the same lightweight practice the
+flexible app has used for every schema change in its history: the model
+lives in `db.py`, and structural changes are applied directly to Supabase
+as reviewed SQL, tracked by Supabase's own migration history rather than
+a local `migrations/` folder.
+
+**The actual procedure, as practiced (and now proven):**
+
+1. Change the model in `db.py` first — this is always the source of
+   truth for the current schema, not the SQL that was run to get there.
+2. Before anything touches the real `rigid_foam` schema, run
+   `tests/test_schema_migration.py`. It proves the change can be built
+   from nothing (upgrade), fully torn down again (rollback), and rebuilt
+   identically (repeatable) — against a **disposable** schema on the same
+   Postgres server, never against the real `rigid_foam` schema. Run it
+   with no `DATABASE_URL` set for a quick SQLite-only check, or with the
+   real Supabase connection string set for a check against the actual
+   server/Postgres version this app deploys to.
+3. Apply the reviewed SQL to the real `rigid_foam` schema (via the
+   Supabase SQL editor, or the same MCP-based `apply_migration` calls used
+   throughout this project's history) — additive changes only get
+   auto-created by `init_db()`'s `create_all()`; anything that alters or
+   drops an existing column is always done by hand, on purpose,
+   `create_all()` never does either.
+4. Bump `version.py`, commit, push.
+
+**Environments, honestly stated:** there is currently **one** database
+environment — the shared Supabase project's `rigid_foam` schema. This repo
+hasn't been deployed anywhere yet (see above), so there's no physically
+separate "UAT" or "production" database today; both terms would currently
+point at the same schema. When a real UAT deployment exists, step 2's
+disposable-test-schema technique is exactly what should run as a pre-UAT
+gate; until then, it already proves every change against the real
+project/server before anything touches live data.
+
+**Gate 0 evidence (per the Converged Joint Implementation Plan, §7.1 and
+§9):** v2.0.2 correction ported, source commit recorded (v0.1.1/v0.1.2),
+migration framework decided and operational (v0.2.0), upgrade/rollback
+tests built and passing both locally (SQLite) and against the real
+Supabase Postgres 17 server via a disposable schema (v0.2.2), migration
+procedure documented above. Gate 0 closed.
+
 1. Reuse the flexible app's existing Supabase project — do **not** create
    a second one.
 2. Go to **Project Settings > Database > Connection string > URI**, and copy

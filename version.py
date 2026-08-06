@@ -35,6 +35,17 @@ project's existing lightweight practice (SQLAlchemy models + ad-hoc SQL
 applied directly to Supabase) rather than introducing Alembic, consistent
 with how every schema change has been made across this whole project.
 See README.md, "Deploying to Streamlit Community Cloud" section.
+
+WP0 (Converged Joint Implementation Plan, section 7.1) closed 2026-08-06:
+tests/test_schema_migration.py proves upgrade, rollback, and repeatable
+rebuild of this exact schema, run both locally (SQLite) and against the
+real Supabase Postgres 17 server via a disposable "rigid_foam_migration_
+test" schema (created and dropped within the same run - the real
+rigid_foam schema is never touched by the test). Migration procedure
+(no separate migrations-file framework; db.py is the source of truth,
+changes are proven via the test script, then applied as reviewed SQL
+against Supabase) documented in README.md. Gate 0 evidence satisfied;
+Charlie confirms WP1-WP3 also closed as of this date, so WP4 is next.
 """
 
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.2"
