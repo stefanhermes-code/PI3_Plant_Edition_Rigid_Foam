@@ -425,9 +425,104 @@ class Machine(Base):
     production_unit_id = Column(Integer, ForeignKey("production_units.id"))
     production_method_id = Column(Integer, ForeignKey("production_methods.id"))
 
+    # --- Machine Data Architecture additions (2026-08-07), per Charlie's
+    # "PI3_Plant_Edition_Rigid_Foam_Machine_Data_Design_for_JC" - schema only,
+    # manufacturer/model data population deferred (see version.py). This
+    # Machine table is Charlie's Layer C, "Plant Installed Equipment
+    # Register" (Asset_ID in his document) - the row already representing
+    # "the actual equipment installed at this plant". machine_model_id and
+    # machine_config_id are nullable links up to the new generic Layers A/B
+    # (MachineModel/MachineConfiguration, defined further below in this
+    # file - forward FK references resolve fine in SQLAlchemy regardless of
+    # class definition order). Existing rows (flexible-foam and WP3 rigid)
+    # have neither set and are unaffected.
+    machine_model_id = Column(Integer, ForeignKey("machine_models.id"))
+    machine_config_id = Column(Integer, ForeignKey("machine_configurations.id"))
+    # Section 6 "Identity" fields not already covered above.
+    serial_number = Column(String(200))
+    asset_tag = Column(String(100))
+    year_manufactured = Column(Integer)
+    year_installed = Column(Integer)
+    status = Column(String(50))  # e.g. "Running", "Idle", "Decommissioned"
+    # Deliberately a free-text label, not a new ProductionLine entity - a
+    # "production line" in Charlie's document can group several Machine
+    # rows (metering unit + mixhead + mold) or map 1:1 to one, and nothing
+    # in the app yet needs to query across that grouping. Add a real
+    # ProductionLine table later only if a concrete need shows up - same
+    # "abstain, don't over-engineer" call as WP5's ProcessingWindow text
+    # field.
+    production_line_label = Column(String(200))
+    # Section 6 "Physical configuration".
+    component_count = Column(Integer)
+    polyol_pump_type = Column(String(200))
+    isocyanate_pump_type = Column(String(200))
+    additive_pumps = Column(Text)
+    flow_meter_type = Column(String(200))
+    mixing_head_model = Column(String(200))
+    tank_sizes = Column(Text)
+    hose_lengths = Column(Text)
+    installed_options = Column(Text)
+    # Section 6 "Control configuration".
+    plc_type = Column(String(200))
+    plc_cpu = Column(String(200))
+    hmi = Column(String(200))
+    software_version = Column(String(100))
+    network_address = Column(String(100))
+    data_interface = Column(String(200))
+    historian_available = Column(Boolean)
+    alarm_history_available = Column(Boolean)
+    recipe_management_available = Column(Boolean)
+    # Section 6 "Operating envelope".
+    design_min_output = Column(Float)
+    design_max_output = Column(Float)
+    plant_normal_min_output = Column(Float)
+    plant_normal_max_output = Column(Float)
+    normal_polyol_pressure = Column(Float)
+    normal_isocyanate_pressure = Column(Float)
+    normal_temperatures = Column(Text)
+    ratio_target = Column(Float)
+    # Section 6 "Calibration" - deliberately overlaps in concept with the
+    # existing, simpler CalibrationRecord table (free-text equipment_type/
+    # equipment_label, no asset FK). Not merged/migrated in this schema-only
+    # pass - flagged as a known overlap for whoever builds the Machine
+    # Maintenance/Calibration UI page, not resolved silently here.
+    polyol_calibration_factor = Column(Float)
+    isocyanate_calibration_factor = Column(Float)
+    other_stream_calibration = Column(Text)
+    last_calibration_date = Column(Date)
+    calibration_method = Column(String(200))
+    calibration_record_link = Column(String(500))
+    # Section 6 "Maintenance" (current-state summary; full history lives in
+    # MachineMaintenanceRecord, Layer F, below).
+    last_pm_date = Column(Date)
+    next_pm_date = Column(Date)
+    critical_spare_parts = Column(Text)
+    current_wear_items = Column(Text)
+    open_maintenance_issues = Column(Text)
+    service_provider = Column(String(200))
+    # Section 6 "Documents" (quick links; full indexed register is
+    # MachineDocument, Layer H, below).
+    operating_manual_link = Column(String(500))
+    electrical_drawing_link = Column(String(500))
+    pid_link = Column(String(500))
+    spare_parts_list_link = Column(String(500))
+    plc_backup_link = Column(String(500))
+    commissioning_report_link = Column(String(500))
+    service_reports_link = Column(String(500))
+    sops_link = Column(String(500))
+    # Section 6 "PI3 linkage".
+    live_data_link = Column(String(500))
+    historian_link = Column(String(500))
+    alarm_link = Column(String(500))
+    maintenance_link = Column(String(500))
+    case_history_link = Column(String(500))
+    data_integration_level = Column(Integer)  # 0-5, see section 11
+
     plant = relationship("Plant")
     production_unit = relationship("ProductionUnit")
     production_method = relationship("ProductionMethod")
+    machine_model = relationship("MachineModel")
+    machine_config = relationship("MachineConfiguration")
 
 
 # ---------------------------------------------------------------------------
@@ -1778,6 +1873,157 @@ class Application(Base):
 
 
 # ---------------------------------------------------------------------------
+# Machine Data Architecture (2026-08-07)
+#
+# Per Charlie's "PI3_Plant_Edition_Rigid_Foam_Machine_Data_Design_for_JC" -
+# a separate initiative from Charlie, outside the Converged Joint
+# Implementation Plan's WP0-WP5 numbering, proposing an 8-layer machine
+# knowledge architecture: generic Machine Knowledge Master (A) ->
+# Configuration Master (B) -> Plant Installed Equipment / Asset (C,
+# already the existing Machine table above, extended) -> Operating
+# Parameter Register (D) -> Alarm & Fault Register (E) -> Maintenance &
+# Calibration Register (F) -> Troubleshooting Case Register (G) ->
+# Document Register (H). This pass is schema only (Stefan's direction,
+# 2026-08-07): tables/relationships/IDs built and migrated, but the
+# open-ended manufacturer/model research and population task (Charlie's
+# deliverables 01-02, section 13-14 of his document) is deliberately
+# paused pending a separate scope/ownership decision - not started here.
+#
+# MachineCategory (section 3's 17-row taxonomy) is content Charlie already
+# fully specified, not something requiring external research, so it is
+# seeded now alongside the schema - same "seed what's already given,
+# defer what needs research" split used throughout WP5.
+#
+# Deliberately a separate vocabulary from ProductionMethod (WP3) - that
+# table classifies how a foam GRADE is processed (e.g. "Discontinuous
+# Panel (DCP)"); this one classifies equipment TYPE, and covers many
+# categories (raw-material storage, utilities, QC/lab, ...) that have no
+# ProductionMethod equivalent at all.
+# ---------------------------------------------------------------------------
+class MachineCategory(Base):
+    __tablename__ = "machine_categories"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)
+    name = Column(String(200), nullable=False)
+    typical_scope = Column(Text)  # e.g. "High-pressure metering units, low-pressure units, component pumps, flow meters, dosing modules."
+    sort_order = Column(Integer)
+
+
+class MachineModel(Base):
+    """Layer A - Machine Knowledge Master. Generic, commercially verified
+    information for one manufacturer model/variant, independent of any
+    customer plant - deliberately NOT company/plant-scoped, same as
+    Chemistry/ProductionMethod/RawMaterialCategory above. Population rule
+    per Charlie's document: use actual verified commercial models/variants,
+    never a generic placeholder row - so this table starts empty in this
+    schema-only pass and is populated only once the research task is
+    scoped and started."""
+
+    __tablename__ = "machine_models"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "MCH-0001"
+
+    # --- Identity ---
+    manufacturer = Column(String(200))
+    brand = Column(String(200))
+    model = Column(String(200))
+    model_variant = Column(String(200))
+    machine_category_id = Column(Integer, ForeignKey("machine_categories.id"))
+    machine_subcategory = Column(String(200))
+    lifecycle_status = Column(String(50))  # current / legacy / discontinued / unknown
+    manufacturer_country = Column(String(100))
+
+    # --- Process applicability ---
+    rigid_foam_process = Column(Boolean)
+    pur_pir = Column(String(50))
+    application = Column(String(200))
+    continuous_discontinuous = Column(String(50))
+    high_low_pressure = Column(String(50))
+    component_count = Column(Integer)
+    maximum_components = Column(Integer)
+
+    # --- Capacity and operating design ---
+    nominal_output_kg_min = Column(Float)
+    minimum_output_kg_min = Column(Float)
+    maximum_output_kg_min = Column(Float)
+    mixing_pressure_bar = Column(Float)
+    tank_capacity_l = Column(Float)
+    temperature_range_c = Column(String(100))
+    mixing_head_type = Column(String(200))
+
+    # --- Chemistry / blowing agent compatibility ---
+    pentane_compatible = Column(Boolean)
+    cyclopentane_compatible = Column(Boolean)
+    hfo_hcfo_compatible = Column(Boolean)
+    water_blown_compatible = Column(Boolean)
+    other_blowing_agent_compatibility = Column(Text)
+
+    # --- Controls and connectivity ---
+    control_system = Column(String(200))
+    plc_type = Column(String(200))
+    hmi_type = Column(String(200))
+    opc_ua = Column(Boolean)
+    modbus = Column(Boolean)
+    ethernet_ip = Column(Boolean)
+    historical_data_available = Column(Boolean)
+    alarm_data_available = Column(Boolean)
+    recipe_data_available = Column(Boolean)
+    maintenance_data_available = Column(Boolean)
+
+    # --- Regional availability (section 5 - APAC evidence rules) ---
+    apac_availability_status = Column(String(100))  # Confirmed | Distributor/Agent | Available on request | Manufacturer support from outside APAC | Historical only | Unknown
+    apac_subregions = Column(String(300))  # semicolon list: SEA;China;India;Japan;Korea;Australia/NZ;Other APAC
+    thailand_availability = Column(String(100))  # Confirmed local sales/service | Regional support | Import only | Unknown
+    apac_service_support = Column(String(100))  # Local service | Regional travelling service | Remote support | Third-party service | Unknown
+    spare_parts_apac = Column(String(100))  # Local stock | Regional stock | Factory supply | Unknown
+    availability_confidence = Column(String(20))  # High | Medium | Low
+    availability_evidence_url = Column(String(500))  # must NOT be an inferred global-presence URL, per Charlie's rule
+
+    # --- PI3 knowledge support ---
+    troubleshooting_data_available = Column(Boolean)
+    alarm_code_database = Column(Boolean)
+    known_failure_modes = Column(Text)
+    critical_parameters = Column(Text)
+    recommended_maintenance_intervals = Column(Text)
+    critical_spare_parts = Column(Text)
+    calibration_requirements = Column(Text)
+    pi3_data_integration_level = Column(Integer)  # 0-5, see section 11
+
+    # --- Documents ---
+    manufacturer_url = Column(String(500))
+    product_page_url = Column(String(500))
+    tds_url = Column(String(500))
+    manual_url = Column(String(500))
+    brochure_url = Column(String(500))
+    source_verified_date = Column(Date)
+    notes = Column(Text)
+
+    machine_category = relationship("MachineCategory")
+
+
+class MachineConfiguration(Base):
+    """Layer B - Machine Configuration Master. A configuration variant of a
+    MachineModel that materially changes process capability (e.g. a
+    3-component vs. 2-component option on the same base model) - per
+    Charlie's import rule, used instead of duplicating unstructured model
+    rows for every option combination."""
+
+    __tablename__ = "machine_configurations"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "MCFG-0001"
+    machine_model_id = Column(Integer, ForeignKey("machine_models.id"), nullable=False)
+    config_name = Column(String(300), nullable=False)
+    config_description = Column(Text)
+    differentiating_fields = Column(Text)  # free text: which fields/capabilities this variant changes vs. the base model
+    notes = Column(Text)
+
+    machine_model = relationship("MachineModel")
+
+
+# ---------------------------------------------------------------------------
 # WP5 Wave 1. Facers and substrates (Converged Joint Implementation Plan
 # section 7.6, workbook sheet 07_Facers_Substrates - 20 controlled facer/
 # substrate families: metal facers, paper facers, mineral-fibre facers,
@@ -2233,6 +2479,162 @@ class CalibrationRecord(Base):
 
 
 # ---------------------------------------------------------------------------
+# Machine Data Architecture, Layers D-H (2026-08-07)
+#
+# Continuation of the block above MachineCategory/MachineModel/
+# MachineConfiguration (Layers A/B) and the extended Machine table
+# (Layer C) - see that comment for full context. These five tables are
+# per-asset registers, all linked by Machine.id (Charlie's "Asset_ID"),
+# matching this codebase's established EAV/registry pattern (e.g.
+# ProcessSettingDefinition/ProcessParameterValue, RawMaterialDocument).
+#
+# Known, deliberately unresolved overlap: MachineMaintenanceRecord below
+# covers everything CalibrationRecord (above) does, plus an asset_id FK
+# and richer fields - not merged/migrated in this schema-only pass since
+# that's a data decision, not a schema one, and no page reads either
+# table yet. Flagged for whoever builds the Machine Maintenance UI.
+# ---------------------------------------------------------------------------
+class MachineOperatingParameter(Base):
+    """Layer D - Operating Parameter Register. One row per monitored or
+    controlled parameter per Machine (Asset_ID) - avoids hardcoding machine
+    settings into the asset table itself, since parameters vary by machine
+    type."""
+
+    __tablename__ = "machine_operating_parameters"
+
+    id = Column(Integer, primary_key=True)
+    machine_id = Column(Integer, ForeignKey("machines.id"), nullable=False)
+    parameter_name = Column(String(200), nullable=False)
+    parameter_category = Column(String(50))  # Flow | pressure | temperature | ratio | speed | timing | level | alarm | other
+    unit = Column(String(50))
+    normal_target = Column(Float)
+    normal_min = Column(Float)
+    normal_max = Column(Float)
+    warning_low = Column(Float)
+    warning_high = Column(Float)
+    design_low = Column(Float)
+    design_high = Column(Float)
+    source = Column(String(100))  # Manufacturer manual | commissioning | plant standard | empirical plant baseline
+    data_tag = Column(String(200))  # PLC / historian tag if available
+    readable_by_pi3 = Column(Boolean, default=False)
+    # Default False, per Charlie's rule: "Any future write capability
+    # requires separate governance" - never set True by import/seed code.
+    writable_by_pi3 = Column(Boolean, default=False)
+    last_verified = Column(Date)
+
+    machine = relationship("Machine")
+
+
+class MachineAlarm(Base):
+    """Layer E - Alarm and Fault Register. Can be defined at the generic
+    model level (machine_model_id set, applies to every asset of that
+    model) or at one specific plant asset (machine_id set) - Charlie's
+    document allows either "Machine_ID or Asset_ID"."""
+
+    __tablename__ = "machine_alarms"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50))  # e.g. "ALM-0001" - not globally unique since the same alarm code can recur per model
+    machine_model_id = Column(Integer, ForeignKey("machine_models.id"))
+    machine_id = Column(Integer, ForeignKey("machines.id"))
+    alarm_code = Column(String(100), nullable=False)  # exact code shown by machine/PLC
+    alarm_text = Column(String(500))
+    severity = Column(String(50))  # Info | Warning | Trip | Safety interlock
+    immediate_effect = Column(Text)
+    likely_causes = Column(Text)
+    checks = Column(Text)
+    corrective_action = Column(Text)
+    reset_logic = Column(Text)
+    safety_restriction = Column(Text)
+    source = Column(String(300))  # Manual, OEM service record, plant SOP or validated solved case
+
+    machine_model = relationship("MachineModel")
+    machine = relationship("Machine")
+
+
+class MachineMaintenanceRecord(Base):
+    """Layer F - Maintenance and Calibration Register. Charlie's Task_Type
+    enum includes "calibration" as one task type among several, so
+    calibration events belong here rather than a separate table - see the
+    module-level note above re: the pre-existing simpler CalibrationRecord."""
+
+    __tablename__ = "machine_maintenance_records"
+
+    id = Column(Integer, primary_key=True)
+    machine_id = Column(Integer, ForeignKey("machines.id"), nullable=False)
+    task_type = Column(String(50))  # Preventive | corrective | inspection | calibration | replacement
+    component = Column(String(200))  # Pump, seal, filter, mixing head, valve, flow meter, sensor, etc.
+    interval_note = Column(String(200))  # e.g. "500 hours", "6 months" - hours/cycles/days/months, kept as text since the unit varies per task
+    last_completed = Column(Date)
+    next_due_date = Column(Date)
+    next_due_note = Column(String(200))  # operating-hour/cycle threshold, when the due point isn't a calendar date
+    measured_value = Column(Float)
+    acceptance_criteria = Column(Text)
+    parts_used = Column(Text)
+    service_report_link = Column(String(500))
+    result = Column(String(50))  # Pass | Monitor | Action required
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    machine = relationship("Machine")
+
+
+class MachineTroubleshootingCase(Base):
+    """Layer G - Troubleshooting Case Register. Links a solved case's
+    symptom/machine-state/context to the asset it happened on. process_
+    context/formulation_context are free text (case narrative) - recipe_
+    version_id/production_run_id are added as real FKs alongside them so a
+    case can also be linked relationally to an actual recipe/run when one
+    exists, rather than only described in prose."""
+
+    __tablename__ = "machine_troubleshooting_cases"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "CASE-0001"
+    machine_id = Column(Integer, ForeignKey("machines.id"), nullable=False)
+    recipe_version_id = Column(Integer, ForeignKey("recipe_versions.id"))
+    production_run_id = Column(Integer, ForeignKey("production_runs.id"))
+    symptom = Column(Text)
+    machine_state = Column(Text)
+    process_context = Column(Text)
+    formulation_context = Column(Text)
+    root_cause = Column(Text)
+    corrective_action = Column(Text)
+    verification_evidence = Column(Text)
+    outcome = Column(String(100))
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    machine = relationship("Machine")
+    recipe_version = relationship("RecipeVersion")
+    production_run = relationship("ProductionRun")
+    source = relationship("SourceRegister")
+
+
+class MachineDocument(Base):
+    """Layer H - Document Register. Indexed to Machine_ID (generic model)
+    and/or Asset_ID (specific plant machine), per section 10's link-level
+    table - e.g. an OEM brochure links to machine_model_id only, while a
+    commissioning report links to machine_id only, and an operating manual
+    can link to both if the plant's copy differs from the generic one."""
+
+    __tablename__ = "machine_documents"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50))
+    machine_model_id = Column(Integer, ForeignKey("machine_models.id"))
+    machine_id = Column(Integer, ForeignKey("machines.id"))
+    document_type = Column(String(100), nullable=False)  # OEM brochure | Operating manual | Electrical drawings | P&ID | Spare-parts book | PLC/HMI backup | Commissioning report | Calibration record | Service report | Plant SOP | Risk assessment/ATEX | Troubleshooting case report
+    file_reference = Column(String(500))
+    revision = Column(String(100))
+    revision_date = Column(Date)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    machine_model = relationship("MachineModel")
+    machine = relationship("Machine")
+
+
+# ---------------------------------------------------------------------------
 # WP3d. Product grade specification (task list #546)
 #
 # Generalizes FoamGradeTargetProperty (kept as-is, unchanged, for
@@ -2550,6 +2952,15 @@ ALL_MODELS = [
     Substrate,
     # --- WP5 Wave 2 addition (2026-08-07) ---
     GradeSpecificationTemplate,
+    # --- Machine Data Architecture additions (2026-08-07) ---
+    MachineCategory,
+    MachineModel,
+    MachineConfiguration,
+    MachineOperatingParameter,
+    MachineAlarm,
+    MachineMaintenanceRecord,
+    MachineTroubleshootingCase,
+    MachineDocument,
 ]
 
 

@@ -433,6 +433,63 @@ deferred capture UIs). Wave 3 (quality issues, possible causes and
 hypothesis links; workbook sheets 13-15) remains unstarted pending
 check-in, per the plan's wave-handover rule and Stefan's explicit
 "wave-by-wave" sequencing instruction.
+
+2026-08-07 (later still, Machine Data Architecture): Charlie delivered a
+separate design document, "PI3_Plant_Edition_Rigid_Foam_Machine_Data_
+Design_for_JC", proposing an 8-layer machine knowledge architecture -
+outside the Converged Joint Implementation Plan's WP0-WP5 numbering, a
+new initiative. Layer A (Machine Knowledge Master - generic manufacturer/
+model catalogue), Layer B (Configuration Master), Layer C (Plant
+Installed Equipment/Asset - the app's existing Machine table), Layer D
+(Operating Parameter Register), Layer E (Alarm & Fault Register), Layer F
+(Maintenance & Calibration Register), Layer G (Troubleshooting Case
+Register), Layer H (Document Register). Unlike WP5, this document also
+asks JC to research and populate real commercial manufacturer/model data
+with source URLs and APAC-availability evidence (deliverables 01-02) -
+an open-ended research task, not just engineering integration against
+Charlie-supplied content. Per Stefan's direction, split into two: build
+the schema now, pause before the research/population task pending a
+separate scope decision.
+
+Schema built: 8 new tables - MachineCategory (global, 17-row taxonomy
+already specified by Charlie so seeded now), MachineModel (Layer A,
+~50 fields spanning identity/process applicability/capacity/chemistry
+compatibility/controls/APAC availability/PI3 knowledge support/
+documents - left empty, no manufacturer data populated yet),
+MachineConfiguration (Layer B), MachineOperatingParameter (Layer D, EAV
+per-asset, mirrors ProcessSettingDefinition/ProcessParameterValue's
+established pattern; writable_by_pi3 defaults False and only this schema
+pass, no code, can ever set it True, per Charlie's "any future write
+capability requires separate governance" rule), MachineAlarm (Layer E,
+linkable to either a generic MachineModel or a specific Machine/asset),
+MachineMaintenanceRecord (Layer F), MachineTroubleshootingCase (Layer G,
+with real FKs to RecipeVersion/ProductionRun alongside free-text context
+so a case can link relationally to an actual recipe/run, not just
+prose), MachineDocument (Layer H, linkable to model and/or asset,
+mirroring RawMaterialDocument's WP5 pattern). Plus ~50 new nullable
+columns on the existing Machine table (Layer C) covering identity,
+physical/control configuration, operating envelope, calibration,
+maintenance summary, document links and PI3 linkage - and two new FKs
+(machine_model_id, machine_config_id) linking each plant asset up to the
+generic layers above it. One deliberate deferral, flagged not silently
+dropped: no new ProductionLine entity for Charlie's Production_Line_ID -
+a free-text production_line_label column for now, same "text field
+first, promote to a real entity only if a concrete need shows up"
+precedent as WP5's ProcessingWindow. One known, deliberately unresolved
+overlap, also flagged: MachineMaintenanceRecord covers everything the
+existing simpler CalibrationRecord table does, plus an asset FK and
+richer fields - not merged or data-migrated in this schema-only pass,
+since neither table has a UI yet and merging is a data decision, not a
+schema one. Verified via py_compile and a live local SQLite init_db()
+pass before touching Supabase; applied to the real rigid_foam schema as
+two migrations ("machine_data_architecture_layers_a_to_h" and
+"machine_data_seed_category_taxonomy"), RLS enabled on all 8 new tables
+matching every other rigid_foam table's posture, verified afterward via
+information_schema (8 new tables present, machines table now 71 columns,
+17 categories seeded). Full regression suite passes unchanged - schema
+additions only, nothing existing altered. No manufacturer/model data
+populated, no UI pages built - both explicitly paused pending Stefan's
+scope/ownership decision on the research task.
 """
 
-APP_VERSION = "0.8.0"
+APP_VERSION = "0.9.0"
