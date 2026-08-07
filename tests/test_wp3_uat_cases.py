@@ -18,6 +18,24 @@ doesn't care whether the underlying type is an int primary key or a
 controlled-ID string.
 
 Usage: python tests/test_wp3_uat_cases.py
+
+FROZEN GATE 2 RECORD - read before "fixing" a failure here (2026-08-07):
+This file is preserved exactly as it was when Gate 2 (Converged Joint
+Implementation Plan, section 7.4, acceptance items A1-A10) was signed off
+by Stefan. It is NOT re-run as a WP4 regression gate and its CASES/
+expectations are deliberately left untouched, including UAT-06.
+
+UAT-06 ("wrong unit, conversion deferred") will now report a MISMATCH if
+this script is run: WP4 (see unit_conversion.py and
+wp3_conformance.resolve_actual_value) closes exactly the gap this case's
+own name flags as deferred - a spec/result pair in mW/(m.K) vs W/(m.K) is
+now recognized as convertible and evaluated (23 mW/(m.K) converts to
+0.023 W/(m.K), which passes the 0.024 upper limit), not excluded. This is
+the intended, planned WP4 behavior change, not a regression - see
+tests/test_wp4_unit_conversion.py for the current, correct expectation for
+this exact scenario, evaluated against the real (non-stand-in)
+wp3_conformance.compute_conformance_report. The other 9 cases are
+unaffected (none of them involve a unit mismatch) and still match.
 """
 
 import os

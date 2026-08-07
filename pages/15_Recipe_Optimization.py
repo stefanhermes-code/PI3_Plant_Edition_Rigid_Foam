@@ -30,7 +30,7 @@ from analytics import (
 )
 from quality_standards import compute_pass_fail, tolerance_label
 from auth import current_user, logout_button, require_login
-from db import FoamGrade, get_session, init_db
+from db import FoamGrade, ProductionRun, get_session, init_db
 from helpers import (
     log_export_click,
     page_setup,
@@ -44,6 +44,7 @@ from helpers import (
     view_only_notice,
 )
 import reports
+import wp3_conformance
 from tenant_scope import apply_scope, company_picker, grade_ids_for_company
 
 page_setup("Recipe Optimization")
@@ -106,6 +107,15 @@ if not grades:
     st.stop()
 
 grade = st.selectbox("Foam grade", grades, format_func=lambda g: g.grade_name)
+# WP4 (Converged Joint Implementation Plan, section 7.5): a rigid-foam grade
+# (chemistry_id/production_method_id/application_id/construction_id
+# populated - see db.py's WP3 additions to FoamGrade) is judged against its
+# own GradeSpecification rows via wp3_conformance's live conformance logic,
+# not the flexible app's hardcoded industry-tolerance table
+# (quality_standards.compute_pass_fail) - the two "Achieved?" sections below
+# branch on this flag. Everything else on this page (cost, ingredient list,
+# version history) is schema-shared and unaffected by grade type.
+is_rigid = grade.chemistry_id is not None
 versions = sorted(grade.recipe_versions, key=lambda v: v.created_at)
 
 if not versions:
@@ -142,12 +152,21 @@ if results_df.empty:
     st.info("No quality test results recorded yet for this foam grade's production runs.")
 else:
     st.subheader("Physical properties")
-    st.caption(
-        "All-time average across every recipe version ever run for this grade - a quick reference, "
-        "not a verdict. See 'Does the current recipe meet target?' below for the Achieved?/Not "
-        "achieved call against the CURRENT recipe specifically, judged against the industry "
-        "tolerance for each property."
-    )
+    if is_rigid:
+        st.caption(
+            "All-time average across every recipe version ever run for this grade - a quick "
+            "reference, not a verdict. Rigid-foam test results don't carry a per-result target "
+            "(limits are set per specification instead), so 'Avg target' is blank here - see "
+            "'Does the current recipe meet target?' below for the Achieved?/Not achieved call "
+            "against this grade's own specifications."
+        )
+    else:
+        st.caption(
+            "All-time average across every recipe version ever run for this grade - a quick reference, "
+            "not a verdict. See 'Does the current recipe meet target?' below for the Achieved?/Not "
+            "achieved call against the CURRENT recipe specifically, judged against the industry "
+            "tolerance for each property."
+        )
     overall_summary = (
         results_df.groupby("property_name")
         .agg(
@@ -165,8 +184,15 @@ else:
             }
         )
     )
-    overall_summary["Avg target"] = overall_summary["Avg target"].round(2)
-    overall_summary["Avg actual"] = overall_summary["Avg actual"].round(2)
+    # pd.to_numeric(..., errors="coerce") rather than a bare .round(2): a rigid-foam
+    # grade's PhysicalPropertyResult rows generally have no target_value at all (the
+    # limit lives on GradeSpecification instead - see the rigid caption above), which
+    # makes the whole "Avg target" column all-None/object-dtype rather than float, and
+    # .round(2) raises TypeError on an object-dtype column. Coercing first degrades
+    # gracefully to NaN (rendered as blank) instead of crashing the page - a flexible
+    # grade's target_value is already numeric, so this is a no-op there.
+    overall_summary["Avg target"] = pd.to_numeric(overall_summary["Avg target"], errors="coerce").round(2)
+    overall_summary["Avg actual"] = pd.to_numeric(overall_summary["Avg actual"], errors="coerce").round(2)
     overall_summary["UOM"] = overall_summary["UOM"].fillna("—")
     overall_summary = overall_summary[["Property", "Avg target", "Avg actual", "UOM"]]
     render_data_table(overall_summary)
@@ -188,8 +214,11 @@ for prop in available_properties:
         )
         .reset_index()
     )
-    summary["avg_actual"] = summary["avg_actual"].round(2)
-    summary["avg_target"] = summary["avg_target"].round(2)
+    # See the "Physical properties" section above for why to_numeric(errors="coerce")
+    # rather than a bare .round(2): a rigid-foam grade's results generally have no
+    # target_value at all, which makes avg_target object-dtype rather than float.
+    summary["avg_actual"] = pd.to_numeric(summary["avg_actual"], errors="coerce").round(2)
+    summary["avg_target"] = pd.to_numeric(summary["avg_target"], errors="coerce").round(2)
     property_summaries[prop] = summary
 
 def _cost_per_kg(cost: dict):
@@ -262,160 +291,300 @@ st.caption(
 # ---------------------------------------------------------------------------
 st.divider()
 st.subheader("Does the current recipe meet target?")
-st.caption(
-    "Two questions, answered per property, using only production runs made under the CURRENT "
-    "recipe (not older versions - which version was running earlier doesn't matter here): did we "
-    "achieve the required property, and if not, does the actual metered dosage of a raw material "
-    "explain why. **Achieved?** compares the AVERAGE actual result across those runs against the "
-    "target ± the industry accepted tolerance for that property (see the Tolerance column) - it is "
-    "not about how many individual runs passed. **Runs outside tolerance** is separate context: it "
-    "shows how many individual results fell outside that same band, which can happen even when the "
-    "average is on target if results scatter widely run to run."
-)
 
 current_version_results = results_df[results_df["recipe_version_id"] == current_version.id]
 
-if current_version_results.empty:
-    st.info(
-        f"No quality test results recorded yet for production runs made under the current recipe "
-        f"({current_version.version_label}) - nothing to check against target yet."
-    )
+if is_rigid:
+    # expectation_summary/corr_property/actual_ranked are the flexible
+    # branch's own variables, referenced further down this page (PI3
+    # recommendation prompt, Recipe Optimization Report) - both of those
+    # sections are gated on `not is_rigid` (rigid-foam support for them is
+    # WP4 follow-up work, see below), but these defaults keep the page from
+    # ever referencing an undefined name if that gating is ever loosened.
     expectation_summary = pd.DataFrame()
-else:
-    expectation_summary = (
-        current_version_results.groupby("property_name")
-        .agg(
-            avg_actual=("actual_value", "mean"),
-            avg_target=("target_value", "mean"),
-            unit=("unit", "first"),
-            pass_rate=("pass_fail", pass_rate),
-            n_outside=("pass_fail", lambda s: (s.dropna() == "Fail").sum()),
-            n=("result_id", "count"),
-        )
-        .reset_index()
-    )
-    expectation_summary["avg_actual"] = expectation_summary["avg_actual"].round(2)
-    expectation_summary["avg_target"] = expectation_summary["avg_target"].round(2)
-    # Achieved? compares the AVERAGE actual value for this property (across all
-    # runs made under the current recipe) against target +/- the industry
-    # tolerance - the same compute_pass_fail() band used everywhere else in the
-    # app, just applied once to the mean rather than to each individual run.
-    # This is deliberately NOT based on what share of individual runs passed
-    # (that's "Runs outside tolerance" below, a separate run-to-run variability
-    # stat) - see the caption above the table for why these two are different
-    # questions. Fixed 2026-08-02 per explicit user feedback: the previous
-    # version conflated "100% of individual runs passed" with "the average
-    # meets target," which made a table showing avg 7.98% vs target 8% (well
-    # within the ±1 band) still say "Not achieved" whenever a handful of the
-    # 39 underlying runs scattered outside the band - correct arithmetic, but
-    # the wrong question for an "Achieved?" verdict.
-    expectation_summary["achieved"] = expectation_summary.apply(
-        lambda row: {"Pass": "Yes", "Fail": "No"}.get(
-            compute_pass_fail(row["property_name"], row["avg_target"], row["avg_actual"]), "—"
-        ),
-        axis=1,
-    )
-    expectation_summary["tolerance"] = expectation_summary["property_name"].apply(tolerance_label)
+    corr_property = None
+    actual_ranked = pd.DataFrame()
 
-    display_expectation = expectation_summary.copy()
-    display_expectation["Runs outside tolerance"] = display_expectation.apply(
-        lambda row: f"{int(row['n_outside'])} of {int(row['n'])} ({row['n_outside'] / row['n']:.0%})"
-        if row["n"] else "—",
-        axis=1,
+    # --- Rigid-foam branch (WP4): judged against this grade's own
+    # GradeSpecification rows via wp3_conformance's live conformance logic
+    # (method/condition/orientation/location context, operator-aware limits,
+    # unit conversion, UAT-only production-release gating) rather than the
+    # flexible app's hardcoded industry-tolerance table - see
+    # wp3_conformance.compute_grade_achievement_summary's own docstring for
+    # why that function, not quality_standards.compute_pass_fail, is correct
+    # here. "Achieved?" is still judged against the AVERAGE actual value
+    # across runs made under the CURRENT recipe only, same convention as
+    # the flexible branch below.
+    st.caption(
+        "Two questions, answered per specification, using only production runs made under the "
+        "CURRENT recipe: did we achieve the required property (judged on the AVERAGE actual result "
+        "against this grade's own specification limit - live-computed from the current "
+        "specification data, never a stored verdict), and if not, does the actual metered dosage of a raw material "
+        "explain why. A run whose result doesn't match this specification's method/condition/"
+        "orientation/location/unit context, or is missing required sample context, is counted "
+        "separately (see the Excluded/Invalid/No result column) rather than silently dropped."
     )
-    display_expectation = display_expectation.rename(
-        columns={
-            "property_name": "Property",
-            "avg_actual": "Avg actual (current recipe)",
-            "avg_target": "Required (target)",
-            "unit": "UOM",
-            "tolerance": "Tolerance",
-            "achieved": "Achieved?",
-            "n": "Runs",
-        }
-    )
-    render_data_table(
-        display_expectation[
-            [
-                "Property",
-                "Avg actual (current recipe)",
-                "Required (target)",
-                "UOM",
-                "Tolerance",
-                "Achieved?",
-                "Runs outside tolerance",
-                "Runs",
-            ]
-        ]
-    )
+    current_run_ids = [
+        r.id for r in session.query(ProductionRun.id)
+        .filter(ProductionRun.recipe_version_id == current_version.id).all()
+    ]
+    achievement_summary = wp3_conformance.compute_grade_achievement_summary(session, grade.id, current_run_ids)
 
-st.markdown("**If a property is missing target, does actual dosage explain it?**")
-if not available_properties:
-    st.info("No quality test results recorded yet - nothing to check.")
-else:
-    corr_property = st.selectbox(
-        "Property", available_properties, key=f"corr_property_{grade.id}"
-    )
+    def _spec_limit_text(row):
+        op = row["target_operator"] or "<="
+        unit = row["unit"] or ""
+        if op == "between":
+            if row["lower_limit"] is None or row["upper_limit"] is None:
+                return "—"
+            return f"{row['lower_limit']} – {row['upper_limit']} {unit}".strip()
+        if row["target_value"] is None:
+            return "—"
+        return f"{op} {row['target_value']} {unit}".strip()
 
-    prop_row = (
-        expectation_summary[expectation_summary["property_name"] == corr_property]
-        if not expectation_summary.empty
-        else pd.DataFrame()
-    )
-    if prop_row.empty:
+    def _spec_context_text(row):
+        bits = [b for b in [row["condition"], row["orientation"], row["location"]] if b]
+        return " · ".join(bits) if bits else "—"
+
+    if not achievement_summary:
         st.info(
-            f"No quality test results recorded yet for {corr_property} under the current recipe "
-            f"({current_version.version_label})."
+            f"No specifications recorded for this grade, or no quality test results recorded yet "
+            f"for production runs made under the current recipe ({current_version.version_label})."
         )
     else:
-        row = prop_row.iloc[0]
-        achieved = row["achieved"]
-        avg_actual_text = row["avg_actual"]
-        avg_target_text = row["avg_target"]
-        tolerance_text = row["tolerance"]
-        n_outside = int(row["n_outside"])
-        n_total = int(row["n"])
-        outside_text = (
-            f"{n_outside} of {n_total} ({n_outside / n_total:.0%})" if n_total else "—"
+        display_achievement = pd.DataFrame(
+            [
+                {
+                    "Property": row["property_name"],
+                    "Context": _spec_context_text(row),
+                    "Avg actual (current recipe)": row["avg_actual"] if row["avg_actual"] is not None else "—",
+                    "Limit / target": _spec_limit_text(row),
+                    "Achieved?": row["achieved"],
+                    "Runs Fail": f"{row['n_fail']} of {row['n']}" if row["n"] else "—",
+                    "Excluded / Invalid / No result": (
+                        f"{row['n_excluded_context']} / {row['n_invalid']} / {row['n_no_result']}"
+                    ),
+                    "Note": row["production_release"] or "—",
+                }
+                for row in achievement_summary
+            ]
         )
-        if achieved == "Yes":
+        render_data_table(display_achievement)
+        st.caption(
+            "Conformance is computed live from the current grade specification and quality test "
+            "results each time this page loads - correcting a specification or a result takes "
+            "effect immediately, with no separate recompute step."
+        )
+
+    st.markdown("**If a specification is missing target, does actual dosage explain it?**")
+    if not achievement_summary:
+        st.info("No specifications recorded yet - nothing to check.")
+    else:
+        spec_options = {row["spec_id"]: row for row in achievement_summary}
+        selected_spec_id = st.selectbox(
+            "Specification",
+            list(spec_options.keys()),
+            format_func=lambda sid: f"{spec_options[sid]['property_name']} — {_spec_context_text(spec_options[sid])}",
+            key=f"corr_spec_{grade.id}",
+        )
+        spec_row = spec_options[selected_spec_id]
+        if spec_row["avg_actual"] is None:
+            st.info(
+                f"No quality test results recorded yet for {spec_row['property_name']} under the "
+                f"current recipe ({current_version.version_label})."
+            )
+        elif spec_row["achieved"] == "Yes":
             st.success(
-                f"Achieved: the average {corr_property} result under the current recipe "
-                f"({avg_actual_text}) is within tolerance ({tolerance_text}) of the target "
-                f"({avg_target_text}). {outside_text} individual runs fell outside that band."
+                f"Achieved: the average {spec_row['property_name']} result under the current recipe "
+                f"({spec_row['avg_actual']}) meets the specification ({_spec_limit_text(spec_row)}). "
+                f"{spec_row['n_fail']} of {spec_row['n']} individual runs failed."
             )
         else:
             st.warning(
-                f"Not achieved: the average {corr_property} result under the current recipe "
-                f"({avg_actual_text}) is outside tolerance ({tolerance_text}) of the target "
-                f"({avg_target_text}). {outside_text} individual runs fell outside that band."
+                f"Not achieved: the average {spec_row['property_name']} result under the current "
+                f"recipe ({spec_row['avg_actual']}) does not meet the specification "
+                f"({_spec_limit_text(spec_row)}). {spec_row['n_fail']} of {spec_row['n']} individual "
+                "runs failed."
             )
 
-    actual_ranked = rank_component_actual_correlations(session, grade.id, corr_property)
-    if actual_ranked.empty:
-        st.info(
-            f"No raw-material stream has metered readings paired with {corr_property} results "
-            "across at least 3 production runs yet - import Component Stream Readings for the "
-            "Finalized phase of more runs to unlock this."
-        )
-    else:
-        render_data_table(
-            actual_ranked.rename(
-                columns={
-                    "raw_material_name": "Raw material",
-                    "n_runs": "Runs compared",
-                    "correlation": "Correlation with outcome",
-                }
+        actual_ranked = wp3_conformance.rank_lot_use_actual_correlations(session, grade.id, selected_spec_id)
+        corr_property = spec_row["property_name"]
+        if actual_ranked.empty:
+            st.info(
+                f"No raw-material lot use has metered mass_kg readings paired with "
+                f"{corr_property} results across at least 3 production runs yet - record actual "
+                "lot consumption (Raw Material Lot Use) for more runs to unlock this."
             )
+        else:
+            render_data_table(
+                actual_ranked.rename(
+                    columns={
+                        "raw_material_name": "Raw material",
+                        "n_runs": "Runs compared",
+                        "correlation": "Correlation with outcome",
+                    }
+                )
+            )
+            top_actual = actual_ranked.iloc[0]
+            st.caption(
+                f"Strongest association for {corr_property}: **{top_actual['raw_material_name']}** "
+                f"(correlation {top_actual['correlation']:+.3f} across "
+                f"{int(top_actual['n_runs'])} production runs' metered lot consumption). A lead to "
+                "investigate on the floor, not a confirmed cause - review against current raw "
+                "materials and process conditions before adjusting dosage."
+            )
+else:
+    st.caption(
+        "Two questions, answered per property, using only production runs made under the CURRENT "
+        "recipe (not older versions - which version was running earlier doesn't matter here): did we "
+        "achieve the required property, and if not, does the actual metered dosage of a raw material "
+        "explain why. **Achieved?** compares the AVERAGE actual result across those runs against the "
+        "target ± the industry accepted tolerance for that property (see the Tolerance column) - it is "
+        "not about how many individual runs passed. **Runs outside tolerance** is separate context: it "
+        "shows how many individual results fell outside that same band, which can happen even when the "
+        "average is on target if results scatter widely run to run."
+    )
+
+    if current_version_results.empty:
+        st.info(
+            f"No quality test results recorded yet for production runs made under the current recipe "
+            f"({current_version.version_label}) - nothing to check against target yet."
         )
-        top_actual = actual_ranked.iloc[0]
-        st.caption(
-            f"Strongest association for {corr_property}: **{top_actual['raw_material_name']}** "
-            f"(correlation {top_actual['correlation']:+.3f} across "
-            f"{int(top_actual['n_runs'])} production runs' metered dosage). A lead to investigate "
-            "on the floor, not a confirmed cause - review against current raw materials and "
-            "process conditions before adjusting dosage."
+        expectation_summary = pd.DataFrame()
+    else:
+        expectation_summary = (
+            current_version_results.groupby("property_name")
+            .agg(
+                avg_actual=("actual_value", "mean"),
+                avg_target=("target_value", "mean"),
+                unit=("unit", "first"),
+                pass_rate=("pass_fail", pass_rate),
+                n_outside=("pass_fail", lambda s: (s.dropna() == "Fail").sum()),
+                n=("result_id", "count"),
+            )
+            .reset_index()
         )
+        expectation_summary["avg_actual"] = expectation_summary["avg_actual"].round(2)
+        expectation_summary["avg_target"] = expectation_summary["avg_target"].round(2)
+        # Achieved? compares the AVERAGE actual value for this property (across all
+        # runs made under the current recipe) against target +/- the industry
+        # tolerance - the same compute_pass_fail() band used everywhere else in the
+        # app, just applied once to the mean rather than to each individual run.
+        # This is deliberately NOT based on what share of individual runs passed
+        # (that's "Runs outside tolerance" below, a separate run-to-run variability
+        # stat) - see the caption above the table for why these two are different
+        # questions. Fixed 2026-08-02 per explicit user feedback: the previous
+        # version conflated "100% of individual runs passed" with "the average
+        # meets target," which made a table showing avg 7.98% vs target 8% (well
+        # within the ±1 band) still say "Not achieved" whenever a handful of the
+        # 39 underlying runs scattered outside the band - correct arithmetic, but
+        # the wrong question for an "Achieved?" verdict.
+        expectation_summary["achieved"] = expectation_summary.apply(
+            lambda row: {"Pass": "Yes", "Fail": "No"}.get(
+                compute_pass_fail(row["property_name"], row["avg_target"], row["avg_actual"]), "—"
+            ),
+            axis=1,
+        )
+        expectation_summary["tolerance"] = expectation_summary["property_name"].apply(tolerance_label)
+
+        display_expectation = expectation_summary.copy()
+        display_expectation["Runs outside tolerance"] = display_expectation.apply(
+            lambda row: f"{int(row['n_outside'])} of {int(row['n'])} ({row['n_outside'] / row['n']:.0%})"
+            if row["n"] else "—",
+            axis=1,
+        )
+        display_expectation = display_expectation.rename(
+            columns={
+                "property_name": "Property",
+                "avg_actual": "Avg actual (current recipe)",
+                "avg_target": "Required (target)",
+                "unit": "UOM",
+                "tolerance": "Tolerance",
+                "achieved": "Achieved?",
+                "n": "Runs",
+            }
+        )
+        render_data_table(
+            display_expectation[
+                [
+                    "Property",
+                    "Avg actual (current recipe)",
+                    "Required (target)",
+                    "UOM",
+                    "Tolerance",
+                    "Achieved?",
+                    "Runs outside tolerance",
+                    "Runs",
+                ]
+            ]
+        )
+
+    st.markdown("**If a property is missing target, does actual dosage explain it?**")
+    if not available_properties:
+        st.info("No quality test results recorded yet - nothing to check.")
+    else:
+        corr_property = st.selectbox(
+            "Property", available_properties, key=f"corr_property_{grade.id}"
+        )
+
+        prop_row = (
+            expectation_summary[expectation_summary["property_name"] == corr_property]
+            if not expectation_summary.empty
+            else pd.DataFrame()
+        )
+        if prop_row.empty:
+            st.info(
+                f"No quality test results recorded yet for {corr_property} under the current recipe "
+                f"({current_version.version_label})."
+            )
+        else:
+            row = prop_row.iloc[0]
+            achieved = row["achieved"]
+            avg_actual_text = row["avg_actual"]
+            avg_target_text = row["avg_target"]
+            tolerance_text = row["tolerance"]
+            n_outside = int(row["n_outside"])
+            n_total = int(row["n"])
+            outside_text = (
+                f"{n_outside} of {n_total} ({n_outside / n_total:.0%})" if n_total else "—"
+            )
+            if achieved == "Yes":
+                st.success(
+                    f"Achieved: the average {corr_property} result under the current recipe "
+                    f"({avg_actual_text}) is within tolerance ({tolerance_text}) of the target "
+                    f"({avg_target_text}). {outside_text} individual runs fell outside that band."
+                )
+            else:
+                st.warning(
+                    f"Not achieved: the average {corr_property} result under the current recipe "
+                    f"({avg_actual_text}) is outside tolerance ({tolerance_text}) of the target "
+                    f"({avg_target_text}). {outside_text} individual runs fell outside that band."
+                )
+
+        actual_ranked = rank_component_actual_correlations(session, grade.id, corr_property)
+        if actual_ranked.empty:
+            st.info(
+                f"No raw-material stream has metered readings paired with {corr_property} results "
+                "across at least 3 production runs yet - import Component Stream Readings for the "
+                "Finalized phase of more runs to unlock this."
+            )
+        else:
+            render_data_table(
+                actual_ranked.rename(
+                    columns={
+                        "raw_material_name": "Raw material",
+                        "n_runs": "Runs compared",
+                        "correlation": "Correlation with outcome",
+                    }
+                )
+            )
+            top_actual = actual_ranked.iloc[0]
+            st.caption(
+                f"Strongest association for {corr_property}: **{top_actual['raw_material_name']}** "
+                f"(correlation {top_actual['correlation']:+.3f} across "
+                f"{int(top_actual['n_runs'])} production runs' metered dosage). A lead to investigate "
+                "on the floor, not a confirmed cause - review against current raw materials and "
+                "process conditions before adjusting dosage."
+            )
 
 # ---------------------------------------------------------------------------
 # Recipe Optimization Report (Context / Analysis / Conclusions) - the page's
@@ -426,7 +595,40 @@ else:
 # ---------------------------------------------------------------------------
 st.divider()
 st.subheader("Recipe Optimization Report")
-if not available_properties:
+if is_rigid:
+    if not achievement_summary:
+        st.caption("No specifications or quality test results recorded yet - nothing to report on.")
+    else:
+        st.caption(
+            f"Context, analysis, and conclusions for {grade.grade_name}'s current recipe "
+            f"({current_version.version_label}), correlated against "
+            f"{corr_property or 'the selected specification'}."
+        )
+        ro_report_data = reports.build_rigid_recipe_optimization_report_data(
+            session, grade, current_version, current_cost, achievement_summary,
+            corr_property, actual_ranked, include_trials,
+        )
+        ro_rc1, ro_rc2 = st.columns(2)
+        ro_rc1.metric(
+            "Specifications achieved",
+            (
+                f"{sum(1 for r in ro_report_data['expectation_rows'] if r['Achieved?'] == 'Yes')} of "
+                f"{len(ro_report_data['expectation_rows'])}"
+            ) if ro_report_data["expectation_rows"] else "—",
+        )
+        ro_rc2.metric(
+            "Cost per kg (USD)",
+            f"{ro_report_data['cost_per_kg']:.2f}" if ro_report_data["cost_per_kg"] is not None else "—",
+        )
+        st.download_button(
+            "Download Word", data=reports.render_recipe_optimization_report_docx(ro_report_data),
+            file_name="recipe_optimization_report.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key=f"recipe_opt_report_docx_{grade.id}",
+            on_click=log_export_click, args=("recipe_optimization_report_docx",),
+            kwargs={"description": f"{grade.grade_name} · {current_version.version_label}"},
+        )
+elif not available_properties:
     st.caption("No quality test results recorded yet - nothing to report on.")
 else:
     st.caption(
@@ -466,7 +668,14 @@ st.subheader("Ask PI3 for a formulation recommendation")
 
 plant_id = grade.product_family.plant_id if grade.product_family else None
 
-if ai_assistant.is_enabled_for_plant(session, plant_id):
+if is_rigid:
+    st.caption(
+        "A structured PI3 recommendation grounded in spec-based conformance and metered lot-use "
+        "correlation for rigid-foam grades (mirroring the flexible version below) is a tracked WP4 "
+        "follow-up - not yet available here. Use 'Ask PI3 anything' further down this page for a "
+        "free-form question about this grade in the meantime."
+    )
+elif ai_assistant.is_enabled_for_plant(session, plant_id):
     st.caption(
         "Asks PI3 to propose a reformulation direction, using the cost, version-diff, and "
         "correlation data above as its basis rather than just the ingredient list. Target "

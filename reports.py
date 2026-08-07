@@ -2848,6 +2848,15 @@ def _docx_bytes(doc):
 # page's own selection - it takes the exact grade, current recipe version,
 # cost, expectation summary, and correlation ranking the page has already
 # computed, so the report always matches what's on screen.
+#
+# WP4 (2026-08-07, Converged Joint Implementation Plan section 7.5) added
+# build_rigid_recipe_optimization_report_data() alongside this for a
+# rigid-foam grade's spec-based achievement table (wp3_conformance.
+# compute_grade_achievement_summary) instead of the flexible industry-
+# tolerance model - see that function's own docstring. It deliberately
+# REUSES render_recipe_optimization_report_pdf/docx below rather than
+# forking them, since both already build their tables from generic
+# lists-of-dicts.
 # ---------------------------------------------------------------------------
 
 def build_recipe_optimization_report_data(
@@ -2950,6 +2959,176 @@ def build_recipe_optimization_report_data(
         "version_label": current_version.version_label,
         "version_status": current_version.approval_status,
         "include_trials": include_trials,
+        "component_count": len(current_version.components or []),
+        "cost_per_kg": cost_per_kg,
+        "cost_coverage_pct": cost_coverage_pct,
+        "expectation_rows": expectation_rows,
+        "deviation_categories": deviation_categories,
+        "deviation_values": deviation_values,
+        "corr_property": corr_property,
+        "correlation_rows": correlation_rows,
+        "correlation_categories": correlation_categories,
+        "correlation_values": correlation_values,
+        "conclusions": conclusions,
+        "generated_at": dt.datetime.utcnow(),
+    }
+
+
+def build_rigid_recipe_optimization_report_data(
+    session, grade, current_version, current_cost, achievement_summary,
+    corr_property, actual_ranked, include_trials,
+):
+    """WP4 (Converged Joint Implementation Plan, section 7.5) rigid-foam
+    equivalent of build_recipe_optimization_report_data() above, for the
+    same Recipe Optimization Report placement on pages/15_Recipe_
+    Optimization.py. Deliberately REUSES render_recipe_optimization_report_
+    pdf/docx below rather than duplicating them: both renderers build their
+    Analysis table from a plain list-of-dicts via _section/_docx_section, so
+    a differently-shaped table (spec context, operator-aware limit text,
+    Excluded/Invalid/No result counts - none of which the flexible
+    achievement model has) renders through the exact same functions with no
+    PDF/DOCX-specific rigid branch needed there. Only the *data assembly* is
+    rigid-specific.
+
+    grade: FoamGrade (chemistry_id populated - a rigid-foam grade).
+    current_version: RecipeVersion (the active one). current_cost: dict
+    from analytics.recipe_version_cost(). achievement_summary: the list of
+    dicts already computed by the page - wp3_conformance.
+    compute_grade_achievement_summary()'s return value, the rigid "Does the
+    current recipe meet target?" table. corr_property: the currently
+    selected specification's property_name for the ingredient-correlation
+    drill-down. actual_ranked: DataFrame from wp3_conformance.
+    rank_lot_use_actual_correlations() for that specification - same
+    raw_material_name/n_runs/correlation shape as the flexible app's
+    rank_component_actual_correlations(), so the correlation section below
+    needs no rigid-specific handling either."""
+    plant_name = None
+    if grade.product_family and grade.product_family.plant:
+        plant_name = grade.product_family.plant.name
+
+    cost_per_kg = None
+    if current_cost.get("total_cost") is not None and current_cost.get("total_php"):
+        cost_per_kg = round(current_cost["total_cost"] / current_cost["total_php"], 2)
+    cost_coverage_pct = (
+        round((current_cost["priced_php"] / current_cost["total_php"]) * 100, 0)
+        if current_cost.get("total_php") else None
+    )
+
+    def _limit_text(row):
+        op = row["target_operator"] or "<="
+        unit = row["unit"] or ""
+        if op == "between":
+            if row["lower_limit"] is None or row["upper_limit"] is None:
+                return "—"
+            return f"{row['lower_limit']} – {row['upper_limit']} {unit}".strip()
+        if row["target_value"] is None:
+            return "—"
+        return f"{op} {row['target_value']} {unit}".strip()
+
+    def _context_text(row):
+        bits = [b for b in [row["condition"], row["orientation"], row["location"]] if b]
+        return " · ".join(bits) if bits else "—"
+
+    expectation_rows = []
+    achieved_count = 0
+    not_achieved_count = 0
+    no_release_specs = []
+    deviation_categories, deviation_values = [], []
+    for row in achievement_summary or []:
+        expectation_rows.append({
+            "Property": row["property_name"],
+            "Context": _context_text(row),
+            "Avg actual (current recipe)": row["avg_actual"] if row["avg_actual"] is not None else "—",
+            "Limit / target": _limit_text(row),
+            "Achieved?": row["achieved"],
+            "Runs Fail": f"{row['n_fail']} of {row['n']}" if row["n"] else "—",
+            "Excluded / Invalid / No result": (
+                f"{row['n_excluded_context']} / {row['n_invalid']} / {row['n_no_result']}"
+            ),
+            "Note": row["production_release"] or "—",
+        })
+        if row["achieved"] == "Yes":
+            achieved_count += 1
+        elif row["achieved"] == "No":
+            not_achieved_count += 1
+        if row["production_release"]:
+            no_release_specs.append(f"{row['property_name']} ({_context_text(row)})")
+        # % deviation only has a clean single-target meaning for a plain
+        # <=/>=/= operator with a numeric target_value - a "between" spec
+        # (lower_limit/upper_limit, no single target_value) is skipped
+        # rather than guessed at, same abstain-don't-guess convention as
+        # the rest of this WP4 batch.
+        if (
+            row["avg_actual"] is not None
+            and row["target_value"] not in (None, 0)
+            and (row["target_operator"] or "<=") != "between"
+        ):
+            deviation_categories.append(row["property_name"])
+            deviation_values.append(
+                round(100 * (row["avg_actual"] - row["target_value"]) / row["target_value"], 1)
+            )
+
+    correlation_rows = []
+    correlation_categories, correlation_values = [], []
+    top_correlation_line = None
+    if actual_ranked is not None and not actual_ranked.empty:
+        for _, row in actual_ranked.iterrows():
+            correlation_rows.append({
+                "Raw material": row["raw_material_name"],
+                "Runs compared": int(row["n_runs"]),
+                "Correlation with outcome": round(row["correlation"], 3),
+            })
+            correlation_categories.append(row["raw_material_name"])
+            correlation_values.append(round(row["correlation"], 3))
+        top = actual_ranked.iloc[0]
+        top_correlation_line = (
+            f"Strongest association for {corr_property}: {top['raw_material_name']} "
+            f"(correlation {top['correlation']:+.3f} across {int(top['n_runs'])} production runs' "
+            "metered lot consumption) - a lead to investigate on the floor, not a confirmed cause."
+        )
+
+    conclusions = []
+    if expectation_rows:
+        conclusions.append(
+            f"{achieved_count} of {achieved_count + not_achieved_count} tracked specifications are "
+            f"achieved under the current recipe ({current_version.version_label}); "
+            f"{not_achieved_count} are not."
+        )
+    else:
+        conclusions.append(
+            f"No specifications recorded for this grade, or no quality test results recorded yet "
+            f"under the current recipe ({current_version.version_label}) to judge against them."
+        )
+    if no_release_specs:
+        conclusions.append(
+            f"{len(no_release_specs)} passing specification(s) are UAT-only and not yet cleared for "
+            f"production release: {', '.join(no_release_specs)}."
+        )
+    if top_correlation_line:
+        conclusions.append(top_correlation_line)
+    else:
+        conclusions.append(
+            f"Not enough metered raw-material lot use data paired with {corr_property} results yet "
+            "to identify a leading ingredient correlation."
+        )
+    if cost_per_kg is not None:
+        coverage_note = f" ({cost_coverage_pct:.0f}% cost coverage)" if cost_coverage_pct is not None else ""
+        conclusions.append(f"Current formulation cost: {cost_per_kg:.2f} USD per kg{coverage_note}.")
+    else:
+        conclusions.append("No cost data recorded for the current formulation yet.")
+
+    return {
+        "grade_name": grade.grade_name,
+        "plant_name": plant_name or "—",
+        "version_label": current_version.version_label,
+        "version_status": current_version.approval_status,
+        # Always False: the rigid achievement summary is computed straight
+        # from ProductionRun rows only (see wp3_conformance.
+        # compute_grade_achievement_summary), never affected by the page's
+        # "Include lab trial data" toggle the way the flexible branch's
+        # expectation_summary is - so this reflects what actually fed this
+        # report, not whatever the toggle happened to be set to.
+        "include_trials": False,
         "component_count": len(current_version.components or []),
         "cost_per_kg": cost_per_kg,
         "cost_coverage_pct": cost_coverage_pct,
@@ -3887,6 +4066,8 @@ def build_wp3_conformance_report_data(session, foam_grade_id, production_run_id)
             note_parts.append(row["excluded_reason"])
         if row.get("production_release"):
             note_parts.append(row["production_release"])
+        if row.get("unit_converted"):
+            note_parts.append(f"converted from {row.get('as_recorded_value')} {row.get('as_recorded_unit')}")
 
         conformance_rows.append({
             "Property": row["property_name"],

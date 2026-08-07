@@ -24,12 +24,18 @@ separate recompute/migration step - exactly the property that made the
 flexible app's live pass/fail worth the extra join cost.
 """
 
+import pandas as pd
+from sqlalchemy.orm import joinedload
+
+import unit_conversion
 from db import (
     CustomerTrial,
     GradeSpecification,
     OptimizationTrial,
     PhysicalPropertyResult,
     ProductionRun,
+    RawMaterialLotUse,
+    RecipeVersion,
 )
 
 
@@ -114,10 +120,16 @@ def _specs_match_result(spec, result):
     traceable "why" rather than silently returning nothing).
 
     Unit is compared as free text (spec.unit vs result.unit) rather than
-    resolved through a UOM-ID cross-reference - deliberately simple: UAT
-    case 06 ("wrong unit, conversion deferred") explicitly defers any
-    unit-conversion logic to WP4, so WP3 only needs to recognize a mismatched
-    unit as an excluded context, not convert it.
+    resolved through a UOM-ID cross-reference. WP3 (UAT case 06, "wrong
+    unit, conversion deferred") treated every unit mismatch as an excluded
+    context; WP4 (see unit_conversion.py) now recognizes a fixed, growing
+    set of convertible unit pairs (e.g. mW/(m.K) vs W/(m.K)) and lets those
+    through as a match rather than excluding them - compute_conformance_report
+    then evaluates the result's value converted into the spec's unit, never
+    the raw stored value in the wrong unit. A unit pair unit_conversion
+    doesn't recognize (unknown unit, or two genuinely different physical
+    quantities) is still excluded exactly as in WP3 - this is strictly an
+    addition, not a loosening, of the WP3 matching behavior.
     """
     if spec.property_definition_id and result.property_definition_id:
         if spec.property_definition_id != result.property_definition_id:
@@ -134,8 +146,39 @@ def _specs_match_result(spec, result):
     if spec.location_id and result.location_id and spec.location_id != result.location_id:
         return False, "location mismatch"
     if spec.unit and result.unit and spec.unit.strip().lower() != result.unit.strip().lower():
-        return False, "unit mismatch (conversion deferred to WP4)"
+        if not unit_conversion.convertible(result.unit, spec.unit):
+            return False, "unit mismatch (not convertible)"
+        # Convertible - not treated as a mismatch. compute_conformance_report
+        # (via resolve_actual_value below) converts the result's value into
+        # the spec's unit before it's ever compared against a limit.
     return True, None
+
+
+def resolve_actual_value(spec, result):
+    """Returns (value_to_evaluate, as_recorded_value, as_recorded_unit,
+    converted: bool) for a spec/result pair that _specs_match_result has
+    already accepted.
+
+    When the spec and result share a unit (the WP3-only case, and still the
+    overwhelming majority), value_to_evaluate is simply result.actual_value
+    unchanged - nothing about existing behavior/UAT cases 01-05/07-10
+    changes. When they differ but unit_conversion recognizes the pair,
+    value_to_evaluate is the result's value converted into the spec's unit
+    - that converted value is what evaluate_specification() compares
+    against the spec's limit, and what the WP3 Property Conformance Report
+    displays in the "Actual" column (which is always headed with the
+    spec's own unit) - showing the raw as-recorded number there under the
+    spec's unit label would silently misstate the result. as_recorded_value/
+    as_recorded_unit preserve the original measurement for traceability
+    (e.g. a report note like "converted from 23 mW/(m.K)")."""
+    raw = result.actual_value
+    if raw is None:
+        return None, None, result.unit, False
+    if spec.unit and result.unit and spec.unit.strip().lower() != result.unit.strip().lower():
+        converted = unit_conversion.convert(raw, result.unit, spec.unit)
+        if converted is not None:
+            return converted, raw, result.unit, True
+    return raw, raw, result.unit, False
 
 
 def validate_result_completeness(result, sample=None):
@@ -242,11 +285,13 @@ def compute_conformance_report(
                 "spec_id": spec.id, "property_name": spec.property_name, "status": "INVALID",
                 "excluded_reason": incomplete_reason, "result_id": matched_result.id,
                 "actual_value": matched_result.actual_value, "verdict": None, "margin": None,
-                "production_release": None,
+                "production_release": None, "unit_converted": False,
+                "as_recorded_value": matched_result.actual_value, "as_recorded_unit": matched_result.unit,
             })
             continue
 
-        verdict, margin = evaluate_specification(spec, matched_result.actual_value)
+        eval_value, as_recorded_value, as_recorded_unit, unit_converted = resolve_actual_value(spec, matched_result)
+        verdict, margin = evaluate_specification(spec, eval_value)
         production_release = production_release_status(verdict, is_uat_only)
         rows.append({
             "spec_id": spec.id,
@@ -259,12 +304,238 @@ def compute_conformance_report(
             "upper_limit": spec.upper_limit,
             "unit": spec.unit,
             "result_id": matched_result.id,
-            "actual_value": matched_result.actual_value,
+            "actual_value": eval_value,
+            "as_recorded_value": as_recorded_value,
+            "as_recorded_unit": as_recorded_unit,
+            "unit_converted": unit_converted,
             "verdict": verdict,
             "margin": margin,
             "production_release": production_release,
         })
     return rows
+
+
+def compute_grade_achievement_summary(session, foam_grade_id, production_run_ids):
+    """WP4 (Converged Joint Implementation Plan, section 7.5) rigid-foam
+    equivalent of the flexible app's "Does the current recipe meet target?"
+    table (pages/15_Recipe_Optimization.py's expectation_summary, built on
+    analytics.property_results_dataframe + quality_standards.compute_pass_fail).
+
+    That flexible logic can't be reused as-is for a rigid-foam grade: it
+    compares one bare property_name/target_value/actual_value triple
+    against a hardcoded industry-tolerance table, with no concept of a
+    spec's operator (<=/>=/=/between), method/condition/orientation/
+    location context, or UAT-only production-release gating - all of which
+    a GradeSpecification carries and wp3_conformance.compute_conformance_report
+    already evaluates correctly per production run. This function is the
+    aggregation step on top of that: one row per GradeSpecification that
+    had at least one matched, complete result across the given set of
+    production runs (typically every run made under a grade's current
+    recipe version - see pages/15_Recipe_Optimization.py), with:
+
+    - avg_actual: mean of the (already unit-converted, see
+      resolve_actual_value) evaluated actual value across every Pass/Fail
+      row for this spec.
+    - achieved: "Yes"/"No" from evaluating that AVERAGE against the spec
+      (same "judge the average, not the per-run pass count" convention as
+      the flexible page's Achieved? column - see that page's own
+      docstring for the 2026-08-02 fix this mirrors), or "—" if no run
+      produced a comparable result at all.
+    - n / n_fail: how many individual runs' results factored into the
+      average and how many of those were a Fail (the rigid-foam
+      equivalent of the flexible page's "Runs outside tolerance").
+    - n_excluded_context / n_invalid / n_no_result: WP3's three
+      "couldn't evaluate" buckets, counted separately so a caller can
+      show *why* a spec has few or no comparable runs rather than just a
+      silent gap - context the flexible achievement table has no
+      equivalent of, since compute_pass_fail never excludes anything.
+    - production_release: UAT_PASS_NO_RELEASE (see production_release_status)
+      computed from the aggregate verdict, for a UAT-only grade/spec.
+
+    Returns [] if production_run_ids is empty - nothing to aggregate.
+    """
+    if not production_run_ids:
+        return []
+
+    rows_by_spec = {}
+    for run_id in production_run_ids:
+        for row in compute_conformance_report(session, foam_grade_id, production_run_id=run_id):
+            if row.get("spec_id") is None:
+                continue
+            rows_by_spec.setdefault(row["spec_id"], []).append(row)
+
+    summary = []
+    for spec_id, rows in rows_by_spec.items():
+        spec = session.get(GradeSpecification, spec_id)
+        verdicted = [r for r in rows if r["verdict"] in ("Pass", "Fail")]
+        n = len(verdicted)
+        n_fail = sum(1 for r in verdicted if r["verdict"] == "Fail")
+
+        avg_actual = None
+        achieved = "—"
+        production_release = None
+        if verdicted and spec is not None:
+            avg_actual = sum(r["actual_value"] for r in verdicted) / n
+            verdict, _margin = evaluate_specification(spec, avg_actual)
+            achieved = {"Pass": "Yes", "Fail": "No"}.get(verdict, "—")
+            is_uat_only = bool(spec.foam_grade and spec.foam_grade.status == "UAT_ONLY")
+            production_release = production_release_status(verdict, is_uat_only)
+
+        summary.append({
+            "spec_id": spec_id,
+            "property_name": spec.property_name if spec else rows[0]["property_name"],
+            "unit": spec.unit if spec else None,
+            "target_operator": spec.target_operator if spec else None,
+            "target_value": spec.target_value if spec else None,
+            "lower_limit": spec.lower_limit if spec else None,
+            "upper_limit": spec.upper_limit if spec else None,
+            "condition": spec.condition.name if spec is not None and spec.condition else None,
+            "orientation": spec.orientation.name if spec is not None and spec.orientation else None,
+            "location": spec.location.name if spec is not None and spec.location else None,
+            "avg_actual": round(avg_actual, 4) if avg_actual is not None else None,
+            "achieved": achieved,
+            "n": n,
+            "n_fail": n_fail,
+            "n_excluded_context": sum(1 for r in rows if r["status"] == "EXCLUDED_CONTEXT"),
+            "n_invalid": sum(1 for r in rows if r["status"] == "INVALID"),
+            "n_no_result": sum(1 for r in rows if r["status"] == "NO_RESULT"),
+            "production_release": production_release,
+        })
+    return summary
+
+
+def rigid_actual_usage_dataframe(session, foam_grade_id):
+    """WP4 (Converged Joint Implementation Plan, section 7.5) rigid-foam
+    equivalent of analytics.actual_usage_dataframe: one row per (production
+    run, raw-material component), that component's total actually-consumed
+    mass for the run, re-expressed as a php-equivalent share of the run's
+    own Base-polyol consumption - the same batch-size-normalizing
+    convention the flexible app's version uses (a run's ingredient dosage
+    is compared as a ratio to the recipe's own basis, not skewed by two
+    runs simply being different total batch sizes).
+
+    Sourced from RawMaterialLotUse.mass_kg (added WP4 - see db.py) rather
+    than ComponentStreamReading.flow_total_qty, because rigid-foam
+    discrete-shot production doesn't have a continuous Finalized-phase
+    stream reading to draw from. A run can draw the same material from more
+    than one supplier lot, so every row for a given (run, component_stream_
+    name) is summed first - unlike the flexible source table, which has at
+    most one reading per material per run.
+
+    Runs with no RawMaterialLotUse.mass_kg recorded at all, or with no
+    identifiable Base-polyol consumption to normalize against, are skipped
+    rather than guessed at. Returns an empty DataFrame if nothing qualifies
+    - as of this writing (2026-08-07) that will be EVERY call, since no
+    page or CSV import in this app writes mass_kg yet (this function is the
+    read side of a WP4 schema addition; a capture path - a form and/or CSV
+    import analogous to the flexible app's Component Stream Reading import
+    - is tracked separately, not part of this function's scope)."""
+    runs = (
+        session.query(ProductionRun)
+        .options(joinedload(ProductionRun.recipe_version).joinedload(RecipeVersion.components))
+        .filter(ProductionRun.foam_grade_id == foam_grade_id)
+        .all()
+    )
+    run_ids = [r.id for r in runs]
+    if not run_ids:
+        return pd.DataFrame()
+
+    lot_uses = (
+        session.query(RawMaterialLotUse)
+        .filter(RawMaterialLotUse.production_run_id.in_(run_ids), RawMaterialLotUse.mass_kg.isnot(None))
+        .all()
+    )
+    mass_by_run = {}
+    for lu in lot_uses:
+        per_run = mass_by_run.setdefault(lu.production_run_id, {})
+        per_run[lu.component_stream_name] = (per_run.get(lu.component_stream_name) or 0) + lu.mass_kg
+
+    rows = []
+    for run in runs:
+        materials = mass_by_run.get(run.id)
+        if not materials:
+            continue
+        recipe_version = run.recipe_version
+        polyol_name = None
+        if recipe_version:
+            for c in recipe_version.components:
+                if c.role_in_formulation and "base polyol" in c.role_in_formulation.strip().lower():
+                    polyol_name = c.raw_material_name.strip().lower()
+                    break
+        if polyol_name is None:
+            continue
+        polyol_mass = next(
+            (mass for name, mass in materials.items() if name and name.strip().lower() == polyol_name), None
+        )
+        if not polyol_mass:
+            continue
+        for name, mass in materials.items():
+            rows.append({
+                "run_id": run.id,
+                "foam_grade_id": run.foam_grade_id,
+                "recipe_version_id": run.recipe_version_id,
+                "component_stream_name": name,
+                "mass_kg": mass,
+                "actual_php_equivalent": round((mass / polyol_mass) * 100, 4),
+            })
+    return pd.DataFrame(rows)
+
+
+def rank_lot_use_actual_correlations(session, foam_grade_id, spec_id, min_runs=3):
+    """WP4 rigid-foam equivalent of analytics.rank_component_actual_correlations:
+    for every raw-material component with metered RawMaterialLotUse.mass_kg
+    readings for this grade, correlates its ACTUAL per-run php-equivalent
+    dosage (see rigid_actual_usage_dataframe) against that same run's
+    evaluated actual value for one specific GradeSpecification (from
+    compute_conformance_report - already unit-converted and context-
+    matched, see resolve_actual_value), ranked by |correlation| descending.
+
+    Takes a spec_id (not a bare property_name like the flexible version)
+    because a rigid-foam property can have more than one GradeSpecification
+    distinguished by method/condition/orientation/location - correlating
+    against "the property" without pinning down which spec's evaluated
+    value to use would silently mix incomparable contexts.
+
+    Needs real per-run variation to say anything: a material must have
+    metered mass_kg paired with an evaluated result for at least min_runs
+    production runs, or it's excluded rather than shown as a misleading
+    correlation. Returns an empty DataFrame if nothing qualifies."""
+    usage_df = rigid_actual_usage_dataframe(session, foam_grade_id)
+    if usage_df.empty:
+        return pd.DataFrame()
+
+    run_ids = usage_df["run_id"].unique().tolist()
+    actual_by_run = {}
+    for run_id in run_ids:
+        values = [
+            row["actual_value"]
+            for row in compute_conformance_report(session, foam_grade_id, production_run_id=run_id)
+            if row.get("spec_id") == spec_id and row.get("actual_value") is not None
+        ]
+        if values:
+            actual_by_run[run_id] = sum(values) / len(values)
+    if not actual_by_run:
+        return pd.DataFrame()
+    per_run_result = pd.Series(actual_by_run)
+
+    rows = []
+    for material, sub in usage_df.groupby("component_stream_name"):
+        php_series = sub.set_index("run_id")["actual_php_equivalent"]
+        outcome_series = per_run_result.reindex(php_series.index)
+        paired = pd.DataFrame({"php": php_series, "outcome": outcome_series}).dropna()
+        n = len(paired)
+        if n < min_runs:
+            continue
+        corr = paired["php"].corr(paired["outcome"])
+        if pd.isna(corr):
+            continue
+        rows.append({"raw_material_name": material, "n_runs": n, "correlation": round(corr, 3)})
+
+    ranked = pd.DataFrame(rows)
+    if not ranked.empty:
+        ranked["_abs"] = ranked["correlation"].abs()
+        ranked = ranked.sort_values("_abs", ascending=False).drop(columns=["_abs"]).reset_index(drop=True)
+    return ranked
 
 
 def compute_grade_conformance_summary(session, foam_grade_id):

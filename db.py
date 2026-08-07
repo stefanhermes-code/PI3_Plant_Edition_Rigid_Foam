@@ -979,6 +979,20 @@ class RawMaterialLotUse(Base):
     # without retyping it.
     raw_material_lot_id = Column(Integer, ForeignKey("raw_material_lots.id"))
 
+    # --- WP4 addition (2026-08-07). This table originally had no
+    # quantity/dosage column at all - only which lot of which material was
+    # used, never how much - which made it impossible to correlate an
+    # ingredient's actual consumption with a rigid-foam production run's
+    # outcome (the rigid equivalent of the flexible app's
+    # ComponentStreamReading.flow_total_qty). Nullable: a lot-traceability-
+    # only entry (lot number recorded without a metered quantity) is still
+    # a valid, complete row - see wp3_conformance.rigid_actual_usage_dataframe,
+    # which simply skips rows/runs with no mass_kg recorded rather than
+    # guessing. A run can draw from more than one supplier lot for the same
+    # material, so mass_kg is per LOT USE, not per material-per-run - callers
+    # needing a material's total for a run sum across that run's rows.
+    mass_kg = Column(Float)
+
     production_run = relationship("ProductionRun")
     raw_material_lot = relationship("RawMaterialLot")
 

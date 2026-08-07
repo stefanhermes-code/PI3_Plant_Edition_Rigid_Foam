@@ -214,6 +214,69 @@ limit/actual/status/UAT_PASS_NO_RELEASE note, and the rendered Word
 document was visually confirmed to show all of it correctly laid out.
 Gate 2's only remaining item is A10 (sign-off) - not engineering work,
 tracked separately.
+
+2026-08-07 (WP4, Converged Joint Implementation Plan section 7.5 -
+"Property evaluation and Recipe Optimization redesign"), started after
+Stefan's A10 Gate 2 sign-off: (1) added tests/test_recipe_optimization_
+baseline.py, a regression suite for the flexible app's shared achievement/
+correlation logic (quality_standards.compute_pass_fail, analytics.
+property_results_dataframe/rank_component_actual_correlations) before
+touching any of that shared code. (2) Added unit_conversion.py, a
+deliberately narrow single-factor linear conversion module (thermal_
+conductivity, density, pressure_strength, percentage, length), and wired
+it into wp3_conformance._specs_match_result so a convertible unit
+mismatch (e.g. mW/(m.K) vs W/(m.K)) is evaluated instead of excluded -
+previously documented as "conversion deferred to WP4". This changes WP3
+UAT-06's outcome from EXCLUDED_CONTEXT to a computed Pass; tests/
+test_wp3_uat_cases.py is left untouched as the frozen, signed-off Gate 2
+record (only a docstring note added - it will now report UAT-06 as a
+"mismatch" if run directly, which is expected, not a regression), and
+tests/test_wp4_unit_conversion.py covers the correct new expectations.
+Also added wp3_conformance.resolve_actual_value(), fixing a latent
+report-display bug where compute_conformance_report's "Actual" column
+could show a raw unconverted number under the wrong unit label. (3) Added
+wp3_conformance.compute_grade_achievement_summary(), the rigid-foam
+equivalent of the flexible page's "Does the current recipe meet target?"
+table, judged against a GradeSpecification's operator/limits/method/
+condition/orientation/location context (via compute_conformance_report)
+rather than a hardcoded industry-tolerance lookup. (4) Added
+RawMaterialLotUse.mass_kg (nullable Float, migrated to Supabase) - the
+rigid equivalent of the flexible app's ComponentStreamReading.
+flow_total_qty, recorded per lot use since a run can draw one material
+from multiple supplier lots - plus wp3_conformance.
+rigid_actual_usage_dataframe()/rank_lot_use_actual_correlations(), the
+rigid equivalent of analytics.actual_usage_dataframe()/
+rank_component_actual_correlations(). Explicitly flagged, not silently
+glossed over: no page or CSV import writes mass_kg yet, so this is the
+read side of a schema addition, ready for a capture UI tracked
+separately. (5) Branched pages/15_Recipe_Optimization.py's "Does the
+current recipe meet target?" section and its ingredient-correlation
+picker on `is_rigid = grade.chemistry_id is not None`, so a rigid-foam
+grade uses the new spec-aware functions instead of the flexible app's
+hardcoded tolerance table. A Streamlit AppTest-based page smoke test
+(tests/test_wp4_recipe_optimization_page_smoke.py, one seeded flexible
+grade and one seeded rigid grade, each run as an isolated process against
+its own SQLite file) caught two real bugs the underlying-function unit
+tests couldn't: a `.round()` TypeError on the page's generic "Physical
+properties" section (rigid PhysicalPropertyResult rows have no
+target_value, making the aggregated column object-dtype rather than
+float - fixed with pd.to_numeric(..., errors="coerce")) and a missing
+`ProductionRun` import. (6) Added reports.
+build_rigid_recipe_optimization_report_data(), wired into the page's
+"Recipe Optimization Report" section for a rigid-foam grade - carrying
+spec context (method/condition/orientation/location), operator-aware
+limit text, and Excluded/Invalid/No result counts. Deliberately REUSES
+render_recipe_optimization_report_pdf/docx unmodified rather than forking
+them, since both already build their tables from generic lists-of-dicts;
+only the data-assembly step is rigid-specific. The "Ask PI3 for a
+formulation recommendation" structured section remains gated behind a
+"tracked WP4 follow-up" caption for rigid grades - out of this batch's
+scope, not forgotten. All new logic covered by dedicated test files
+(test_wp4_unit_conversion.py, test_wp4_rigid_achievement_summary.py,
+test_wp4_rigid_lot_use_correlation.py, test_wp4_rigid_recipe_
+optimization_report.py, test_wp4_recipe_optimization_page_smoke.py) plus
+the pre-existing suites, all passing (UAT-06's documented, deliberate
+divergence aside).
 """
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
