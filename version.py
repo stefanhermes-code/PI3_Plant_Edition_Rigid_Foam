@@ -642,6 +642,45 @@ net-new tables. No dedicated UI surfaces this new data yet (no page
 shows RF-*/CALC-* content, and RecipeVersion's reference_formulation_id
 has no picker) - deferred, same as every prior wave's schema-first,
 UI-later pattern.
+
+v0.12.0 -> v0.12.1 (2026-08-08, WP5 Wave 3 correction round-trip):
+Charlie reviewed both open Wave 3 findings and returned permanent
+decisions (PI3_Rigid_Foam_Phase_1_WP5_Wave_3_Response_to_JC_Data_Quality_
+Findings.docx + Correction Register xlsx). Applied directly to the real
+rigid_foam.locations table (data-only correction, no schema change):
+(1) LOC-040/LOC-041/LOC-042 retain their original codes and meanings
+(Top facing interface / Bottom facing interface / Joint or edge
+profile) - unchanged, governance_note updated from "flagged to Charlie"
+to "resolved". (2) The three provisional cross-width rows (LOC-040-XW/
+LOC-041-XW/LOC-042-XW) were renamed to permanent LOC-037/LOC-038/LOC-039
+("Panel left/centre/right edge core"), per Charlie's instruction to use
+the unused plan-position range immediately before the interface family
+- category corrected to "Cross-width", axis to "X/Y", applicable_object
+to "Panel/core" (all per his Correction Register, superseding the
+placeholder values JC had used). sort_order renumbered so LOC-037-039
+sit between LOC-036 (end of the plan-position family) and LOC-040
+(start of the interface family); everything from the old LOC-040
+onward shifted +3 to make room. No re-import needed - Charlie's own
+instruction was explicit that the existing successful Wave 3 load
+should be preserved, only IDs/provenance corrected in place. Verified
+afterward: still 42 location rows, zero duplicate controlled IDs, zero
+remaining "-XW" provisional codes.
+Also resolved the Wave 2/Wave 3 sheet-13 boundary question flagged in
+the same findings doc: Charlie confirmed sheet 13 (13_Sample_Locations)
+formally belongs to Wave 2 (corrected Primary_Sheets 08-13, Content_
+Scope now explicitly includes sample locations) - the error was in
+01_Wave_Control's declared range, not in the semantic ownership of the
+content Wave 3 already has to be understood as sheets 14-16, not
+13-15. This is metadata/documentation only (this app has no wave-control
+table of its own - the correction lives here, in this changelog, and in
+the project's shared understanding of the workbook). It does not change
+the Wave 4 finding already raised (01_Wave_Control's Wave 4 range also
+needs correcting from "16-18" to "17-19") - if anything it independently
+confirms that finding, since Wave 3 is now pinned at 14-16, leaving
+sheet 16 unambiguously Wave 3's own last sheet and 17 as Wave 4's true
+start. Full regression suite (10 pytest files, both Recipe Optimization
+page-smoke tests in isolation) passes unchanged - no schema touched,
+data-only correction.
 """
 
-APP_VERSION = "0.12.0"
+APP_VERSION = "0.12.1"
