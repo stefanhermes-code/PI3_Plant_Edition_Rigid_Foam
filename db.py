@@ -700,14 +700,15 @@ class RecipeVersion(Base):
     # the "pass/fail must be live-computed, never stored" lesson elsewhere
     # in this schema's history) - a third overlapping status column would
     # repeat that mistake. RHF-003's states map onto that existing pair
-    # instead. Also deliberately NOT added: RHF-015 "Reference formulation
-    # ID" (the target ReferenceFormulation table is WP5 Wave 4's own
-    # deliverable, not issued yet - adding a FK to a table that doesn't
-    # exist yet would be premature) and RHF-014 "Approved processing window
-    # ID" as a real linked entity (no ProcessingWindow table exists; a
-    # free-text reference is recorded instead for now, same "add the real
-    # entity later only if a real need shows up" precedent as the Supplier
-    # model's own docstring).
+    # instead. Also deliberately NOT added at the time: RHF-015 "Reference
+    # formulation ID" (the target ReferenceFormulation table was WP5 Wave
+    # 4's own deliverable, not issued yet then - added below now that
+    # Wave 4 exists) and RHF-014 "Approved processing window ID" as a real
+    # linked entity (no ProcessingWindow table exists; a free-text
+    # reference is recorded instead for now, same "add the real entity
+    # later only if a real need shows up" precedent as the Supplier
+    # model's own docstring - still deferred, Wave 4's sheets don't cover
+    # it either).
     target_ab_mass_ratio = Column(Float)  # RHF-010
     blowing_agent_system = Column(String(300))  # RHF-011, e.g. "Water, Cyclopentane" - free text list
     target_free_rise_density_kgm3 = Column(Float)  # RHF-012
@@ -717,6 +718,14 @@ class RecipeVersion(Base):
     safety_review_status = Column(String(100))  # RHF-017
     technical_approver = Column(String(200))  # RHF-018
 
+    # --- WP5 Wave 4 addition (2026-08-07, RHF-015 "Reference formulation
+    # ID"). Nullable, optional - most recipes have no public reference at
+    # all. "Reference only, never silent copying": this FK records that a
+    # recipe was informed by / compared against a locked public parameter
+    # summary, it never substitutes for the recipe's own real component
+    # rows above.
+    reference_formulation_id = Column(Integer, ForeignKey("reference_formulations.id"))  # RHF-015
+
     foam_grade = relationship("FoamGrade", back_populates="recipe_versions")
     components = relationship("RecipeComponent", back_populates="recipe_version")
     production_runs = relationship("ProductionRun", back_populates="recipe_version")
@@ -725,6 +734,7 @@ class RecipeVersion(Base):
     application = relationship("Application")
     construction = relationship("ProductConstruction")
     source = relationship("SourceRegister")
+    reference_formulation = relationship("ReferenceFormulation")
 
 
 # ---------------------------------------------------------------------------
@@ -2846,6 +2856,113 @@ class IssueCauseLink(Base):
 
 
 # ---------------------------------------------------------------------------
+# WP5 Wave 4 additions (2026-08-07, Converged Joint Implementation Plan
+# section 7.6, workbook sheets 17_Calculations, 18_Reference_Formulations,
+# 19_Ref_Formulation_Components) - "Derived calculations and public
+# reference formulation summaries".
+#
+# Wave-boundary note: 01_Wave_Control's own Primary_Sheets for Wave 4 says
+# "16-18", but sheet 16 is 16_Issue_Cause_Links (Wave 3's own hypothesis-
+# link sheet, already imported in that wave) and Wave 4's actual content
+# runs 17-19 (Calculations, Reference_Formulations, and their components).
+# Same off-by-one pattern already flagged to Charlie for the Wave 2/Wave 3
+# boundary (sheet 13) - raised again here, see the Wave 4 findings doc.
+#
+# CalculationDefinition is a controlled formula-specification library
+# (Charlie's CALC-* vocabulary) - stored as data (formula text, required
+# inputs, validation rule), not compiled/executed by this pass. Per this
+# wave's own JC_Engineering_Action ("Implement calculations and
+# reference-lock controls"), actual live computation of any CALC-* formula
+# against real production data is deferred, matching every prior WP5
+# wave's schema-first, UI-later pattern - there is no page or analytics
+# function yet that evaluates these formulas.
+#
+# ReferenceFormulation and ReferenceFormulationComponent hold Charlie's
+# locked, provenance-controlled public patent parameter summaries (RF-*),
+# structured per the Converged Plan's section 8 reference-formulation
+# policy (source identity, formulation context, parameter summary,
+# status, plant-recipe separation) - never the plant's own recipe data.
+# chemistry is stored as free text (the sheet's own "PUR"/"PIR" values)
+# rather than a Chemistry FK, because the frozen WP2 Implementation Slice
+# only ever controlled PUR (CHM-010) - PIR has no controlled Chemistry row
+# yet, and force-mapping half the rows would misrepresent the other half.
+# source_id links to the real SourceRegister row for each patent (added
+# below) - unlike the Machine Data batch's Source_Register sheet, these
+# Source_IDs are genuinely cross-referenced by real rows here, so
+# importing them is real traceability, not a disconnected bibliography.
+#
+# RecipeVersion.reference_formulation_id closes RHF-015 ("Reference
+# formulation ID... Reference only, never silent copying"), explicitly
+# deferred in Wave 1's own changelog pending this table's existence.
+# RHF-014 ("Approved processing window ID") remains deferred as free text
+# - no ProcessingWindow entity is part of this wave's sheets either.
+# ---------------------------------------------------------------------------
+class CalculationDefinition(Base):
+    """Charlie's CALC-* formula-specification library, e.g. "A:B mass
+    ratio", "Actual isocyanate index". Data only - no engine in this app
+    evaluates these formulas yet (see module note above)."""
+
+    __tablename__ = "calculation_definitions"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "CALC-001"
+    name = Column(String(300), nullable=False)
+    formula_specification = Column(Text)  # e.g. "A_mass / B_mass"
+    output_uom = Column(String(100))  # workbook's own text, e.g. "kg/m3", "%", "ratio" - not FK'd to UnitOfMeasure since several values ("ratio", "index", "count/basis") aren't real units
+    required_inputs = Column(Text)  # semicolon-separated list, workbook's own format
+    validation_rule = Column(Text)
+    phase_status = Column(String(50))  # e.g. "Phase 1", "WP5"
+    sort_order = Column(Integer)
+
+
+class ReferenceFormulation(Base):
+    """Charlie's RF-* locked public parameter summaries (patent/literature
+    examples), never a plant recipe. See module note above for the
+    provenance and separation rules."""
+
+    __tablename__ = "reference_formulations"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "RF-001"
+    name = Column(String(300), nullable=False)
+    chemistry_label = Column(String(50))  # free text "PUR"/"PIR" - see module note
+    production_or_test_context = Column(Text)
+    application_context = Column(Text)
+    target_index = Column(Float)  # nullable - not every reported example states an index
+    blowing_system = Column(String(300))
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+    source_location = Column(String(300))  # e.g. "Example 21C"
+    record_status = Column(String(100))  # e.g. "Locked public parameter summary"
+    plant_use_rule = Column(Text)  # e.g. "Reference only; local material matching, safety review and validation required"
+    sort_order = Column(Integer)
+
+    source = relationship("SourceRegister")
+
+
+class ReferenceFormulationComponent(Base):
+    """One structured ingredient line extracted from a public reference
+    formulation - patent text itself is not reproduced, only the
+    structured values (see sheet 19's own subtitle)."""
+
+    __tablename__ = "reference_formulation_components"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "RF-001-C01"
+    reference_formulation_id = Column(Integer, ForeignKey("reference_formulations.id"), nullable=False)
+    sequence = Column(Integer)
+    source_component_term = Column(String(300))  # e.g. "Polyol 2", "pMDI"
+    controlled_category_or_role = Column(String(200))  # e.g. "Rigid polyol", "Isocyanate", "Physical blowing agent"
+    reported_amount = Column(Float)
+    amount_basis = Column(String(100))  # e.g. "parts", "wt% total raw material"
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+    source_location = Column(String(300))
+    interpretation_note = Column(Text)
+
+    reference_formulation = relationship("ReferenceFormulation")
+    source = relationship("SourceRegister")
+
+
+# ---------------------------------------------------------------------------
 # WP3e. Cycle / shot + output item (task list #547, #548)
 #
 # Rigid discontinuous-panel/closed-mold production runs in discrete cycles
@@ -3089,6 +3206,10 @@ ALL_MODELS = [
     QualityIssueType,
     PossibleCause,
     IssueCauseLink,
+    # --- WP5 Wave 4 additions (2026-08-07) ---
+    CalculationDefinition,
+    ReferenceFormulation,
+    ReferenceFormulationComponent,
 ]
 
 

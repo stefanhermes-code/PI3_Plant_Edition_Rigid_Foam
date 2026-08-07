@@ -593,6 +593,55 @@ new tables. No dedicated UI surfaces this new taxonomy yet (the Quality
 Issue page's free-text picker and any Root-Cause Assistant use of
 IssueCauseLink remain flagged follow-up work, same as every prior wave's
 "schema + seed now, UI later" pattern).
+
+v0.11.0 -> v0.12.0 (2026-08-07, WP5 Wave 4 - "Derived calculations and
+public reference formulation summaries"): same wave-boundary numbering
+issue recurs one wave later - 01_Wave_Control declares Wave 4's
+Primary_Sheets as "16-18", but sheet 16 (16_Issue_Cause_Links) is Wave
+3's own sheet, already imported in that wave; Wave 4's actual content
+lives on sheets 17_Calculations, 18_Reference_Formulations and
+19_Ref_Formulation_Components (true range 17-19). Imported sheets 17-19
+only; did not re-touch sheet 16. Flagged to Charlie, along with a
+heads-up that this is now a repeating pattern worth checking across all
+five waves at once - see PI3_Rigid_Foam_Edition_WP5_Wave4_Data_Quality_
+Findings.docx. Schema additions in db.py: new CalculationDefinition
+table (Charlie's CALC-* formula-specification library - stored as data
+only, no engine in this app evaluates these formulas yet, matching every
+prior wave's schema-first, UI-later pattern); new ReferenceFormulation
+and ReferenceFormulationComponent tables holding Charlie's locked,
+provenance-controlled public-patent parameter summaries (RF-*), per the
+Converged Plan's section 8 reference-formulation policy - chemistry
+stored as free text ("PUR"/"PIR") rather than a Chemistry FK, since the
+frozen WP2 Implementation Slice only ever controlled PUR (CHM-010) and
+PIR has no controlled Chemistry row yet. New nullable RecipeVersion.
+reference_formulation_id FK closes RHF-015 ("Reference formulation ID...
+reference only, never silent copying"), explicitly deferred in Wave 1's
+own changelog pending this table's existence; RHF-014 ("Approved
+processing window ID") remains deferred as free text, unchanged.
+Imported the 4 patent SourceRegister rows (SRC-PAT-US10640600, SRC-PAT-
+EP3115401, SRC-PAT-US11952491, SRC-PAT-US20210079154) that Reference
+Formulation rows actually cite by Source_ID - unlike the Machine Data
+batch's Source_Register sheet, these are real cross-references, not a
+disconnected bibliography, so importing them is real traceability; the
+other ~20 standards-body rows in 28_Source_Register (ISO/ASTM/EN) are
+not yet referenced by anything and were left unimported, same
+disconnected-bibliography reasoning as before. Seeded all of Wave 4's
+actual content: 25 calculation definitions (17), 6 reference
+formulations (18), and 63 reference-formulation components (19). Unlike
+Waves 2 and 3, this wave's own content had zero data-quality issues -
+independent JC QA (row counts, duplicate-controlled-ID checks, orphan-FK
+checks on reference_formulation_id/source_id, missing-mandatory-field
+checks) came back completely clean; the only finding this round is the
+wave-boundary numbering gap above. Verified via py_compile, a live local
+SQLite smoke test (one row of each new/extended model), and afterward
+via the same independent-QA queries against the real rigid_foam schema.
+Full regression suite (10 pytest files, both Recipe Optimization
+page-smoke tests run in isolation per the established shared-SQLite-file
+convention) passes unchanged - Wave 4 only added nullable columns and
+net-new tables. No dedicated UI surfaces this new data yet (no page
+shows RF-*/CALC-* content, and RecipeVersion's reference_formulation_id
+has no picker) - deferred, same as every prior wave's schema-first,
+UI-later pattern.
 """
 
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.12.0"
