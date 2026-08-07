@@ -277,6 +277,39 @@ test_wp4_rigid_lot_use_correlation.py, test_wp4_rigid_recipe_
 optimization_report.py, test_wp4_recipe_optimization_page_smoke.py) plus
 the pre-existing suites, all passing (UAT-06's documented, deliberate
 divergence aside).
+
+2026-08-07 (later same day, WP4 follow-up per Stefan's direct request -
+"Build it, PI3 can handle it"): built the "Ask PI3 for a formulation
+recommendation" structured section for rigid-foam grades on pages/15_
+Recipe_Optimization.py, which v0.5.0 had deliberately left gated behind a
+"tracked WP4 follow-up" caption. Mirrors the flexible branch field-for-
+field, but grounded in achievement_summary (wp3_conformance.
+compute_grade_achievement_summary) and wp3_conformance.
+rank_lot_use_actual_correlations() per specification instead of the
+flexible app's hardcoded-tolerance expectation_summary and per-property
+stream-reading correlations - correlation is looked up per spec_id, not
+per bare property name, since one property can carry more than one
+specification (different test method/condition/orientation/location).
+Target-property prefill now defaults from this grade's own specification
+limits (via the existing _spec_limit_text/_spec_context_text helpers,
+already defined earlier on the page for the achievement table) instead
+of expectation_summary's flat target value. The prompt sent to PI3 is
+reworded for a rigid-foam context (specifications with operator/limit/
+test context, metered LOT consumption rather than stream-reading dosage,
+an explicit instruction to flag UAT-only/not-yet-production-released
+specifications rather than treat them as approved). composition_summary/
+cost_summary/diff_summary/outcome_summary are schema-shared and reused
+verbatim, same as the flexible branch. Restructured the surrounding
+if/elif so both branches share one `_pi3_unavailable_caption()` helper for
+the "not configured"/"not enabled" messaging (previously duplicated
+inline), rather than copying that caption block a third time.
+tests/test_wp4_recipe_optimization_page_smoke.py's rigid fixture now
+enables PI3 for its plant (fake OPENAI_API_KEY/PI3_VECTOR_STORE_ID
+secrets + a PI3AIConnectionSetting row) so the smoke test actually
+exercises the new target-prefill loop and asserts the prefilled
+Thermal-conductivity specification text and the "Get PI3 recommendation"
+button render - without ever clicking that button, since doing so would
+require a real OpenAI call. All tests pass.
 """
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"

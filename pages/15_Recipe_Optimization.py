@@ -668,14 +668,250 @@ st.subheader("Ask PI3 for a formulation recommendation")
 
 plant_id = grade.product_family.plant_id if grade.product_family else None
 
-if is_rigid:
+
+def _pi3_unavailable_caption():
+    # Only the platform owner sees why PI3 is unavailable here - a customer
+    # whose subscription/plant simply doesn't have it enabled shouldn't be
+    # shown a feature they don't know exists (see PI3 Gaps discussion,
+    # 2026-08-01: "the customer does not know that they could have this
+    # functionality"). Shared by both the flexible and rigid branches below.
+    if not user["is_platform_owner"]:
+        return
+    if ai_assistant.availability_status(session, plant_id) == "not_configured":
+        st.caption(
+            "PI3 isn't configured for this deployment yet (missing API credentials) - contact "
+            "your administrator."
+        )
+    else:
+        st.caption(
+            "Enable PI3 connectivity for this plant (PI3 Connectivity, in Admin) to get a "
+            "formulation recommendation here."
+        )
+
+
+if not ai_assistant.is_enabled_for_plant(session, plant_id):
+    _pi3_unavailable_caption()
+elif is_rigid:
+    # --- Rigid-foam branch (WP4 follow-up, built 2026-08-07): mirrors the
+    # flexible branch below field-for-field, but grounded in this grade's
+    # own GradeSpecification-based achievement summary (achievement_summary,
+    # computed above for "Does the current recipe meet target?") and
+    # wp3_conformance.rank_lot_use_actual_correlations() instead of the
+    # flexible app's hardcoded-tolerance expectation_summary and stream-
+    # reading correlations - see those functions' own docstrings for why.
+    # composition_summary/cost_summary/diff_summary/outcome_summary are
+    # schema-shared (recipe components, cost, version diff, and per-property
+    # result summaries don't differ by grade type) and are reused verbatim.
     st.caption(
-        "A structured PI3 recommendation grounded in spec-based conformance and metered lot-use "
-        "correlation for rigid-foam grades (mirroring the flexible version below) is a tracked WP4 "
-        "follow-up - not yet available here. Use 'Ask PI3 anything' further down this page for a "
-        "free-form question about this grade in the meantime."
+        "Asks PI3 to propose a reformulation direction, using the cost, version-diff, and "
+        "metered lot-use correlation data above as its basis rather than just the ingredient "
+        "list. Target properties below are prefilled from this grade's own specifications (see "
+        "'Does the current recipe meet target?' above), plus any other target properties "
+        "recorded on the Product Family & Foam Grade page that don't yet have a specification - "
+        "edit or add to them before requesting a recommendation."
     )
-elif ai_assistant.is_enabled_for_plant(session, plant_id):
+    default_target_lines = []
+    covered_names = set()
+    for row in achievement_summary:
+        context = _spec_context_text(row)
+        context_suffix = f" ({context})" if context != "—" else ""
+        default_target_lines.append(f"{row['property_name']} {_spec_limit_text(row)}{context_suffix}")
+        covered_names.add(row["property_name"])
+    if grade.target_density is not None and "Density" not in covered_names:
+        default_target_lines.append(f"Density {grade.target_density:g} kg/m3")
+    if grade.target_hardness is not None and "40% IFD / hardness" not in covered_names:
+        default_target_lines.append(f"Hardness (40% ILD) {grade.target_hardness:g} N")
+    for tp in grade.target_properties:
+        if tp.property_name in covered_names:
+            continue
+        covered_names.add(tp.property_name)
+        unit_suffix = f" {tp.unit}" if tp.unit else ""
+        if tp.target_value is not None:
+            default_target_lines.append(f"{tp.property_name} {tp.target_value:g}{unit_suffix}")
+        else:
+            note_suffix = f" - {tp.notes}" if tp.notes else ""
+            default_target_lines.append(f"{tp.property_name} (target value not yet known{note_suffix})")
+
+    target_properties = st.text_area(
+        "Target properties",
+        value="\n".join(default_target_lines),
+        placeholder=(
+            "e.g. Thermal conductivity <= 0.030 W/(m.K), Compressive strength >= 150 kPa, "
+            "Density 35-45 kg/m3"
+        ),
+        key=f"recipe_opt_targets_{grade.id}",
+    )
+    if st.button(
+        "Get PI3 recommendation",
+        key=f"ask_pi3_recipe_opt_{grade.id}",
+        disabled=not target_properties.strip() or not page_usable,
+    ):
+        composition_lines = [
+            f"Version {v.version_label} ({v.approval_status}): "
+            + ", ".join(f"{c.raw_material_name} {c.php} php ({c.role_in_formulation})" for c in v.components)
+            for v in versions
+            if v.components
+        ]
+        composition_summary = "\n".join(composition_lines) or "No formulation data recorded for any version."
+
+        cost_lines = []
+        for v in versions:
+            c = cost_by_version[v.id]
+            v_cost_per_kg = _cost_per_kg(c)
+            if v_cost_per_kg is not None:
+                note = "" if c["complete"] else f" (partial - missing cost for {', '.join(c['missing'])})"
+                cost_lines.append(f"Version {v.version_label}: {v_cost_per_kg:.2f} USD per kg{note}")
+            else:
+                cost_lines.append(f"Version {v.version_label}: no cost data recorded")
+        cost_summary = "\n".join(cost_lines)
+
+        diff_summary = "No version comparison available (fewer than 2 recipe versions)."
+        if len(versions) >= 2:
+            latest, previous = versions[-1], versions[-2]
+            latest_diff = recipe_version_diff(previous, latest)
+            changed = latest_diff[latest_diff["status"] != "Unchanged"]
+            if changed.empty:
+                diff_summary = f"No formulation change between {previous.version_label} and {latest.version_label}."
+            else:
+                diff_lines = [
+                    f"{row['raw_material_name']}: {row['status']} "
+                    f"({row['php_a']} -> {row['php_b']} php)"
+                    for _, row in changed.iterrows()
+                ]
+                diff_summary = (
+                    f"Changes from {previous.version_label} to {latest.version_label} (latest):\n"
+                    + "\n".join(diff_lines)
+                )
+
+        # Correlation is looked up per SPECIFICATION (spec_id), not per bare
+        # property name - a property can have more than one spec (different
+        # test condition/orientation/location), each with its own actual
+        # dosage relationship. See wp3_conformance.rank_lot_use_actual_
+        # correlations's own docstring.
+        actual_correlation_lines = []
+        for row in achievement_summary:
+            ranked = wp3_conformance.rank_lot_use_actual_correlations(session, grade.id, row["spec_id"])
+            if ranked.empty:
+                continue
+            top3 = ranked.head(3)
+            context = _spec_context_text(row)
+            label = f"{row['property_name']} ({context})" if context != "—" else row["property_name"]
+            actual_correlation_lines.append(
+                f"{label}: "
+                + "; ".join(
+                    f"{r['raw_material_name']} (r={r['correlation']:+.3f}, n={int(r['n_runs'])} runs)"
+                    for _, r in top3.iterrows()
+                )
+            )
+        actual_correlation_summary = (
+            "\n".join(actual_correlation_lines)
+            if actual_correlation_lines
+            else "Not enough metered raw-material lot use data paired with specification outcomes yet "
+            "to correlate actual per-run dosage with outcomes."
+        )
+
+        outcome_lines = []
+        for prop, summary in property_summaries.items():
+            for _, row in summary.iterrows():
+                pass_rate_value = row["pass_rate"]
+                pass_rate_text = f"{pass_rate_value:.0%}" if pd.notna(pass_rate_value) else "—"
+                outcome_lines.append(
+                    f"{prop} — version {row['recipe_version']}: avg actual {row['avg_actual']}, "
+                    f"avg target {row['avg_target']}, pass rate {pass_rate_text}, "
+                    f"n={int(row['results'])}"
+                )
+        outcome_summary = "\n".join(outcome_lines) or "No quality test results recorded yet."
+
+        if achievement_summary:
+            achieved_lines = [
+                f"{row['property_name']} ({_spec_context_text(row)}): avg actual {row['avg_actual']}, "
+                f"specification {_spec_limit_text(row)}, achieved={row['achieved']}, "
+                f"n={row['n']} runs under this recipe ({row['n_fail']} failed)"
+                + (f" - {row['production_release']}" if row["production_release"] else "")
+                for row in achievement_summary
+            ]
+            achieved_summary = "\n".join(achieved_lines)
+        else:
+            achieved_summary = (
+                "No specifications recorded for this grade, or no quality test results recorded yet "
+                "under the current recipe."
+            )
+
+        prompt = (
+            "You are helping a technical reviewer at a rigid polyurethane foam manufacturer "
+            f"select a formulation direction for {grade.grade_name}. Below is this foam grade's "
+            "recipe version history: formulation composition, formulation cost, the most recent "
+            "version-to-version change, whether the CURRENT recipe achieves each of this grade's "
+            "own specifications (based only on production runs made under this recipe, each "
+            "judged against its own operator/limit and test method/condition/orientation/location "
+            "context), which raw material's ACTUAL metered lot consumption is statistically "
+            "associated with each specification's outcome, and quality test outcomes by version. "
+            "Use this quantified data - not just the ingredient list - as the basis of your "
+            "reasoning, plus any relevant expert notes or historical cases in the connected "
+            "knowledge base, to propose a formulation that could meet the target properties "
+            "given.\n\n"
+            "Phrase this as a recommendation for the reviewer to evaluate and confirm through "
+            "their own trial process, addressed directly to the target properties requested. "
+            "Where you rely on a specific cost, diff, or correlation figure below, refer to it "
+            "explicitly rather than restating the raw ingredient list. If a specification is "
+            "noted as not yet cleared for production release (UAT-only), say so rather than "
+            "treating it as production-approved.\n\n"
+            f"Foam grade: {grade.grade_name}\n\n"
+            f"Recipe versions and composition:\n{composition_summary}\n\n"
+            f"Formulation cost by version:\n{cost_summary}\n\n"
+            f"Most recent formulation change:\n{diff_summary}\n\n"
+            f"Does the current recipe achieve each specification (this recipe's own production "
+            f"runs only):\n{achieved_summary}\n\n"
+            f"Actual metered lot consumption vs. outcome correlations (top 3 raw materials per "
+            f"specification, per production run):\n{actual_correlation_summary}\n\n"
+            f"Quality test outcomes by version:\n{outcome_summary}\n\n"
+            f"Target properties requested:\n{target_properties.strip()}\n"
+        )
+        with st.spinner("Using PI3..."):
+            answer, interaction_log_id = ai_assistant.ask_assistant(
+                prompt, company_id=active_company_id, call_site="recipe_optimization"
+            )
+        if answer:
+            st.session_state[f"recipe_opt_ai_answer_{grade.id}"] = answer
+            st.session_state[f"recipe_opt_ai_interaction_id_{grade.id}"] = interaction_log_id
+            st.session_state.pop(f"recipe_opt_fixed_{grade.id}_saved_note_id", None)
+            st.session_state.pop(f"recipe_opt_fixed_{grade.id}_feedback_submitted", None)
+
+    ai_answer = st.session_state.get(f"recipe_opt_ai_answer_{grade.id}")
+    if ai_answer:
+        st.subheader("🤖 PI3 recommendation")
+        st.caption(
+            "Generated by PI3 from this foam grade's formulation cost, version differences, "
+            "ingredient-outcome correlations, and quality-test history, plus expert notes and "
+            "historical cases. For your technical team to evaluate and confirm before applying."
+        )
+        st.write(ai_answer)
+        render_pi3_feedback_control(
+            session, st.session_state.get(f"recipe_opt_ai_interaction_id_{grade.id}"),
+            key_prefix=f"recipe_opt_fixed_{grade.id}",
+        )
+        ro_question_label = f"PI3 formulation recommendation for {grade.grade_name}"
+        ro_dl_col, ro_save_col = st.columns([1, 1])
+        with ro_dl_col:
+            render_pi3_docx_download(
+                session,
+                plant_id,
+                key_prefix=f"recipe_opt_fixed_{grade.id}",
+                question_label=ro_question_label,
+                answer=ai_answer,
+                foam_grade_id=grade.id,
+            )
+        with ro_save_col:
+            render_save_to_expert_notes_button(
+                session,
+                key_prefix=f"recipe_opt_fixed_{grade.id}",
+                answer=ai_answer,
+                question_label=ro_question_label,
+                link_type="foam_grade",
+                entity_id=grade.id,
+                disabled=not page_usable,
+            )
+else:
     st.caption(
         "Asks PI3 to propose a reformulation direction, using the cost, version-diff, and "
         "correlation data above as its basis rather than just the ingredient list. Target "
@@ -884,22 +1120,6 @@ elif ai_assistant.is_enabled_for_plant(session, plant_id):
                 entity_id=grade.id,
                 disabled=not page_usable,
             )
-elif user["is_platform_owner"]:
-    # Only the platform owner sees why PI3 is unavailable here - a customer
-    # whose subscription/plant simply doesn't have it enabled shouldn't be
-    # shown a feature they don't know exists (see PI3 Gaps discussion,
-    # 2026-08-01: "the customer does not know that they could have this
-    # functionality").
-    if ai_assistant.availability_status(session, plant_id) == "not_configured":
-        st.caption(
-            "PI3 isn't configured for this deployment yet (missing API credentials) - contact "
-            "your administrator."
-        )
-    else:
-        st.caption(
-            "Enable PI3 connectivity for this plant (PI3 Connectivity, in Admin) to get a "
-            "formulation recommendation here."
-        )
 
 st.divider()
 render_ask_pi3_section(

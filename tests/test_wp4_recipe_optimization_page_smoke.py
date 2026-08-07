@@ -137,6 +137,16 @@ def seeded_rigid_only():
         unit="W/(m.K)", test_method="ISO 8301", condition_id=condition.id, orientation_id=orientation.id,
         location_id=location.id, tested_at=dt.date(2026, 8, 2),
     ))
+    # Enabled here (not in seeded_flexible_only) so the rigid smoke test
+    # exercises the "Ask PI3 for a formulation recommendation" branch's
+    # target-property-prefill loop (built for the rigid PI3 recommendation
+    # follow-up) instead of just the "PI3 not configured" caption. Fake
+    # OPENAI_API_KEY/PI3_VECTOR_STORE_ID secrets are set in _run_page() -
+    # this only satisfies ai_assistant.is_configured()'s presence check, it
+    # never actually calls OpenAI, since the test never clicks the "Get PI3
+    # recommendation" button (that would require a real API key/network
+    # call, which a unit-style smoke test must not depend on).
+    session.add(db.PI3AIConnectionSetting(plant_id=plant.id, pi3_ai_connectivity_enabled=True))
     session.commit()
     session.close()
     return grade.grade_name
@@ -145,6 +155,8 @@ def seeded_rigid_only():
 def _run_page():
     at = AppTest.from_file(PAGE_PATH, default_timeout=30)
     at.secrets["AUTH_DISABLED"] = True
+    at.secrets["OPENAI_API_KEY"] = "sk-test-not-a-real-key"
+    at.secrets["PI3_VECTOR_STORE_ID"] = "vs_test_not_real"
     at.run()
     return at
 
@@ -167,5 +179,19 @@ def test_page_loads_cleanly_for_rigid_grade(seeded_rigid_only):
     # Rigid branch renders spec-based language instead of the flexible tolerance caption.
     assert "GradeSpecification" not in body_text  # internal name should never leak to the UI
     assert "own specification limit" in body_text or "specification" in body_text.lower()
-    # The gated follow-up sections should show their "not yet available" captions, not crash.
-    assert "tracked WP4 follow-up" in body_text
+    # The Recipe Optimization Report and PI3 recommendation sections are no
+    # longer gated placeholders for a rigid grade (both built out - report
+    # in task #561, PI3 recommendation as a follow-up) - confirm neither
+    # leftover "not yet available" caption is still showing.
+    assert "tracked WP4 follow-up" not in body_text
+    # The PI3 recommendation section's target-property text_area should be
+    # prefilled from this grade's own specification (seeded_rigid_only sets
+    # up a Thermal conductivity spec, <= 0.030 W/(m.K)) - confirms the new
+    # rigid target-prefill loop ran without error (seeded_rigid_only also
+    # enables PI3 for this plant and _run_page() sets fake secrets so this
+    # branch is actually reached, not skipped for "PI3 not configured").
+    target_area_values = [ta.value for ta in at.text_area if ta.label == "Target properties"]
+    assert target_area_values, "Target properties text_area not found - PI3 recommendation branch didn't render"
+    assert "Thermal conductivity" in target_area_values[0]
+    assert "0.03" in target_area_values[0]
+    assert any(b.label == "Get PI3 recommendation" for b in at.button)
