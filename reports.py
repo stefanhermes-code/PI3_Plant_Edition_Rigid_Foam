@@ -221,9 +221,11 @@ from db import (
     FallplateSectionPosition,
     FoamGrade,
     FoamGradeTargetProperty,
+    GradeSpecification,
     Machine,
     OptimizationTrial,
     Plant,
+    PhysicalPropertyMethod,
     PhysicalPropertyResult,
     ProductFamily,
     ProductionEvent,
@@ -237,6 +239,7 @@ from db import (
 )
 import quality_issue_taxonomy
 from quality_standards import compute_pass_fail
+import wp3_conformance
 
 STYLES = getSampleStyleSheet()
 STYLES.add(ParagraphStyle(name="Small", parent=STYLES["Normal"], fontSize=8, leading=10))
@@ -3801,4 +3804,186 @@ def render_expert_notes_report_docx(data):
     for line in data["conclusions"]:
         p = doc.add_paragraph(style="List Bullet")
         p.add_run(line)
+    return _docx_bytes(doc)
+
+
+# ---------------------------------------------------------------------------
+# 12. WP3 Property Conformance Report (Converged Joint Implementation Plan,
+# section 7.4, Gate 2 acceptance items A6/A7 - "report displays the result,
+# limits, method, unit, condition, sample context and provenance" / "analytics
+# receive only comparable records for the selected property context").
+#
+# Follows the exact same build_data()/render_docx() pattern as every other
+# report in this file (see Batch Release Record / Sample Certificate of
+# Analysis above) - picked deliberately, per user direction 2026-08-07, to
+# reuse the flexible app's established reporting architecture rather than
+# invent a new one, since nothing about presenting a conformance verdict is
+# materially different here. The one real difference is the underlying
+# conformance model: this report's rows come from wp3_conformance.py's
+# richer per-spec matching (method/unit/condition/orientation/location-aware,
+# with EXCLUDED_CONTEXT/INVALID/NO_RESULT states - see that module) rather
+# than quality_standards.compute_pass_fail's simpler target+tolerance model
+# used by every other report on this page. Conformance/analytics data is
+# never stored (see wp3_conformance.py's module docstring) - both
+# compute_conformance_report() and compute_grade_conformance_summary() run
+# fresh every time this report is built, so a corrected specification or
+# result is reflected immediately with no separate recompute step.
+# ---------------------------------------------------------------------------
+
+def build_wp3_conformance_report_data(session, foam_grade_id, production_run_id):
+    grade = session.get(FoamGrade, foam_grade_id)
+    run = session.get(ProductionRun, production_run_id)
+    if grade is None or run is None:
+        return None
+
+    rows = wp3_conformance.compute_conformance_report(session, foam_grade_id, production_run_id=production_run_id)
+    summary = wp3_conformance.compute_grade_conformance_summary(session, foam_grade_id)
+
+    def _limit_text(spec):
+        if spec is None:
+            return "—"
+        op = spec.target_operator or "<="
+        unit = spec.unit or ""
+        if op == "between":
+            if spec.lower_limit is None or spec.upper_limit is None:
+                return "—"
+            return f"{spec.lower_limit} – {spec.upper_limit} {unit}".strip()
+        if spec.target_value is None:
+            return "—"
+        return f"{op} {spec.target_value} {unit}".strip()
+
+    conformance_rows = []
+    sample_ids_seen = set()
+    for row in rows:
+        spec = session.get(GradeSpecification, row["spec_id"]) if row.get("spec_id") else None
+        result = session.get(PhysicalPropertyResult, row["result_id"]) if row.get("result_id") else None
+        sample = result.sample if (result is not None and result.sample_id) else None
+        if sample is not None:
+            sample_ids_seen.add(sample.id)
+
+        method_code = "—"
+        if spec is not None and spec.property_method_id:
+            m = session.get(PhysicalPropertyMethod, spec.property_method_id)
+            method_code = m.method_code if m else "—"
+        elif result is not None and result.test_method:
+            method_code = result.test_method
+
+        condition_name = (
+            (spec.condition.name if spec is not None and spec.condition else None)
+            or (result.condition.name if result is not None and result.condition else None) or "—"
+        )
+        orientation_name = (
+            (spec.orientation.name if spec is not None and spec.orientation else None)
+            or (result.orientation.name if result is not None and result.orientation else None) or "—"
+        )
+        location_name = (
+            (spec.location.name if spec is not None and spec.location else None)
+            or (result.location.name if result is not None and result.location else None) or "—"
+        )
+        unit = (spec.unit if spec is not None else None) or (result.unit if result is not None else None) or "—"
+
+        note_parts = []
+        if row.get("excluded_reason"):
+            note_parts.append(row["excluded_reason"])
+        if row.get("production_release"):
+            note_parts.append(row["production_release"])
+
+        conformance_rows.append({
+            "Property": row["property_name"],
+            "Method": method_code,
+            "Unit": unit,
+            "Condition": condition_name,
+            "Orientation": orientation_name,
+            "Location": location_name,
+            "Limit / target": _limit_text(spec),
+            "Actual": row.get("actual_value"),
+            "Status": row["status"] or "—",
+            "Note": "; ".join(note_parts) or "—",
+            "Sample ID": sample.id if sample is not None else "—",
+        })
+
+    sample_rows = []
+    for sid in sorted(sample_ids_seen):
+        s = session.get(Sample, sid)
+        sample_rows.append({
+            "Sample ID": s.id,
+            "Location": s.location.name if s.location else "—",
+            "Orientation": s.orientation.name if s.orientation else "—",
+            "Thickness (mm)": s.thickness_mm,
+            "Age (hours)": s.age_hours,
+            "Sample scope": s.sample_scope or "—",
+            "Sampled": s.sample_ts,
+        })
+
+    summary_rows = [
+        {
+            "Property": s["property_name"],
+            "Pass": s["pass_count"],
+            "Fail": s["fail_count"],
+            "Total evaluated": s["total_evaluated"],
+            "Pass rate (%)": s["pass_rate_pct"],
+        }
+        for s in summary
+    ]
+
+    statuses = [r["Status"] for r in conformance_rows]
+    if not statuses:
+        overall_verdict = "No specifications recorded for this grade"
+    elif "Fail" in statuses:
+        overall_verdict = "Non-conforming"
+    elif statuses and all(s == "Pass" for s in statuses):
+        overall_verdict = "Conforming"
+    else:
+        overall_verdict = "Incomplete / excluded results present"
+
+    return {
+        "foam_grade_id": grade.id,
+        "run_id": run.id,
+        "grade_name": grade.grade_name,
+        "plant": run.plant.name if run.plant else "—",
+        "run_date": run.run_date,
+        "batch_reference": run.batch_reference or "—",
+        "machine": run.machine.name if run.machine else "—",
+        "chemistry": grade.chemistry.name if grade.chemistry else "—",
+        "production_method": grade.production_method.name if grade.production_method else "—",
+        "application": grade.application.name if grade.application else "—",
+        "construction": grade.construction.name if grade.construction else "—",
+        "grade_status": grade.status or "—",
+        "overall_verdict": overall_verdict,
+        "conformance_rows": conformance_rows,
+        "sample_rows": sample_rows,
+        "summary_rows": summary_rows,
+    }
+
+
+def render_wp3_conformance_report_docx(data):
+    doc = Document()
+    _docx_report_header(
+        doc, f"WP3 Property Conformance Report — Run #{data['run_id']}",
+        f"{data['grade_name']} · {data['plant']} · Verdict: {data['overall_verdict']}",
+    )
+    _docx_heading(doc, "Manufacturing scope", size=12, color=_HTC_GREY, space_before=6)
+    _docx_kv_table(doc, [
+        ("Chemistry", data["chemistry"]), ("Production method", data["production_method"]),
+        ("Application", data["application"]), ("Construction", data["construction"]),
+        ("Grade status", data["grade_status"]),
+    ])
+
+    _docx_heading(doc, "Run", size=12, color=_HTC_GREY, space_before=10)
+    _docx_kv_table(doc, [
+        ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
+        ("Machine", data["machine"]), ("Foam grade", data["grade_name"]),
+    ])
+
+    _docx_section(doc, "Conformance results", data["conformance_rows"])
+    _docx_section(doc, "Sample provenance", data["sample_rows"])
+    _docx_section(doc, "Analytics — pass rate by property (all runs on this grade)", data["summary_rows"])
+
+    note = doc.add_paragraph(
+        "Conformance is computed live from the current grade specification and physical property "
+        "results each time this report is generated (see wp3_conformance.py) - it is never stored, "
+        "so correcting a specification or a result takes effect immediately on the next report."
+    )
+    note.runs[0].italic = True
+    note.runs[0].font.size = Pt(8.5)
     return _docx_bytes(doc)

@@ -182,6 +182,38 @@ from a live screenshot. Now reads "PI3 — Rigid Foam Intelligence" /
 "Rigid foam expert system". Also fixed the matching page_title (browser
 tab) and the same stale subtitle on the report cover page in
 reports.py.
+
+2026-08-07 (later still): closed Gate 2 acceptance items A6/A7 (WP3
+"report displays the result, limits, method, unit, condition, sample
+context and provenance" / "analytics receive only comparable records
+for the selected property context") - the one piece of engineering that
+remained open on WP3. Per Stefan's direction to reuse the flexible app's
+established reporting architecture wherever nothing about this report is
+materially different: added a 5th report type, "WP3 Property Conformance
+Report", to the Report page (21), following the exact same
+build_data()/render_docx()/download_button pattern as every other report
+in reports.py (see Batch Release Record / Sample Certificate of
+Analysis). Pick a rigid-foam grade and one of its production runs; the
+report shows every grade specification matched against that run's
+physical property results - property, method, unit, test condition,
+orientation, location, limit/target, actual value, and a live-computed
+Pass/Fail/EXCLUDED_CONTEXT/INVALID/NO_RESULT status (from
+wp3_conformance.compute_conformance_report(), unchanged) - plus sample
+provenance (location/orientation/thickness/age) and a pass-rate-by-
+property analytics summary across every run on that grade (from
+wp3_conformance.compute_grade_conformance_summary(), also unchanged).
+Both stay live-computed, never stored, matching wp3_conformance.py's
+existing "no ConformanceEvaluation/AnalyticsRecord table" decision - a
+corrected specification or result is reflected on the very next report,
+with no separate recompute step. Verified end-to-end against a seeded
+local SQLite chain (grade/spec/run/sample/result matching the real
+Supabase UAT-01 scenario - 0.023 W/(m.K) actual against a 0.024 upper
+limit, UAT-only grade): build_wp3_conformance_report_data() correctly
+returns "Conforming" with the right method/unit/condition/orientation/
+limit/actual/status/UAT_PASS_NO_RELEASE note, and the rendered Word
+document was visually confirmed to show all of it correctly laid out.
+Gate 2's only remaining item is A10 (sign-off) - not engineering work,
+tracked separately.
 """
 
-APP_VERSION = "0.3.5"
+APP_VERSION = "0.4.0"

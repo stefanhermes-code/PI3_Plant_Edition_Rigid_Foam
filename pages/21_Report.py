@@ -6,10 +6,12 @@ Approval - see pages/10_PI3_AI_Connectivity.py). This screen was the gap:
 it did not exist as a dedicated page before. Not gated behind PI3
 connectivity - every logged-in user can generate these.
 
-Four report types, each with an in-app preview plus a Word
+Five report types, each with an in-app preview plus a Word
 download button: Batch Release / Conformance Record, Plant / Period
-Summary Report, Trial Closeout Report, and Sample Certificate of Analysis
-(added 2026-08-04). All data assembly and file rendering lives in
+Summary Report, Trial Closeout Report, Sample Certificate of Analysis
+(added 2026-08-04), and WP3 Property Conformance Report (added
+2026-08-07 - Converged Joint Implementation Plan section 7.4, Gate 2
+items A6/A7). All data assembly and file rendering lives in
 reports.py; this page is just selectors + st.download_button wiring.
 
 Batch Release / Conformance Record lives here (rather than on the
@@ -33,6 +35,7 @@ from auth import current_user, logout_button, require_login
 from db import (
     CustomerTrial,
     FoamGrade,
+    GradeSpecification,
     OptimizationTrial,
     Plant,
     ProductFamily,
@@ -61,18 +64,21 @@ logout_button()
 st.title("Report")
 render_function_action_intro(
     function_text=(
-        "Generates four standard report types - one production run's conformance record, a "
-        "plant/period summary, a closed trial's formal writeup, or one sample's certificate of "
-        "analysis - each with an in-app preview plus Word download. Every logged-in user "
-        "can generate these; it's not gated behind PI3 connectivity."
+        "Generates five standard report types - one production run's conformance record, a "
+        "plant/period summary, a closed trial's formal writeup, one sample's certificate of "
+        "analysis, or one WP3 rigid-foam property's full conformance/analytics record - each "
+        "with an in-app preview plus Word download. Every logged-in user can generate these; "
+        "it's not gated behind PI3 connectivity."
     ),
     action_text=(
-        "Pick the tab for the report you need, select the run, plant/period, trial, or sample it "
-        "should cover, and preview it before downloading. Use the Batch Release / Conformance "
-        "Record to see whether a single batch met spec (and what else was going on if it didn't), "
-        "the Plant/Period Summary for a broader review across a date range, the Trial Closeout "
-        "Report once a customer or optimization trial is formally closed, and the Sample "
-        "Certificate of Analysis for one sample's full result-and-recipe traceability."
+        "Pick the tab for the report you need, select the run, plant/period, trial, sample, or "
+        "grade+run it should cover, and preview it before downloading. Use the Batch Release / "
+        "Conformance Record to see whether a single batch met spec (and what else was going on "
+        "if it didn't), the Plant/Period Summary for a broader review across a date range, the "
+        "Trial Closeout Report once a customer or optimization trial is formally closed, the "
+        "Sample Certificate of Analysis for one sample's full result-and-recipe traceability, "
+        "and the WP3 Property Conformance Report for a rigid-foam grade specification's full "
+        "method/unit/condition/orientation-aware verdict against one production run."
     ),
 )
 session = get_session()
@@ -87,9 +93,9 @@ scoped_run_ids = run_ids_for_company(session, active_company_id)
 scoped_customer_trial_ids = customer_trial_ids_for_company(session, active_company_id)
 scoped_optimization_trial_ids = optimization_trial_ids_for_company(session, active_company_id)
 
-tab_run, tab_period, tab_trial, tab_sample = st.tabs(
+tab_run, tab_period, tab_trial, tab_sample, tab_wp3 = st.tabs(
     ["Batch Release / Conformance Record", "Plant / Period Summary", "Trial Closeout Report",
-     "Sample Certificate of Analysis"]
+     "Sample Certificate of Analysis", "WP3 Property Conformance Report"]
 )
 
 # ---------------------------------------------------------------------------
@@ -367,3 +373,79 @@ with tab_sample:
             on_click=log_export_click, args=("sample_certificate_docx",),
             kwargs={"description": f"Sample #{data['sample_id']}"},
         )
+
+# ---------------------------------------------------------------------------
+# 5. WP3 Property Conformance Report (Converged Joint Implementation Plan,
+# section 7.4, Gate 2 items A6/A7). Grade + production run is a single
+# simple choice - same placement logic as the other four reports on this
+# page. Reuses the same build_data()/render_docx()/download_button pattern
+# as Batch Release Record and Sample Certificate of Analysis above, per
+# user direction 2026-08-07 to follow the flexible app's established
+# reporting architecture rather than invent a new one.
+# ---------------------------------------------------------------------------
+with tab_wp3:
+    st.caption(
+        "Every grade specification for a rigid-foam grade, matched against that grade's physical "
+        "property results for one production run - method, unit, condition, orientation, sample "
+        "context, and a live-computed Pass/Fail/Excluded/Invalid verdict, plus this grade's pass "
+        "rate across all runs recorded so far."
+    )
+    grades_with_specs = (
+        apply_scope(
+            session.query(FoamGrade).join(ProductFamily, FoamGrade.product_family_id == ProductFamily.id),
+            ProductFamily.id, scoped_family_ids,
+        )
+        .join(GradeSpecification, GradeSpecification.foam_grade_id == FoamGrade.id)
+        .distinct()
+        .order_by(FoamGrade.grade_name)
+        .all()
+    )
+    if not grades_with_specs:
+        st.info("No foam grade has any grade specification recorded yet.")
+    else:
+        wp3_grade = st.selectbox(
+            "Foam grade", grades_with_specs, format_func=lambda g: g.grade_name, key="report_wp3_grade",
+        )
+        wp3_runs = (
+            apply_scope(
+                session.query(ProductionRun).filter(ProductionRun.foam_grade_id == wp3_grade.id),
+                ProductionRun.id, scoped_run_ids,
+            )
+            .order_by(ProductionRun.run_date.desc())
+            .all()
+        )
+        if not wp3_runs:
+            st.info("No production runs recorded yet for this grade.")
+        else:
+            wp3_run = st.selectbox(
+                "Production run", wp3_runs,
+                format_func=lambda r: f"Run #{r.id} — {r.run_date} · {r.batch_reference or 'no batch ref'}",
+                key="report_wp3_run",
+            )
+            data = reports.build_wp3_conformance_report_data(session, wp3_grade.id, wp3_run.id)
+
+            st.subheader(f"Run #{data['run_id']} — {data['grade_name']}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Verdict", data["overall_verdict"])
+            c2.metric("Plant", data["plant"])
+            c3.metric("Machine", data["machine"])
+            st.write(
+                f"**Chemistry:** {data['chemistry']} · **Production method:** {data['production_method']} · "
+                f"**Application:** {data['application']} · **Construction:** {data['construction']}"
+            )
+
+            st.write("**Conformance results**")
+            render_data_table(pd.DataFrame(data["conformance_rows"] or [{"—": "No specifications recorded"}]))
+            st.write("**Sample provenance**")
+            render_data_table(pd.DataFrame(data["sample_rows"] or [{"—": "No samples recorded"}]))
+            st.write("**Analytics — pass rate by property (all runs on this grade)**")
+            render_data_table(pd.DataFrame(data["summary_rows"] or [{"—": "No evaluated results yet"}]))
+
+            st.download_button(
+                "Download Word", data=reports.render_wp3_conformance_report_docx(data),
+                file_name=f"run_{data['run_id']}_wp3_conformance_report.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="wp3_conformance_docx",
+                on_click=log_export_click, args=("wp3_conformance_report_docx",),
+                kwargs={"description": f"Run #{data['run_id']} · {data['grade_name']}"},
+            )
