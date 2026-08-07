@@ -369,6 +369,70 @@ nullable columns and net-new tables, nothing existing was altered. No
 dedicated UI pages ship in this batch (flagged above); Waves 2-5 remain
 unstarted pending check-in, per the plan's wave-handover rule and
 Stefan's explicit sequencing instruction.
+
+2026-08-07 (later still, WP5 Wave 2 - "Expanded properties, methods,
+conditions, specifications and sample locations"; workbook sheets 08-12
+only, per 01_Wave_Control - sample locations (13_Sample_Locations)
+actually belongs to Wave 3, corrected from an earlier assumption before
+any schema was written): per the wave's own JC_Engineering_Action
+("Extend generic property model and UI"), extended the existing WP3
+controlled-vocabulary tables rather than adding parallel new ones -
+PhysicalPropertyDefinition (+default_uom, scope, allowed_target_type,
+mandatory_context, source_ids, phase_status), PhysicalPropertyMethod
+(+standard_reference, method_category, applicable_property_ids,
+implementation_rule, source_id; property_definition_id relaxed to
+nullable so MTH-090/MTH-099's "Multiple"-property generic methods have
+somewhere to live), TestCondition (+condition_category, required_fields,
+data_rule, source_ids), UnitOfMeasure (+unit_system, data_rule). One new
+table: GradeSpecificationTemplate (12_Grade_Spec_Templates) - a reusable
+spec *pattern* (property + method + condition(s) + orientation + scope),
+deliberately separate from GradeSpecification since Charlie's own
+governance note states templates carry no operational limit unless
+approved; multi-condition fields stored as flat semicolon text rather
+than a join table, same "abstain, don't over-engineer" call as Wave 1.
+Seeded all of Wave 2's actual content: 6 new UOM rows (08), the full
+56-row property master (09, one row - PROP-005/Thermal conductivity -
+upserted onto the existing WP3 row rather than duplicated), the full
+35-row test method master (10, one row - MTH-016 - upserted the same
+way), the full 23-row test condition master (11), and all 15 grade
+specification templates (12). Three real data-quality issues found in
+Charlie's workbook during seeding, each fixed and explicitly flagged
+(same practice as WP3's self-flagged RMC-120 and JC-found
+ORI-THERM-THROUGH-THICKNESS) rather than silently propagated or dropped:
+(1) an ID collision - COND-020 is defined twice in 11_Test_Conditions,
+once as "Dimensional stability exposure" (Aging) and once as "Mean test
+temperature 10 degC" (Thermal test); seeded the first under COND-020 and
+the second under a provisional COND-020-THERM10, matching the
+ORI-THERM-THROUGH-THICKNESS precedent for an undeclared-but-needed
+vocabulary term. (2) GST-001/GST-002/UAT-GST-001 all cite
+Property_ID=PROP-015 and/or Method_ID=MTH-015 (a dimensional-stability
+property and a water-absorption method) despite being named and
+unit-typed ("W/(m.K)") as thermal-conductivity templates - corrected to
+PROP-005/MTH-016 (initial) and PROP-037/MTH-028 (aged); the corrected
+COND-020-THERM10 mapping from issue (1) confirms this reading, since
+UAT-GST-001's corrected condition set (COND-003 + COND-020-THERM10) now
+matches its own name, "UAT initial lambda at 10 degC", exactly. (3)
+GST-006/UAT-GST-004 cite Method_ID=MTH-018 (a thermal method) for a
+closed-cell-content property - corrected to MTH-012; GST-007/UAT-GST-005
+cite Property_ID=PROP-021 (water absorption by mass) for a template
+governed as "dimensional change" - corrected to PROP-015 (length change,
+the representative axis; the sheet's own governance note already states
+each axis remains a separate result). Every correction is recorded in
+that template row's own governance_note column, not just here, so it
+survives independently of this changelog. All three findings are Charlie
+confirmation items, not yet resolved with him. Verified via py_compile,
+a live local SQLite init_db() pass before touching Supabase, and
+afterward via information_schema/row-count/FK-null checks against the
+real rigid_foam schema (56 properties, 35 methods, 23 conditions, 15
+templates, zero unresolved FKs). Full regression suite (same list as
+Wave 1, plus both AppTest page-smoke cases in the established
+one-test-per-fresh-SQLite-file isolation) passes unchanged - Wave 2 only
+added nullable columns and one net-new table. No dedicated UI surfaces
+these new fields yet (flagged, not silently skipped, same as Wave 1's
+deferred capture UIs). Wave 3 (quality issues, possible causes and
+hypothesis links; workbook sheets 13-15) remains unstarted pending
+check-in, per the plan's wave-handover rule and Stefan's explicit
+"wave-by-wave" sequencing instruction.
 """
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"

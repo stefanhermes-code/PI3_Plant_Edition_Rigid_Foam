@@ -1291,18 +1291,48 @@ class PhysicalPropertyDefinition(Base):
     # for rigid-foam properties (e.g. "PROP-005" for thermal conductivity).
     # Flexible-foam's existing 84 property rows have none and are unaffected.
     controlled_id = Column(String(50), unique=True)
+    # --- WP5 Wave 2 additions (2026-08-07, 09_Property_Master). All nullable -
+    # existing rows (flexible + WP3 rigid) are unaffected. "Extend generic
+    # property model" per the wave's own JC_Engineering_Action, rather than a
+    # separate PropertyMaster table, since PhysicalPropertyDefinition already
+    # is that master and every page already queries it by property_definition_id.
+    default_uom = Column(String(50))  # e.g. "kg/m3"
+    scope = Column(String(300))  # e.g. "Core or finished product"
+    allowed_target_type = Column(String(100))  # e.g. "Nominal/Range", "Minimum/Range" - free text, values vary per property
+    mandatory_context = Column(Text)  # what must be recorded alongside a result for this property to be interpretable
+    source_ids = Column(String(300))  # semicolon-separated SRC-* controlled IDs, e.g. "SRC-ISO-845;SRC-ASTM-D1622"
+    phase_status = Column(String(50))  # e.g. "Phase 1", "Phase 1 conditional", "Conditional market-specific"
 
 
 class PhysicalPropertyMethod(Base):
     __tablename__ = "physical_property_methods"
 
     id = Column(Integer, primary_key=True)
-    property_definition_id = Column(Integer, ForeignKey("physical_property_definitions.id"), nullable=False)
+    # --- WP5 Wave 2 (2026-08-07): relaxed from nullable=False. A handful of
+    # WP5 methods (MTH-090 "Internal validated method", MTH-099
+    # "Customer-specified method") apply broadly across "Multiple" properties
+    # rather than one specific property - existing rows all still set this,
+    # so no data migration needed.
+    property_definition_id = Column(Integer, ForeignKey("physical_property_definitions.id"))
     method_code = Column(String(300), nullable=False)  # e.g. "ASTM D3574 Test A"
     sort_order = Column(Integer)
     # --- WP3 addition (2026-08-06). Nullable: Charlie's MTH-* controlled ID
     # (e.g. "MTH-016").
     controlled_id = Column(String(50), unique=True)
+    # --- WP5 Wave 2 additions (2026-08-07, 10_Test_Methods). All nullable.
+    # Mirrors RMA-025/026's "one primary plus multiple secondary" precedent:
+    # property_definition_id above stays the single primary property this
+    # method row is queried against (unchanged existing pattern - one row per
+    # method, e.g. MTH-003 keyed to PROP-007), while applicable_property_ids
+    # preserves the workbook's full "this method also covers..." list as
+    # traceable text rather than fragmenting one method into several rows.
+    standard_reference = Column(String(200))  # e.g. "ISO 844:2026", distinct from the descriptive method_code/name
+    method_category = Column(String(100))  # e.g. "Compression", "Thermal", "Fire"
+    applicable_property_ids = Column(String(300))  # semicolon-separated PROP-* IDs, full list from the workbook
+    implementation_rule = Column(Text)
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+
+    source = relationship("SourceRegister")
 
 
 class PhysicalPropertyUOM(Base):
@@ -1850,6 +1880,12 @@ class TestCondition(Base):
     duration_days = Column(Float)
     description = Column(Text)
     sort_order = Column(Integer)
+    # --- WP5 Wave 2 additions (2026-08-07, 11_Test_Conditions). All nullable -
+    # existing WP3 condition rows (e.g. CTX-THERM-INIT-10C-7D) are unaffected.
+    condition_category = Column(String(100))  # e.g. "Conditioning", "Test age", "Orientation", "Specimen scope"
+    required_fields = Column(String(300))  # semicolon-separated field names this condition must be recorded with
+    data_rule = Column(Text)
+    source_ids = Column(String(300))  # semicolon-separated SRC-* controlled IDs
 
 
 class RawMaterialCategory(Base):
@@ -1885,6 +1921,10 @@ class UnitOfMeasure(Base):
     name = Column(String(200))  # e.g. "Watts per metre-Kelvin"
     quantity_type = Column(String(100))  # e.g. "Thermal conductivity", "Density"
     sort_order = Column(Integer)
+    # --- WP5 Wave 2 additions (2026-08-07, 08_UOM_Additions). Nullable -
+    # existing WP2/WP3 UOM rows are unaffected.
+    unit_system = Column(String(50))  # e.g. "SI", "SI derived", "Operational"
+    data_rule = Column(Text)
 
 
 class SourceRegister(Base):
@@ -2234,6 +2274,52 @@ class GradeSpecification(Base):
 
 
 # ---------------------------------------------------------------------------
+# WP5 Wave 2 addition (2026-08-07, 12_Grade_Spec_Templates)
+#
+# A reusable specification *pattern* (property + method + condition(s) +
+# orientation + scope), deliberately separate from GradeSpecification (which
+# is always tied to one real foam_grade_id and carries an operational limit).
+# Per Charlie's own package note - "Templates contain no operational limit
+# unless approved" - most template rows here have no lower/upper limit at
+# all (limit is filled in only when a real grade adopts the template); the
+# few that do (UAT-GST-*) are explicitly-flagged synthetic software-test
+# thresholds, not approved product specifications. No foam_grade_id on this
+# table by design - turning a template into a real spec means creating a
+# GradeSpecification row, not linking to this one.
+#
+# Condition_IDs in the workbook can list more than one condition at once
+# (e.g. "COND-002;COND-020" - both an aging condition and a test-temperature
+# condition apply together) - stored as flat semicolon text rather than a
+# join table, since nothing in the app yet reads/enforces multi-condition
+# combinations (same "abstain, don't over-engineer" call as Wave 1's
+# blowing_agent_system/approved_recipe_scope text fields).
+# ---------------------------------------------------------------------------
+class GradeSpecificationTemplate(Base):
+    __tablename__ = "grade_specification_templates"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "GST-001", "UAT-GST-001"
+    name = Column(String(300), nullable=False)
+    property_definition_id = Column(Integer, ForeignKey("physical_property_definitions.id"))
+    target_type = Column(String(50))  # e.g. "MAXIMUM", "MINIMUM", "RANGE", "MAX_ABSOLUTE" - broader vocabulary than GRADE_SPEC_OPERATORS, kept separate deliberately
+    nominal_value = Column(Float)
+    lower_limit = Column(Float)
+    upper_limit = Column(Float)
+    unit = Column(String(50))
+    property_method_id = Column(Integer, ForeignKey("physical_property_methods.id"))
+    condition_ids_text = Column(String(200))  # semicolon-separated CTX/COND controlled IDs - see class docstring
+    orientation_id = Column(Integer, ForeignKey("orientations.id"))
+    specimen_or_product_scope = Column(String(300))
+    status = Column(String(50))  # "Template" or "Synthetic UAT"
+    governance_note = Column(Text)
+    sort_order = Column(Integer)
+
+    property_definition = relationship("PhysicalPropertyDefinition")
+    property_method = relationship("PhysicalPropertyMethod")
+    orientation = relationship("Orientation")
+
+
+# ---------------------------------------------------------------------------
 # WP3e. Cycle / shot + output item (task list #547, #548)
 #
 # Rigid discontinuous-panel/closed-mold production runs in discrete cycles
@@ -2462,6 +2548,8 @@ ALL_MODELS = [
     RawMaterialDocument,
     RawMaterialQualification,
     Substrate,
+    # --- WP5 Wave 2 addition (2026-08-07) ---
+    GradeSpecificationTemplate,
 ]
 
 
