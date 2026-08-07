@@ -536,6 +536,13 @@ disconnected bibliography rather than real traceability value. Full
 regression suite (10 pytest files, including both Recipe Optimization
 page-smoke tests run in isolation per the established shared-SQLite-file
 convention) passes unchanged.
+
+v0.10.0 -> v0.10.1 (2026-08-07): browser-tab favicon fix. Both this app
+and the flexible-foam app shared the same page_icon (test tube emoji) in
+st.set_page_config(), so their browser tabs looked identical when both
+were open. Changed this app's page_icon to a building/construction emoji,
+per Stefan's request, to make the two tabs visually distinct. UI-only
+change, no schema/data impact.
 """
 
-APP_VERSION = "0.10.0"
+APP_VERSION = "0.10.1"

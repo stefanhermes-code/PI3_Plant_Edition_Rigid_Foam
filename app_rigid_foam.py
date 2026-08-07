@@ -44,7 +44,7 @@ from version import APP_VERSION
 
 LOGO_PATH = "assets/htc_global_logo_blue_steel.png"
 
-st.set_page_config(page_title="PI3 - Rigid Foam Intelligence", page_icon="🧪", layout="wide")
+st.set_page_config(page_title="PI3 - Rigid Foam Intelligence", page_icon="🏗️", layout="wide")
 
 # Light styling on top of the .streamlit/config.toml color theme.
 st.markdown(
