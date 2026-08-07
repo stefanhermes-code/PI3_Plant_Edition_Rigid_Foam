@@ -1936,20 +1936,43 @@ class MachineModel(Base):
     manufacturer_country = Column(String(100))
 
     # --- Process applicability ---
-    rigid_foam_process = Column(Boolean)
+    # rigid_foam_process was originally typed Boolean in the schema-only pass
+    # (2026-08-07) on the assumption it was a yes/no flag. Charlie's Wave 1
+    # research package (2026-08-07) actually populates it with a specific
+    # process-category description per row (e.g. "Sandwich panels",
+    # "Refrigeration appliances", "Spray polyurethane foam") - this is a
+    # schema design gap on JC's side, not a Charlie content error, so it is
+    # corrected here directly rather than raised as a findings-doc item.
+    rigid_foam_process = Column(String(300))
     pur_pir = Column(String(50))
     application = Column(String(200))
     continuous_discontinuous = Column(String(50))
     high_low_pressure = Column(String(50))
-    component_count = Column(Integer)
+    # component_count is String, not Integer: Charlie's Wave 1 research
+    # (2026-08-07) includes qualifier values like "2+" (Cannon Afros mixhead
+    # rows) alongside clean integers - preserved verbatim rather than
+    # truncated to a number. maximum_components stays Integer since every
+    # populated value in this wave is a clean whole number.
+    component_count = Column(String(20))
     maximum_components = Column(Integer)
 
     # --- Capacity and operating design ---
     nominal_output_kg_min = Column(Float)
     minimum_output_kg_min = Column(Float)
     maximum_output_kg_min = Column(Float)
-    mixing_pressure_bar = Column(Float)
-    tank_capacity_l = Column(Float)
+    # --- Charlie Wave 1 research import addition (2026-08-07). Some source
+    # documents state output as a range or in a unit other than kg/min (e.g.
+    # Cannon LN5's "20-140 cc/s total") - these two fields preserve the
+    # manufacturer's own stated figure verbatim instead of forcing a lossy
+    # conversion into nominal/minimum/maximum_output_kg_min.
+    source_output_value = Column(String(100))
+    source_output_uom = Column(String(100))
+    # mixing_pressure_bar and tank_capacity_l are String, not Float, for the
+    # same reason as component_count above: Charlie's Wave 1 data includes
+    # ranges ("100-200" bar, "40/60" L for a dual-tank system) that a Float
+    # column would either reject or silently truncate.
+    mixing_pressure_bar = Column(String(50))
+    tank_capacity_l = Column(String(50))
     temperature_range_c = Column(String(100))
     mixing_head_type = Column(String(200))
 
@@ -1998,6 +2021,14 @@ class MachineModel(Base):
     manual_url = Column(String(500))
     brochure_url = Column(String(500))
     source_verified_date = Column(Date)
+    # --- Charlie Wave 1 research import addition (2026-08-07). Free text,
+    # not an enum - Charlie's own research package uses varied phrasing
+    # here ("Verified", "Verified product; APAC local support unverified",
+    # "Verified family names; model-level rigid data incomplete") to convey
+    # how complete/certain a given row's research is, distinct from
+    # availability_confidence (which is specifically about APAC evidence
+    # strength, not general research completeness).
+    research_status = Column(Text)
     notes = Column(Text)
 
     machine_category = relationship("MachineCategory")

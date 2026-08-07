@@ -490,6 +490,52 @@ information_schema (8 new tables present, machines table now 71 columns,
 additions only, nothing existing altered. No manufacturer/model data
 populated, no UI pages built - both explicitly paused pending Stefan's
 scope/ownership decision on the research task.
+
+v0.9.0 -> v0.10.0 (2026-08-07): Machine Data - imported Charlie's Wave 1
+research package (PI3_Rigid_Foam_Machine_Knowledge_Master_Charlie_Research_
+v1.xlsx, 64 machine/model records across 9 manufacturers), following the
+ownership split confirmed in the v2 "Ownership Corrected" design doc
+(section 12A - Charlie owns research/population, JC owns schema/import/
+QA). Three schema-typing gaps found while mapping the real data (JC's own
+design choices, not Charlie content errors) were fixed directly: added
+source_output_value/source_output_uom (Text) and research_status (Text)
+columns to MachineModel to hold fields the research package carries that
+the schema-only pass hadn't anticipated; retyped rigid_foam_process from
+Boolean to String (the research data populates it with a process
+category per row, e.g. "Sandwich panels", not a yes/no flag); retyped
+component_count, mixing_pressure_bar and tank_capacity_l from
+Integer/Float to String (several manufacturers state these as ranges -
+"2+", "100-200" bar, "40/60" L for a dual-tank system - which numeric
+columns would reject or truncate). Applied as two Supabase migrations
+("machine_model_research_import_fields" and
+"machine_model_retype_range_fields"). Imported all 64 rows into
+rigid_foam.machine_models. JC's own QA per the design doc's Deliverable
+10 wording (duplicate-ID, orphan-link, missing-mandatory-field, invalid-
+enum, load-error, source-field-completeness checks) found: 0 duplicate
+IDs, 0 orphan category links, 0 missing mandatory fields, 0 rows missing
+manufacturer_url/product_page_url/availability_evidence_url/source_
+verified_date, and two real content inconsistencies against Charlie's own
+controlled vocabularies - (1) one row (HEN-VACUMAT) uses Machine_Category
+"Raw-material conditioning", which matched none of the 17 originally
+seeded categories, loaded against a new provisional MCAT-18 row of the
+same name; (2) 13 rows (all four Zhejiang Lingxin, all three Dongguan
+Junying, all six Zhejiang Henghui models) use APAC_Availability_Status
+"Confirmed manufacturer in APAC", which is not one of the design doc's
+six documented enum values - loaded verbatim rather than force-mapped.
+Both issues recorded directly on the affected rows' own notes field and
+raised to Charlie via a dedicated findings document (per Stefan's
+standing instruction to always produce a written findings doc for this
+class of issue, not just a changelog/chat note) -
+PI3_Rigid_Foam_Edition_Machine_Data_Findings.docx. Charlie's own
+Source_Register sheet (47 bibliography rows) was reviewed but not
+imported into the app's SourceRegister table - no column in the Machine_
+Knowledge_Master sheet cross-references a Source_ID, and every machine
+row already carries its own manufacturer_url/product_page_url/
+availability_evidence_url, so importing it would have added a parallel,
+disconnected bibliography rather than real traceability value. Full
+regression suite (10 pytest files, including both Recipe Optimization
+page-smoke tests run in isolation per the established shared-SQLite-file
+convention) passes unchanged.
 """
 
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.10.0"
