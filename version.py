@@ -310,6 +310,65 @@ exercises the new target-prefill loop and asserts the prefilled
 Thermal-conductivity specification text and the "Get PI3 recommendation"
 button render - without ever clicking that button, since doing so would
 require a real OpenAI call. All tests pass.
+
+2026-08-07 (later still, WP5 Wave 1 - Converged Joint Implementation Plan
+section 7.6, "Scale-out technical content and knowledge library"): began
+WP5 per Stefan's "wave-by-wave, as specified" instruction - Wave 1 only
+(raw-material control, recipe control, facers/substrates; WP5 workbook
+sheets 02-07), Waves 2-5 not started. Schema additions in db.py: 5 new
+tables - RawMaterialAttributeDefinition/RawMaterialAttributeValue (EAV
+pair, mirroring the existing ProcessSettingDefinition/ProcessParameterValue
+pattern), RawMaterialDocument (TDS/SDS/specification revisions),
+RawMaterialQualification (recipe/process approval scope, substitution
+group), and Substrate (facer/substrate master, linked from
+ProductConstruction via new top_facer_substrate_id/bottom_facer_
+substrate_id FKs). Plus new nullable columns: RawMaterialLot
+(manufacture_date, country_of_origin), RawMaterial (8 columns -
+manufacturing site, storage temp range, recirculation/agitation
+requirements, moisture sensitivity, flammability handling class,
+technical validation note), RecipeVersion (8 columns - target A:B mass
+ratio, blowing agent system, target free-rise/molded-core density,
+processing window reference, plant validation/safety review status,
+technical approver), RecipeComponent (16 columns - stream assignment,
+dosage tolerances, reactive-hydrogen/NCO-equivalent flags and sources,
+premix group, addition sequence, blend temperature window, mixing/aging
+instruction, substitution allowance/group, provenance class, source
+location, release note). Three deliberate scoping decisions, each
+following existing project conventions rather than over-building: (a)
+reused the existing approval_status/validation_status pair on
+RecipeVersion instead of adding a third recipe_status column (RHF-003) -
+same "no parallel/overlapping status fields" lesson as before; (b)
+deferred RecipeVersion.reference_formulation_id (RHF-014's target table,
+ReferenceFormulation, belongs to Wave 4, not built yet) and a full
+ProcessingWindow entity (RHF-015; a text field for now, same
+add-later-if-needed precedent as the Supplier model) - both explicitly
+flagged, not silently dropped; (c) scoped Wave 1 JC engineering to
+schema + migration + seed + tests only, per the plan's own "implement
+entities, relationships, validation and import" language for this wave -
+dedicated CRUD/workflow UI pages (qualification-status management,
+document tracking, dosage-tolerance capture) are flagged follow-up work,
+not built here, mirroring the WP4 RawMaterialLotUse.mass_kg capture-UI
+gap. Verified via py_compile and a live local SQLite init_db() pass
+before touching Supabase. Applied to the real rigid_foam schema as two
+migrations: "wp5_wave1_rm_documents_qualification_attributes_facers" (the
+5 new tables plus all ~34 new columns, RLS enabled on all 5 new tables
+matching every other rigid_foam table's posture) and
+"wp5_wave1_seed_rm_categories_attributes_substrates" (WP5's actual
+controlled-vocabulary content: 20 new raw-material categories from
+02_RM_Categories, the full 60-row raw-material attribute dictionary from
+03_RM_Attributes into the new RawMaterialAttributeDefinition table, and
+the full 20-row facer/substrate master from 07_Facers_Substrates into the
+new Substrate table) - both verified afterward by re-querying
+information_schema and row counts. Full regression suite
+(test_recipe_optimization_baseline.py, test_wp4_rigid_achievement_
+summary.py, test_wp4_rigid_lot_use_correlation.py, test_wp4_rigid_recipe_
+optimization_report.py, test_wp4_unit_conversion.py, and both AppTest
+page-smoke cases run in the established one-test-per-fresh-SQLite-file
+isolation) still passes with no changes needed - Wave 1 only added
+nullable columns and net-new tables, nothing existing was altered. No
+dedicated UI pages ship in this batch (flagged above); Waves 2-5 remain
+unstarted pending check-in, per the plan's wave-handover rule and
+Stefan's explicit sequencing instruction.
 """
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"

@@ -594,6 +594,34 @@ class RecipeVersion(Base):
     production_use_rule = Column(Text)
     source_id = Column(Integer, ForeignKey("source_registers.id"))
 
+    # --- WP5 Wave 1 additions (2026-08-07, Converged Joint Implementation
+    # Plan section 7.6, workbook sheet 05_Recipe_Header_Fields). All
+    # nullable. Deliberately NOT added: RHF-003 "Recipe status" (Draft/
+    # Reference/UAT/Trial/Approved/Retired) - this app already carries two
+    # status fields covering that ground from WP3 (approval_status for the
+    # Draft/Review/Approved/Rejected workflow, validation_status for the
+    # reference/UAT-locked-content question), and this project has been
+    # burned before by parallel status fields with unclear precedence (see
+    # the "pass/fail must be live-computed, never stored" lesson elsewhere
+    # in this schema's history) - a third overlapping status column would
+    # repeat that mistake. RHF-003's states map onto that existing pair
+    # instead. Also deliberately NOT added: RHF-015 "Reference formulation
+    # ID" (the target ReferenceFormulation table is WP5 Wave 4's own
+    # deliverable, not issued yet - adding a FK to a table that doesn't
+    # exist yet would be premature) and RHF-014 "Approved processing window
+    # ID" as a real linked entity (no ProcessingWindow table exists; a
+    # free-text reference is recorded instead for now, same "add the real
+    # entity later only if a real need shows up" precedent as the Supplier
+    # model's own docstring).
+    target_ab_mass_ratio = Column(Float)  # RHF-010
+    blowing_agent_system = Column(String(300))  # RHF-011, e.g. "Water, Cyclopentane" - free text list
+    target_free_rise_density_kgm3 = Column(Float)  # RHF-012
+    target_molded_core_density_kgm3 = Column(Float)  # RHF-013
+    processing_window_reference = Column(Text)  # RHF-014, text reference (see docstring above)
+    plant_validation_status = Column(String(100))  # RHF-016
+    safety_review_status = Column(String(100))  # RHF-017
+    technical_approver = Column(String(200))  # RHF-018
+
     foam_grade = relationship("FoamGrade", back_populates="recipe_versions")
     components = relationship("RecipeComponent", back_populates="recipe_version")
     production_runs = relationship("ProductionRun", back_populates="recipe_version")
@@ -666,6 +694,24 @@ class RawMaterial(Base):
     category_id = Column(Integer, ForeignKey("raw_material_categories.id"))
     source_id = Column(Integer, ForeignKey("source_registers.id"))
 
+    # --- WP5 Wave 1 additions (2026-08-07, Converged Joint Implementation
+    # Plan section 7.6, workbook sheet 04_RM_Reference_Fields RMF-004,
+    # RMF-012/013, RMF-014/015, RMF-016/017, RMF-025). All nullable -
+    # existing flexible-foam and WP1-4 rigid-foam materials carry none of
+    # this and are unaffected. Storage/handling fields are stored directly
+    # on RawMaterial (material-level, not lot-level) since the workbook
+    # itself lists their Entity_or_Level as "Material" - RawMaterialLot
+    # above only gained the two fields the workbook actually scopes to Lot
+    # (manufacture_date, country_of_origin).
+    manufacturing_site = Column(String(200))  # RMF-004, conditional qualification-scope field
+    storage_temp_min_c = Column(Float)  # RMF-012
+    storage_temp_max_c = Column(Float)  # RMF-013
+    recirculation_requirement = Column(Text)  # RMF-014, e.g. frequency/shear restriction
+    agitation_requirement = Column(Text)  # RMF-015, e.g. min/max settings
+    moisture_sensitivity_class = Column(String(50))  # RMF-016, controlled class (free text for now)
+    flammability_handling_class = Column(String(50))  # RMF-017, controlled class (free text for now)
+    technical_validation_note = Column(Text)  # RMF-025, plant-specific validation evidence/limits
+
     company = relationship("Company")
     material_category = relationship("RawMaterialCategory")
     source = relationship("SourceRegister")
@@ -691,6 +737,34 @@ class RecipeComponent(Base):
     # ...) - separate from RecipeVersion.source_id, since two components of
     # the same recipe can each trace back to a different document.
     source_id = Column(Integer, ForeignKey("source_registers.id"))
+
+    # --- WP5 Wave 1 additions (2026-08-07, Converged Joint Implementation
+    # Plan section 7.6, workbook sheet 06_Recipe_Component_Fields). All
+    # nullable except substitution_allowed (RCF-016 specifies a default of
+    # FALSE, not merely "no value yet" - a component's substitution
+    # permission is a real yes/no control, not an unanswered question).
+    # source_location (RCF-019) is deliberately separate from source_id
+    # above: source_id says WHICH document/dataset a component's data came
+    # from, source_location says WHERE inside it (e.g. "Table 3, Example
+    # 2") - source_id without source_location still answers "where did
+    # this come from" at the document level, so this is a refinement, not
+    # a duplicate.
+    stream_assignment = Column(String(50))  # RCF-004, e.g. "A-side" / "B-side" / "Auxiliary"
+    dosage_tolerance_lower = Column(Float)  # RCF-006, same basis as php
+    dosage_tolerance_upper = Column(Float)  # RCF-007
+    reactive_hydrogen_flag = Column(Boolean)  # RCF-008
+    reactive_hydrogen_equivalent_source = Column(String(300))  # RCF-009
+    nco_equivalent_flag = Column(Boolean)  # RCF-010
+    nco_equivalent_source = Column(String(300))  # RCF-011
+    premix_group = Column(String(100))  # RCF-012
+    addition_sequence = Column(Integer)  # RCF-013
+    blend_temperature_window = Column(String(100))  # RCF-014, e.g. "18-24 degC"
+    mixing_aging_instruction = Column(Text)  # RCF-015
+    substitution_allowed = Column(Boolean, default=False)  # RCF-016
+    approved_substitute_group = Column(String(100))  # RCF-017
+    provenance_class = Column(String(100))  # RCF-018, e.g. "Public reference" / "Internal UAT" / "Validated plant"
+    source_location = Column(String(300))  # RCF-019, see docstring note above
+    release_note = Column(Text)  # RCF-020
 
     recipe_version = relationship("RecipeVersion", back_populates="components")
     raw_material = relationship("RawMaterial")
@@ -1673,10 +1747,47 @@ class Application(Base):
     sort_order = Column(Integer)
 
 
+# ---------------------------------------------------------------------------
+# WP5 Wave 1. Facers and substrates (Converged Joint Implementation Plan
+# section 7.6, workbook sheet 07_Facers_Substrates - 20 controlled facer/
+# substrate families: metal facers, paper facers, mineral-fibre facers,
+# composite laminates, thermoplastic liners, wood/mineral boards, process
+# auxiliaries). key_attributes/primary_risks are carried as the workbook's
+# own semicolon-separated descriptive text rather than a further EAV
+# breakout - unlike raw-material attributes (RawMaterialAttributeValue,
+# above), which are per-material MEASURED values feeding real calculations,
+# these are per-SUBSTRATE-TYPE reference guidance ("what to watch for"),
+# so the lighter text representation matches their actual use.
+# ---------------------------------------------------------------------------
+class Substrate(Base):
+    """Charlie's SUB-* vocabulary. Linked from ProductConstruction below
+    (top/bottom facer) rather than from RecipeComponent - a facer is a
+    construction choice for the finished product, not a reactive recipe
+    ingredient with a php dosage."""
+
+    __tablename__ = "substrates"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "SUB-001"
+    name = Column(String(200), nullable=False)
+    substrate_class = Column(String(100))  # e.g. "Metal facer", "Paper facer", "Thermoplastic liner"
+    typical_form = Column(String(100))  # e.g. "Coil/sheet", "Roll", "Board"
+    key_attributes = Column(Text)  # workbook's semicolon-separated attribute list, kept verbatim
+    primary_risks = Column(Text)  # workbook's semicolon-separated risk list, kept verbatim
+    phase_status = Column(String(50))
+    sort_order = Column(Integer)
+
+
 class ProductConstruction(Base):
     """Charlie's PC-* vocabulary, e.g. "Metal-faced sandwich panel",
     "Unfaced board", "Sprayed-in-place layer" - the physical form the
-    finished product takes."""
+    finished product takes.
+
+    top_facer_substrate_id/bottom_facer_substrate_id: WP5 Wave 1 addition
+    (2026-08-07) linking a construction to its controlled Substrate rows
+    (07_Facers_Substrates) - both nullable, since not every construction
+    has two distinct facers (e.g. "Unfaced board" has neither, "Sprayed-
+    in-place layer" typically has none at all)."""
 
     __tablename__ = "product_constructions"
 
@@ -1685,6 +1796,11 @@ class ProductConstruction(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text)
     sort_order = Column(Integer)
+    top_facer_substrate_id = Column(Integer, ForeignKey("substrates.id"))
+    bottom_facer_substrate_id = Column(Integer, ForeignKey("substrates.id"))
+
+    top_facer_substrate = relationship("Substrate", foreign_keys=[top_facer_substrate_id])
+    bottom_facer_substrate = relationship("Substrate", foreign_keys=[bottom_facer_substrate_id])
 
 
 class Orientation(Base):
@@ -1817,6 +1933,144 @@ class RawMaterialLot(Base):
 
     raw_material = relationship("RawMaterial")
     supplier = relationship("Supplier")
+
+    # --- WP5 Wave 1 addition (2026-08-07, Converged Joint Implementation
+    # Plan section 7.6, workbook sheet 04_RM_Reference_Fields RMF-010/RMF-011
+    # "Country of origin" / "Shelf life... store manufacture and expiry
+    # dates on lot"). expiry_date already existed; manufacture_date and
+    # country_of_origin are the two lot-level fields the workbook adds that
+    # weren't already covered.
+    manufacture_date = Column(Date)
+    country_of_origin = Column(String(10))  # ISO country code, per RMF-010's governance rule
+
+
+# ---------------------------------------------------------------------------
+# WP5 Wave 1. Raw-material attribute EAV (Converged Joint Implementation
+# Plan section 7.6, workbook sheet 03_RM_Attributes - 60 controlled
+# attributes: hydroxyl number, NCO content, viscosity, flash point, GWP,
+# shelf life, cost per kg, and so on).
+#
+# Mirrors ProcessSettingDefinition/ProcessParameterValue's existing generic
+# EAV pattern rather than inventing a new one: RawMaterial's own fixed
+# columns (cost_per_kg, category, ...) stay as they are for backward
+# compatibility, and every WP5 attribute - numeric, text, or controlled-ID
+# valued - is recorded as one RawMaterialAttributeValue row against a
+# RawMaterialAttributeDefinition, the same "definition once, many typed
+# values" split PhysicalPropertyDefinition/PhysicalPropertyResult and
+# ProcessSettingDefinition/ProcessParameterValue already use elsewhere in
+# this schema. A material can carry any subset of the 60 attributes - most
+# apply only to some material categories (Applicable_Categories in the
+# workbook is descriptive guidance for data entry, not an enforced
+# constraint here, matching this schema's existing convention of not
+# hard-coding category-to-property restrictions - see GradeSpecification).
+# ---------------------------------------------------------------------------
+class RawMaterialAttributeDefinition(Base):
+    """Charlie's RMA-* attribute dictionary (workbook sheet 03_RM_Attributes).
+    default_uom/value_type/primary_source/data_rule are carried as
+    descriptive text straight from the workbook rather than re-modeled as
+    controlled FKs (e.g. into UnitOfMeasure) - these are guidance for the
+    person entering a value, not inputs to a live calculation the way
+    GradeSpecification's operator/limit fields are, so the lighter-weight
+    text representation is deliberate, not an oversight."""
+
+    __tablename__ = "raw_material_attribute_definitions"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "RMA-001"
+    name = Column(String(200), nullable=False)
+    default_uom = Column(String(50))
+    applicable_categories = Column(String(300))  # descriptive guidance, e.g. "Polyols and polyol blends"
+    value_type = Column(String(50))  # e.g. "Numeric", "Text", "Controlled text", "Numeric/Text"
+    primary_source = Column(String(200))  # e.g. "TDS/COA", "SDS"
+    data_rule = Column(Text)
+    sort_order = Column(Integer)
+
+
+class RawMaterialAttributeValue(Base):
+    """One recorded value of one RawMaterialAttributeDefinition, for one
+    RawMaterial - the read side of RMF-025's "every technical value carries
+    provenance" governance rule (source_id) plus RMF-022's effective-dating
+    (so a superseded TDS value isn't silently overwritten, matching
+    RecipeVersion's own "new version, not a silent edit" convention)."""
+
+    __tablename__ = "raw_material_attribute_values"
+
+    id = Column(Integer, primary_key=True)
+    raw_material_id = Column(Integer, ForeignKey("raw_materials.id"), nullable=False)
+    attribute_definition_id = Column(Integer, ForeignKey("raw_material_attribute_definitions.id"), nullable=False)
+    value_numeric = Column(Float)
+    value_text = Column(String(500))
+    unit = Column(String(50))  # snapshot text, auto-filled from the definition's default_uom at entry time
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+    effective_date = Column(Date)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    raw_material = relationship("RawMaterial")
+    attribute_definition = relationship("RawMaterialAttributeDefinition")
+    source = relationship("SourceRegister")
+
+
+# ---------------------------------------------------------------------------
+# WP5 Wave 1. Raw-material documents and qualification (Converged Joint
+# Implementation Plan section 7.6, workbook sheet 04_RM_Reference_Fields
+# RMF-006/007/008 document tracking and RMF-018 through RMF-023
+# qualification control).
+# ---------------------------------------------------------------------------
+class RawMaterialDocument(Base):
+    """One TDS/SDS/specification revision for a material (RMF-006/007/008).
+    file_reference is a filename/link, not a stored binary - this app has
+    no document-attachment storage elsewhere either (Sample/PhysicalProperty
+    Result don't attach files, just record text references), so the same
+    convention is used here rather than introducing a new capability."""
+
+    __tablename__ = "raw_material_documents"
+
+    id = Column(Integer, primary_key=True)
+    raw_material_id = Column(Integer, ForeignKey("raw_materials.id"), nullable=False)
+    document_type = Column(String(50), nullable=False)  # "TDS" / "SDS" / "Specification"
+    revision = Column(String(100))
+    revision_date = Column(Date)
+    file_reference = Column(String(500))
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    raw_material = relationship("RawMaterial")
+    source = relationship("SourceRegister")
+
+
+class RawMaterialQualification(Base):
+    """Whether/where a material is cleared for use (RMF-018 through
+    RMF-023) - "one material can be approved for one recipe while remaining
+    blocked for another" per the WP5 handover doc. approved_recipe_scope/
+    approved_process_scope are recorded as descriptive text (e.g. a recipe-
+    version label or method name) rather than a full many-to-many link
+    table for this first wave - a real link table is a reasonable v2 step
+    if a page ever needs to hard-block a specific recipe from using a
+    specific unqualified material at data-entry time, but nothing in this
+    app enforces that yet, so the lighter representation avoids building
+    relational structure with no reader. qualification_status is the
+    single source of truth for release ("Draft"/"Trial"/"Approved"/
+    "Blocked"/"Obsolete") - deliberately its own status, not folded into
+    RawMaterial.active (a material can be Approved for one recipe and
+    Blocked for another at the same time, which a single active flag on
+    RawMaterial itself could never express)."""
+
+    __tablename__ = "raw_material_qualifications"
+
+    id = Column(Integer, primary_key=True)
+    raw_material_id = Column(Integer, ForeignKey("raw_materials.id"), nullable=False)
+    qualification_status = Column(String(50), default="Draft")  # Draft/Trial/Approved/Blocked/Obsolete
+    approved_recipe_scope = Column(Text)
+    approved_process_scope = Column(Text)
+    substitution_group = Column(String(100))
+    effective_date = Column(Date)
+    end_date = Column(Date)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    raw_material = relationship("RawMaterial")
 
 
 # ---------------------------------------------------------------------------
@@ -2202,6 +2456,12 @@ ALL_MODELS = [
     OutputItem,
     ProcessSettingDefinition,
     ProcessParameterValue,
+    # --- WP5 Wave 1 additions (2026-08-07) ---
+    RawMaterialAttributeDefinition,
+    RawMaterialAttributeValue,
+    RawMaterialDocument,
+    RawMaterialQualification,
+    Substrate,
 ]
 
 
