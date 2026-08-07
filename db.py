@@ -1518,10 +1518,17 @@ class QualityObservation(Base):
     customer_impact = Column(Text)
     notes = Column(Text)
     observed_at = Column(Date)
+    # WP5 Wave 3 addition (2026-08-07): optional link to Charlie's
+    # controlled QI-* taxonomy, alongside the existing free-text
+    # observation_type field (not a replacement - see the QualityIssueType
+    # class docstring above for why). Nullable, defaults unset: existing
+    # rows and any future free-text-only entry remain valid.
+    issue_type_id = Column(Integer, ForeignKey("quality_issue_types.id"))
 
     production_run = relationship("ProductionRun")
     customer_trial = relationship("CustomerTrial")
     optimization_trial = relationship("OptimizationTrial")
+    issue_type = relationship("QualityIssueType")
 
 
 # ---------------------------------------------------------------------------
@@ -2140,6 +2147,20 @@ class Location(Base):
     description = Column(Text)
     sort_order = Column(Integer)
 
+    # --- WP5 Wave 3 additions (2026-08-07, 13_Sample_Locations). All
+    # nullable. location_category groups entries by kind of position (e.g.
+    # "Through-thickness", "Plan position", "Orientation") -
+    # coordinate_or_axis is the workbook's own axis/coordinate label (Z,
+    # X/Y, Axis, ...); applicable_object is which product form the location
+    # applies to (Panel, Block/part, Sandwich panel, ...).
+    location_category = Column(String(100))
+    coordinate_or_axis = Column(String(100))
+    applicable_object = Column(String(200))
+    # governance_note: used to record a data-quality correction directly on
+    # the row (e.g. a duplicate-ID resolution), per this project's standing
+    # practice - see LOC-040/041/042 in the Wave 3 findings document.
+    governance_note = Column(Text)
+
 
 class TestCondition(Base):
     """Charlie's CTX-* vocabulary, e.g. "CTX-THERM-INIT-10C-7D" -
@@ -2753,6 +2774,78 @@ class GradeSpecificationTemplate(Base):
 
 
 # ---------------------------------------------------------------------------
+# WP5 Wave 3 additions (2026-08-07, Converged Joint Implementation Plan
+# section 7.6, workbook sheets 14_Quality_Issues, 15_Possible_Causes,
+# 16_Issue_Cause_Links) - Charlie's controlled troubleshooting taxonomy.
+#
+# QualityIssueType and PossibleCause are global controlled-vocabulary
+# tables, same posture as Chemistry/ProductionMethod/RawMaterialCategory
+# above. IssueCauseLink is Charlie's own "many-to-many investigation map"
+# (sheet 16's own subtitle: "Links never confirm root cause automatically")
+# - it records a *plausible* issue-to-cause hypothesis, not a diagnosis, so
+# it carries no confidence/confirmed flag of its own; a real confirmed
+# root-cause finding belongs on QualityObservation.suspected_cause (free
+# text) or a future dedicated finding record, not here.
+#
+# QualityObservation gets one new nullable issue_type_id FK to
+# QualityIssueType, added deliberately alongside the existing free-text
+# observation_type field rather than replacing it - same "extend, don't
+# replace" precedent as WP5 Wave 1's RawMaterialAttributeValue duo and
+# WP5 Wave 2's PhysicalPropertyMethod.applicable_property_ids. Per this
+# wave's own JC_Engineering_Action ("Import and expose in issue/root-cause
+# workflows"), only the schema hook is added in this pass - wiring the
+# Quality Issue page's picker and the Root-Cause Assistant's use of
+# IssueCauseLink is deferred, matching every prior WP5 wave's schema-first,
+# UI-later pattern.
+# ---------------------------------------------------------------------------
+class QualityIssueType(Base):
+    """Charlie's QI-* vocabulary, e.g. "Short shot or incomplete fill",
+    "Facer delamination"."""
+
+    __tablename__ = "quality_issue_types"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "QI-001"
+    name = Column(String(300), nullable=False)
+    issue_category = Column(String(100))  # e.g. "Filling/Flow", "Bonding", "Performance"
+    definition = Column(Text)
+    default_severity = Column(String(50))  # workbook's own text, e.g. "Major/Critical" - not squeezed into a single-value enum
+    applicable_methods = Column(String(300))  # e.g. "All Phase 1", "Sandwich panel"
+    sort_order = Column(Integer)
+
+
+class PossibleCause(Base):
+    """Charlie's CAUSE-* vocabulary, e.g. "Insufficient shot mass",
+    "Excess release agent"."""
+
+    __tablename__ = "possible_causes"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "CAUSE-001"
+    name = Column(String(300), nullable=False)
+    cause_category = Column(String(100))  # e.g. "Metering", "Formulation", "Substrate"
+    definition = Column(Text)
+    sort_order = Column(Integer)
+
+
+class IssueCauseLink(Base):
+    """Charlie's IC-* investigation map - one plausible issue-to-cause
+    hypothesis. Not a confirmed diagnosis (see class docstring above)."""
+
+    __tablename__ = "issue_cause_links"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "IC-0001"
+    issue_type_id = Column(Integer, ForeignKey("quality_issue_types.id"), nullable=False)
+    cause_id = Column(Integer, ForeignKey("possible_causes.id"), nullable=False)
+    relationship_type = Column(String(100))  # workbook currently uses one value: "Plausible investigation lead"
+    governance_rule = Column(Text)  # workbook's own caveat text, e.g. "Hypothesis only; confirm with run data..."
+
+    issue_type = relationship("QualityIssueType")
+    cause = relationship("PossibleCause")
+
+
+# ---------------------------------------------------------------------------
 # WP3e. Cycle / shot + output item (task list #547, #548)
 #
 # Rigid discontinuous-panel/closed-mold production runs in discrete cycles
@@ -2992,6 +3085,10 @@ ALL_MODELS = [
     MachineMaintenanceRecord,
     MachineTroubleshootingCase,
     MachineDocument,
+    # --- WP5 Wave 3 additions (2026-08-07) ---
+    QualityIssueType,
+    PossibleCause,
+    IssueCauseLink,
 ]
 
 

@@ -543,6 +543,56 @@ st.set_page_config(), so their browser tabs looked identical when both
 were open. Changed this app's page_icon to a building/construction emoji,
 per Stefan's request, to make the two tabs visually distinct. UI-only
 change, no schema/data impact.
+
+v0.10.1 -> v0.11.0 (2026-08-07, WP5 Wave 3 - "Quality issues, possible
+causes and hypothesis links"): per 01_Wave_Control, Wave 3's own declared
+Primary_Sheets range ("13-15") doesn't match its own content - the
+quality-issue/cause/link material actually lives on sheets 14, 15 and 16,
+while sheet 13 (13_Sample_Locations) sits in the gap between Wave 2's
+"08-12" and Wave 3's "13-15" ranges, covered by neither. Rather than
+leave sheet 13 orphaned, it was imported as part of this batch (flagged
+to Charlie, see findings doc below). Schema additions in db.py: extended
+the existing Location table with location_category, coordinate_or_axis,
+applicable_object and governance_note (nullable); three new tables -
+QualityIssueType (14_Quality_Issues), PossibleCause (15_Possible_Causes),
+and IssueCauseLink (16_Issue_Cause_Links, a many-to-many investigation
+map between the two - per the sheet's own subtitle, a plausible-hypothesis
+list, never a confirmed root cause, so deliberately carries no confidence/
+confirmed flag); and a new nullable issue_type_id FK on QualityObservation
+pointing at QualityIssueType, added alongside the existing free-text
+observation_type field rather than replacing it - same "extend, don't
+replace" pattern as RawMaterialAttributeValue (Wave 1) and
+PhysicalPropertyMethod.applicable_property_ids (Wave 2). Confirmed no
+naming collision with the flexible-foam app's own quality-issue taxonomy
+work (tasks #303-306) - that taxonomy lives in a different codebase
+(PI3_Plant_Edition_App), not this one. Seeded all of Wave 3's actual
+content: 64 quality issue types (14), 61 possible causes (15), 243
+issue-cause hypothesis links (16, all "Plausible investigation lead"),
+and the 42 sample-location rows from sheet 13 (2 updates onto pre-existing
+LOC-021/LOC-030, 40 inserts). One real data-quality issue found in
+Charlie's workbook during seeding, fixed and flagged rather than silently
+propagated or dropped: 13_Sample_Locations defines LOC-040, LOC-041 and
+LOC-042 each twice, with unrelated meanings (an Interface/Z-axis
+sandwich-panel location vs. a Cross-width core-sampling position) - kept
+each first occurrence under its original code and loaded each second
+occurrence under a provisional ID (LOC-040-XW/LOC-041-XW/LOC-042-XW),
+matching the COND-020/COND-020-THERM10 precedent from Wave 2. Both this
+collision and the sheet-13 wave-boundary gap are recorded on the affected
+rows' own governance_note column and raised to Charlie via a dedicated
+findings document (per Stefan's standing instruction) -
+PI3_Rigid_Foam_Edition_WP5_Wave3_Data_Quality_Findings.docx. Verified via
+py_compile, a live local SQLite smoke test, and afterward via independent
+row-count/duplicate-ID/orphan-FK checks against the real rigid_foam
+schema (64/61/243/42 rows, zero duplicate controlled IDs across all four
+tables, zero orphan issue_type_id/cause_id references, zero orphan
+quality_observations.issue_type_id references, zero duplicate issue-cause
+pairs). Full regression suite (10 pytest files, both Recipe Optimization
+page-smoke tests run in isolation per the established shared-SQLite-file
+convention) passes unchanged - Wave 3 only added nullable columns and net-
+new tables. No dedicated UI surfaces this new taxonomy yet (the Quality
+Issue page's free-text picker and any Root-Cause Assistant use of
+IssueCauseLink remain flagged follow-up work, same as every prior wave's
+"schema + seed now, UI later" pattern).
 """
 
-APP_VERSION = "0.10.1"
+APP_VERSION = "0.11.0"
