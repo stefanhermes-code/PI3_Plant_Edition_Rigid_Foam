@@ -830,6 +830,45 @@ table: companies" SQLite/thread-isolation error in this sandbox
 environment, unrelated to Wave 5's content or schema, not a regression
 from this work, not fixed here). WP6 (Validation, UAT and release) is
 next per the Converged Plan's sequencing.
+
+2026-08-08 (Charlie's Phase 1 UOM Governance Correction Register v1,
+response to the reconciliation batch's UOM-023/024/032 findings):
+applied the register's decisions to Supabase - created UOM-100 (Mass
+ratio, kg/kg), UOM-101 (Fire index unit), UOM-102 (Class) as new
+canonical rigid_foam.units_of_measure rows (ids 11-13), per Decisions
+UOM-D-004/UOM-D-005. Confirmed UOM-030 (php)/UOM-031 (wt%)/UOM-032
+(N/mm) already matched the register exactly, and every already-live
+reference_formulation/reference_formulation_component already carried
+UOM-030/031 correctly - the register's decisions were already fully in
+force from the earlier Reconciliation batch, before this register
+arrived. No UOM-023/024 rows exist anywhere; no duplicate controlled_ids
+in units_of_measure after the addition.
+
+The accompanying v2 workbook (PI3_Rigid_Foam_Phase_1_WP5_Wave_4_Derived_
+Calculations_and_Reference_Formulations_v2.xlsx) carries two other
+sheets that were NOT imported, because each reuses controlled_ids
+already live under substantially different content: (1) its
+21_Derived_Calculations sheet has 20 rows under CALC-001 through
+CALC-020 with stoichiometry/blend-chemistry/blowing/cost formulas, but
+rigid_foam.calculation_definitions already has 25 different live rows
+(ids 1-25) under those same codes, imported from the original Wave 4
+package - process/QC formulas (A:B mass ratio, ratio deviation percent,
+core density, packing factor, etc). (2) its 10_Reference_Formulations/
+10A_Formulation_Components sheets describe different underlying
+formulations under the same RF-001 through RF-010 codes already live
+from the Reconciliation batch - component counts differ for every one
+of the 10 formulations (live: 7/10/10/10/13/11/11/9/10/9; v2:
+11/11/11/11/11/11/11/6/7/8), and material naming differs too (e.g. RF-
+001 live is a named 7-component cyclopentane/isopentane system; v2's
+RF-001 is an 11-component system with generic "Polyol A/B/C" naming).
+Charlie's response letter only describes a UOM correction and doesn't
+mention replacing either sheet's content, so this looks unintentional.
+Left both live tables untouched rather than guess which version is
+authoritative; raised to Charlie via a dedicated findings document
+(PI3_Rigid_Foam_Edition_WP5_Wave4_UOM_Governance_and_Content_Collision_
+Findings.docx) asking him to confirm replace/add-alongside/disregard
+before either sheet is imported. No schema or code change in this
+batch - Supabase data only.
 """
 
-APP_VERSION = "0.14.0"
+APP_VERSION = "0.14.1"
