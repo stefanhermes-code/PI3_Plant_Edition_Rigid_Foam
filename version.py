@@ -1011,6 +1011,33 @@ this specific shared project, independent of anything in rigid_foam.
 DEF-002 and this pivot are reported to Stefan for a decision on how
 to record/resolve DEF-002 before S03/S04 (upgrade-path and rollback
 validation) continue on the same branch.
+
+Stefan's decision (2026-08-08, same day): DEF-002 is out of scope for
+the Rigid Foam Gate G5 release decision (flexible-app history defect,
+not rigid_foam) - remains logged and open as a tooling-level defect
+against the shared Supabase project, tracked separately, does not
+block WP6 S03-S13. S03/S04 continue on the same branch using the
+direct-DDL method that resolved S02.
+
+2026-08-08 (WP6 Gate G5, Stage S03 Upgrade-path migration validation):
+on the same branch, post-S02's clean 86-table state, seeded a
+representative 9-table business-data chain (company -> plant ->
+product family -> foam grade -> recipe version + component ->
+production run -> sample -> physical property result) and recorded
+before-counts. Applied a representative incremental "upgrade" via
+apply_migration - ALTER TABLE ADD COLUMN (nullable) on the populated
+physical_property_results table, plus one brand-new table with an FK
+into production_runs - matching this project's actual historical
+pattern exactly (every WP1-WP5 wave: nullable columns + net-new
+tables, applied directly, no destructive DDL). Verified: after-counts
+identical to before across all 9 tables (zero loss, zero duplication);
+spot-checked row content (batch_reference, zone_label, actual_value/
+unit) unchanged; the new column and table were both proven usable
+(UPDATE and INSERT round-tripped successfully) before being cleaned
+up. Post-cleanup, information_schema confirms exactly 86 tables again,
+matching production. VAL-002 (upgrade reaches the same structural
+schema as a clean build) and VAL-003 (upgrade preserves existing data)
+both Pass.
 """
 
-APP_VERSION = "0.14.5"
+APP_VERSION = "0.14.6"
