@@ -869,6 +869,13 @@ authoritative; raised to Charlie via a dedicated findings document
 Findings.docx) asking him to confirm replace/add-alongside/disregard
 before either sheet is imported. No schema or code change in this
 batch - Supabase data only.
+
+2026-08-08: recolored the app theme (.streamlit/config.toml only) -
+main window background to a light blue (#DCEEFB) and the sidebar
+navigator background to a darker light blue (#A9D3EE) for contrast
+between the two, per Stefan's request while awaiting Charlie's reply
+on the Wave 5 v3 workbook review. primaryColor and textColor unchanged.
+No schema, data, or code change.
 """
 
-APP_VERSION = "0.14.1"
+APP_VERSION = "0.14.2"
