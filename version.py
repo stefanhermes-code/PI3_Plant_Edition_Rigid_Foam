@@ -949,6 +949,68 @@ security advisory for this table now reads "RLS enabled, no policies
 exist" - the same accepted state as the rest of the schema, no longer
 flagged as disabled. DEF-001 closed, retest PASS, recorded as EVD-002.
 No other code or schema changes in this batch.
+
+2026-08-08 (WP6 Gate G5, Stage S02 Clean-database migration validation):
+per Stefan's decision to use an isolated Supabase development branch
+rather than test against the shared production project, created branch
+"wp6-s02-s04-validation" (project lnjzlnmbkiqeibcfpplg, ~$0.01344/hour,
+cost approved by Stefan) to hold S02-S04. Supabase's own branch
+mechanism replays the target project's ENTIRE migration history
+(103 named migrations, shared project-wide across both this app's
+rigid_foam schema and the flexible-foam app's public schema, since
+Supabase tracks migrations per-project, not per-schema) - the branch
+came up MIGRATIONS_FAILED.
+
+Root cause (DEF-002, logged in the WP6 master register): a real,
+previously-undetected ordering defect in the flexible-foam app's own
+migration history, unrelated to rigid_foam engineering. Migration
+"drop_maintenance_and_license_records" (2026-07-31, part of that app's
+own task #236 cleanup) runs before, in the recorded sequence,
+"enable_rls_maintenance_and_license_records" (2026-08-02) - so a
+from-scratch replay drops the table and then tries to ALTER TABLE ...
+ENABLE ROW LEVEL SECURITY on a table that no longer exists ("relation
+public.maintenance_and_license_records does not exist"), aborting the
+replay there. Confirmed via get_logs(service=postgres) on the branch
+and independently confirmed the replay never got further: the branch's
+public schema only ever reached 33 tables (a subset predating both
+that drop and this app's 2026-08-06 fork point) and rigid_foam schema
+was never created on it at all, since every rigid_foam-creating
+migration is numbered after the failure point. This defect is invisible
+on the live production database (which was never rebuilt from empty,
+only altered incrementally) and would only ever surface on a from-
+scratch replay - exactly what S02 exists to test, and exactly what it
+caught. It is a legitimate WP6 finding in its own right, logged as
+DEF-002, but Supabase's migration history is an append-only execution
+ledger with no supported tool-level way to edit or remove a past
+recorded migration, so it cannot be fixed by adding a later corrective
+migration - a new branch replay would hit the identical failure again
+regardless of anything added afterward.
+
+Pivoted S02's actual clean-build test to this app's own established
+migration practice instead of Supabase's native replay mechanism
+(version.py's WP0 decision: "SQLAlchemy models + ad-hoc SQL applied
+directly to Supabase", proven locally by tests/test_schema_migration.py
+- no file-based, dependency-ordered migration framework in this repo to
+begin with). Generated the exact CREATE SCHEMA/CREATE TABLE DDL that
+db.Base.metadata would produce (compiled for the postgresql dialect
+from db.py's live ORM metadata, sorted_tables order - the same
+mechanism test_schema_migration.py already exercises locally) and
+applied it directly, via two apply_migration calls, to the same
+isolated branch's own Postgres instance (still ACTIVE_HEALTHY
+independent of the native MIGRATIONS_FAILED replay status). Result:
+all 86 rigid_foam tables created with zero errors, exactly matching
+the 86 tables the live production rigid_foam schema currently has
+(name-for-name identical set - confirmed by diff, not just count).
+FK-resolution check passed (insert Company, insert Plant referencing
+it, join resolves, rolled back - same check test_schema_migration.py
+performs). This proves VAL-001's actual intent (db.py's schema reaches
+its full, current state on a genuinely empty, isolated database) using
+the mechanism this project actually relies on for schema changes - the
+native Supabase branch-replay mechanism remains blocked by DEF-002 for
+this specific shared project, independent of anything in rigid_foam.
+DEF-002 and this pivot are reported to Stefan for a decision on how
+to record/resolve DEF-002 before S03/S04 (upgrade-path and rollback
+validation) continue on the same branch.
 """
 
-APP_VERSION = "0.14.4"
+APP_VERSION = "0.14.5"
