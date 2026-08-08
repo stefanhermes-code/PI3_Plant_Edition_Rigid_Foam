@@ -1247,6 +1247,36 @@ schema check, which would otherwise silently no-op the second call). Full
 suite (39 pytest files after this fix) passes clean; WP6-S07 fully
 complete; straight-through sequencing continues to WP6-S08 (access and
 tenancy validation).
+
+2026-08-08 (WP6-S08, Access and Tenancy Validation): no dedicated
+checklist sheet exists for this stage in the WP6 Master workbook (just a
+one-line Purpose/Primary-Evidence description, Owner JC, no Charlie
+dependency) - itemized an ad hoc 10-check list (ATV-01 through ATV-10)
+directly against that stated scope and ran it as a standalone script,
+reusing WP6-S07's two-company seeded dataset. Confirmed: all 26
+PAGE_CATALOG page_keys default to correct visibility for a role with no
+permission rows; all 6 platform-only pages gate correctly on
+Company.is_platform_owner regardless of role/subscription; a single
+Hidden (can_view=False) permission row hides exactly that one page_key;
+Hidden pages are structurally excluded from the dict passed to
+st.navigation() itself (unroutable, not merely absent from the sidebar -
+confirmed by reading app_rigid_foam.py's nav construction directly); every
+page access_control.py's own docstring claims implements View-only gating
+still actually calls can_use_page()/usable_page_keys_denied() (docstring
+not stale - one additional page, User Accounts, turned out to also be
+gated but not listed there, informational only); can_use_page()'s
+View-only/default-full/is_super_admin-bypass behavior is all correct; the
+Report page's subscription.reports_enabled feature flag correctly flips
+visibility both directions (WP6-S07 only ever exercised the True case);
+is_super_admin unconditionally bypasses both the platform-only gate and an
+explicit Hidden entry. Cross-tenant isolation: broadened WP6-S07's
+single-page check (REG-020) to a 17-page sweep under a real, non-platform-
+owner, Company-A-scoped session - zero leaks of the deliberately-distinct
+Company B's data anywhere, zero crashes - and confirmed the reverse
+direction too (a Company-B-scoped session sees no Company-A data either).
+All 10 checks passed on the first run, 0 defects raised. WP6-S08 fully
+complete; straight-through sequencing continues to WP6-S09 (Controlled
+UAT, 30 cases, needs Charlie).
 """
 
-APP_VERSION = "0.14.11"
+APP_VERSION = "0.14.12"
