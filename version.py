@@ -772,6 +772,64 @@ dedicated UI surfaces this new catalog/formulation data yet - deferred,
 same schema-first/UI-later pattern as every prior wave. WP5 Wave 5
 ("Synthetic recipes, runs, samples, results and controlled failures")
 is next per the Converged Plan's sequencing.
+
+2026-08-08 (WP5 Wave 5, "Synthetic recipes, runs, samples, results and
+controlled failures"): reused the existing production-data schema
+(FoamGrade, RecipeVersion, RecipeComponent, ProductionRun/Cycle/Shot/
+OutputItem, Sample, PhysicalPropertyResult, GradeSpecification) for this
+wave's synthetic UAT content rather than a parallel "Demo*" table set -
+matching the single WP3 UAT chain (FoamGrade id 2, "GRADE-UAT-RPUR-
+COLDROOM-001") already live in the same tables. Isolation from real
+plant data is via each row's own status/production_use/validation_status
+field, not a separate schema or tenant. Added one new small reference
+table, ControlledFailureCase (rigid_foam.controlled_failure_cases),
+following CalculationDefinition's own precedent - data only, no engine
+in this app currently executes these scenarios automatically.
+
+Imported: 4 demo foam grades and recipe versions (DEMO-RCP-001 through
+004, referencing reference_formulations RF-001/003/004/006) with their
+41 recipe components; 12 production runs (UAT-RUN-0101 through 0403)
+each with one production cycle/shot/output item (reusing the existing
+WP3 UAT machine/tool/mixhead/cavity/fill-point rows); 24 samples (2 per
+run); 96 physical property results (4 per sample - density, thermal
+conductivity, compressive strength, closed-cell content); 16 grade
+specifications (4 per demo grade, mirroring the workbook's own UAT-GST-
+001 through UAT-GST-004 templates); and 12 controlled failure cases
+(UAT-FAIL-001 through 012).
+
+Found and corrected two data-quality issues on import, raised to Charlie
+via a dedicated findings document (PI3_Rigid_Foam_Edition_WP5_Wave5_
+Data_Quality_Findings.docx), per Stefan's standing instruction: (1) the
+same wave-boundary numbering gap already flagged twice before (Wave 2/3
+and Wave 3/4 boundaries) recurred a third time - Wave 5's declared range
+"19-24" claims sheet 19 (Wave 4's own Ref_Formulation_Components);
+imported the actual range, 20-25, per 00_Read_Me's own "Evidence 20-25"
+citation, and flagged that the same off-by-one pattern also runs through
+26_Import_Sequence and 27_Gate_4_Checklist's own internal sheet
+citations. (2) 24_Demo_Results' thermal-conductivity rows cited
+Property_ID/Method_ID/Condition_ID PROP-015/MTH-015/COND-020 and its
+closed-cell-content rows cited Method_ID MTH-018 - the exact wrong codes
+Wave 2 already found and corrected for GST-001/002/006/007 at the
+template level. Corrected on import to PROP-005/MTH-016/COND-020-THERM10
+(thermal) and MTH-012 (closed-cell), verified against the workbook's own
+already-correct UAT-GST-001/UAT-GST-004 specification templates; density
+and compressive-strength rows were checked against UAT-GST-002/UAT-GST-
+003 and found already correct.
+
+Independent JC QA (duplicate-ID, orphan-FK, missing-mandatory-field
+checks) across every new/touched row came back clean: row counts match
+the workbook exactly (4/41/12/12/12/12/24/96/16/12), zero orphan foreign
+keys across all ten parent/child relationships checked, zero duplicate
+batch references or controlled_ids, and every QI-*/CAUSE-* code cited in
+the twelve controlled failure cases resolves to a real Wave 3 taxonomy
+row. Verified via py_compile and a live regression run (37 pytest
+tests) before and after this batch's db.py change (git stash comparison)
+- 2 failures present identically both with and without the change
+(test_wp4_recipe_optimization_page_smoke.py, both grades - a "no such
+table: companies" SQLite/thread-isolation error in this sandbox
+environment, unrelated to Wave 5's content or schema, not a regression
+from this work, not fixed here). WP6 (Validation, UAT and release) is
+next per the Converged Plan's sequencing.
 """
 
-APP_VERSION = "0.13.0"
+APP_VERSION = "0.14.0"

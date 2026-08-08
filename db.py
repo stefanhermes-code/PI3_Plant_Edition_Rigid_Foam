@@ -3141,6 +3141,54 @@ class RawMaterialCatalogEntry(Base):
 
 
 # ---------------------------------------------------------------------------
+# WP5 Wave 5 (2026-08-08) - "Synthetic recipes, runs, samples, results and
+# controlled failures". Per 01_Wave_Control this wave is declared as sheets
+# "19-24", but sheet 19 (Ref_Formulation_Components) is Wave 4's own sheet,
+# already imported there - the same recurring wave-boundary off-by-one
+# already flagged after the Wave 3/4 boundary. This wave's actual content
+# (per the workbook's own 00_Read_Me, "Demo data ... Evidence 20-25") lives
+# on sheets 20_Demo_Recipes through 25_Demo_Failure_Cases - imported that
+# range, did not re-touch sheet 19.
+#
+# Everything except the controlled failure-case registry below reuses the
+# existing production-data schema (FoamGrade, RecipeVersion,
+# RecipeComponent, ProductionRun/Cycle/Shot/OutputItem, Sample,
+# PhysicalPropertyResult, GradeSpecification) rather than a parallel set of
+# "Demo*" tables - matching the WP3 UAT chain precedent already live in this
+# same schema (FoamGrade id 2, "GRADE-UAT-RPUR-COLDROOM-001", status
+# UAT_ONLY / production_use "No production release"). Isolation from real
+# plant data is achieved the same way WP3's chain already achieves it: via
+# each row's own status/production_use/validation_status/approval_status
+# fields, not a separate tenant or schema. Four new FoamGrade rows (one per
+# DEMO-RCP-*) were added under the same existing UAT/Reference
+# ProductFamily (id 2) and Plant (id 2, "WP3 UAT / Reference (no production
+# release)") the WP3 chain already uses.
+# ---------------------------------------------------------------------------
+class ControlledFailureCase(Base):
+    """Charlie's 25_Demo_Failure_Cases registry (WP5 Wave 5) - the expected
+    block/fail/issue behaviour for twelve synthetic UAT scenarios (lambda
+    above maximum, wrong test condition, missing sample age, density below
+    limit, etc). Data only, matching CalculationDefinition's own precedent -
+    no engine in this app currently executes these scenarios automatically;
+    each one documents what the live conformance/validation logic is
+    expected to do, for manual or future automated regression checking
+    (Gate 4 criterion G4-16)."""
+
+    __tablename__ = "controlled_failure_cases"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "UAT-FAIL-001"
+    scenario = Column(String(300))
+    injected_data_condition = Column(Text)
+    expected_system_behaviour = Column(Text)
+    linked_issue_ids = Column(String(300))  # semicolon-separated QualityIssueType controlled_ids, workbook's own format
+    linked_cause_ids = Column(String(300))  # semicolon-separated PossibleCause controlled_ids, workbook's own format
+    test_evidence = Column(String(300))
+    status = Column(String(50))
+    sort_order = Column(Integer)
+
+
+# ---------------------------------------------------------------------------
 # WP3e. Cycle / shot + output item (task list #547, #548)
 #
 # Rigid discontinuous-panel/closed-mold production runs in discrete cycles
@@ -3391,6 +3439,8 @@ ALL_MODELS = [
     # --- Reconciliation additions (2026-08-08, Raw Materials Master v2 +
     # Reference_Formulations_10 package) ---
     RawMaterialCatalogEntry,
+    # --- WP5 Wave 5 additions (2026-08-08) ---
+    ControlledFailureCase,
 ]
 
 
