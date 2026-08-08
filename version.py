@@ -681,6 +681,97 @@ sheet 16 unambiguously Wave 3's own last sheet and 17 as Wave 4's true
 start. Full regression suite (10 pytest files, both Recipe Optimization
 page-smoke tests in isolation) passes unchanged - no schema touched,
 data-only correction.
+
+v0.12.1 -> v0.13.0 (2026-08-08, Raw Materials Master v2 + Reference
+Formulations 10 reconciliation): Charlie delivered two new, larger
+workbooks superseding earlier content - PI3_Plant_Edition_Rigid_Foam_
+Raw_Materials_Master_v2_MASTER_LINKED.xlsx (151-row commercial
+raw-material catalog, material-ID-linked) and PI3_Rigid_Foam_Reference_
+Formulations_10_MASTER_LINKED.xlsx (10 reference formulations + 100
+material-linked components, superseding WP5 Wave 4's original 6
+formulations/63 components). Per Stefan's explicit direction ("Reconcile
+now" then "Proceed with full reconciliation"), reconciled rather than
+layered on top. New table: RawMaterialCatalogEntry - deliberately not
+company/plant-scoped, matching the MachineModel pattern from the Machine
+Data Architecture work: a broad commercial-product research catalog
+(APAC availability evidence, cost ranges, verification status, source
+URLs), distinct from the existing plant-scoped RawMaterial table.
+Extended ReferenceFormulation (~33 new nullable columns: chemistry_id/
+production_method_id/application_id/construction_id FKs, formulation
+basis and UOM, reported index/ratio/water/blowing-agent levels, reported
+density/cream/gel/rise/demold/mold-temp/thermal-conductivity/open-cell
+values, five review-status fields, release_to_plant_recipe flag, and
+source/technical-notes fields) and ReferenceFormulationComponent (10 new
+columns: material_id FK into the new catalog table, material_name,
+component_side, amount_text, uom_id, dosage_basis, reported_wt_pct,
+oh_number_mgkoh_g, master_link_status, notes) - same "extend, don't
+replace" pattern as every prior wave, keeping the original Wave 4
+free-text fields (chemistry_label, production_or_test_context,
+application_context, source_component_term, etc.) untouched alongside
+the new structured columns.
+
+Deleted the original 6 Wave 4 ReferenceFormulation rows and their 63
+components before re-importing, after independently verifying zero
+RecipeVersion.reference_formulation_id references existed anywhere in
+Supabase (a genuine delete-and-replace, not a merge, since nothing else
+in the app pointed at the old rows). Imported the new 10 reference
+formulations (RF-001 through RF-010) and their 100 material-linked
+components verbatim from the package, confirmed against its own
+23_Master_Link_Check/99_QC sheets (100/100 exact Material_ID links, 0
+missing, 0 category-only substitutions). Imported all 151 raw-material
+catalog rows (12 isocyanate, 59 polyol, 31 catalyst, 32 surfactant, 7
+blowing agent, 8 flame retardant, 2 additive).
+
+Closed three WP1/WP2 controlled-vocabulary gaps discovered while mapping
+the new content - the same "frozen Phase 1 Implementation Slice" pattern
+already seen in Chemistry/ProductionMethod/Application/
+ProductConstruction, now confirmed recurring in two more tables: (1)
+RawMaterialCategory - WP2's own 05_RM_Categories sheet (35-row
+authoritative taxonomy) had only a subset ever loaded into Supabase;
+imported the missing 10 rows the new raw-materials catalog actually
+references. (2) UnitOfMeasure - WP1's own 10_Units_Bases sheet defines
+UOM-030 (php) and UOM-031 (wt%), but neither had ever been imported;
+imported both directly from WP1's canonical definitions. (3) Chemistry/
+ProductionMethod/Application/ProductConstruction - imported the specific
+missing rows the 10 new formulations actually reference (CHM-020,
+PM-130, PM-210, APP-100/300/310, PC-100/130/150), scoped to only what
+was genuinely used rather than importing every unused row in each sheet.
+
+One numbering collision found and resolved per Stefan's explicit
+decision, one found and left open pending Charlie: the Reference_
+Formulations_10 package's own 98_Controlled_Lookups sheet declares
+UOM-023 (php) and UOM-024 (wt%) - but WP1's own master already assigns
+those exact units to UOM-030/031 (see above). Per Stefan's decision, all
+import-time references were mapped onto UOM-030(id 9)/UOM-031(id 10)
+rather than creating a second parallel pair; no UOM-023/024 rows exist in
+Supabase. Separately, WP1's own master assigns UOM-032 to "mass ratio"
+(kg/kg), while Supabase's already-imported UOM-032 (from WP5 Wave 2's own
+08_UOM_Additions sheet) means "newton per millimetre" - nothing currently
+references the mass-ratio meaning, so left as-is, but flagged to Charlie
+since it's a live collision in his own source material. Both raised via
+a dedicated findings document, per Stefan's standing instruction -
+PI3_Rigid_Foam_Edition_Reconciliation_Data_Quality_Findings.docx.
+
+Independent JC QA (duplicate-controlled-ID, orphan-FK, and
+missing-mandatory-field checks) run across every touched table -
+raw_material_catalog_entries (151), reference_formulations (10),
+reference_formulation_components (100), and all extended/new
+controlled-vocabulary tables (chemistries, production_methods,
+applications, product_constructions, raw_material_categories,
+units_of_measure, source_registers) - came back completely clean: zero
+duplicates, zero orphan references, zero missing mandatory fields.
+Verified via py_compile and a live local SQLite init_db() smoke test (85
+tables) before touching Supabase, and independently afterward via direct
+SQL against the real rigid_foam schema. Full regression suite (8 pytest
+files, both Recipe Optimization page-smoke tests in isolation) passes
+with one pre-existing, unrelated failure confirmed present before this
+batch's changes too (test_wp4_recipe_optimization_page_smoke.py's rigid-
+grade specification-copy assertion, unrelated to reference formulations
+or raw materials - not a regression from this work, not fixed here). No
+dedicated UI surfaces this new catalog/formulation data yet - deferred,
+same schema-first/UI-later pattern as every prior wave. WP5 Wave 5
+("Synthetic recipes, runs, samples, results and controlled failures")
+is next per the Converged Plan's sequencing.
 """
 
-APP_VERSION = "0.12.1"
+APP_VERSION = "0.13.0"

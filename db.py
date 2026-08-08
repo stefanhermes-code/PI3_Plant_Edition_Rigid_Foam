@@ -2918,7 +2918,34 @@ class CalculationDefinition(Base):
 class ReferenceFormulation(Base):
     """Charlie's RF-* locked public parameter summaries (patent/literature
     examples), never a plant recipe. See module note above for the
-    provenance and separation rules."""
+    provenance and separation rules.
+
+    Reconciliation note (2026-08-08): this table was originally seeded from
+    the WP5 workbook's own smaller 18_Reference_Formulations sheet (6 rows,
+    free-text chemistry/context only). Charlie subsequently issued a
+    dedicated, more heavily linked package -
+    PI3_Rigid_Foam_Reference_Formulations_10_MASTER_LINKED.xlsx (10 rows,
+    43 columns) - per its own Import_Guide sheet, "the single source of
+    truth" for reference formulations, superseding the original 6. The
+    original 6 rows (and their components) were deleted and replaced with
+    these 10 (safe: nothing referenced them yet - RecipeVersion.
+    reference_formulation_id was null everywhere per Wave 4's own QA).
+    Every column below chemistry_id onward is new in this reconciliation;
+    the columns above it (chemistry_label, production_or_test_context,
+    application_context, target_index, blowing_system, source_location,
+    record_status, plant_use_rule) are the original Wave 4 fields, kept and
+    re-populated from the new package's richer data for continuity (extend,
+    don't replace - same pattern used throughout WP5).
+
+    basis_uom_id / water_uom_id / blowing_agent_uom_id: the new package's
+    own 98_Controlled_Lookups sheet declares UOM-023 ("php") and UOM-024
+    ("wt%"), but WP1's own 10_Units_Bases master already assigns those exact
+    units to UOM-030 and UOM-031 - a cross-workbook numbering collision
+    (flagged to Charlie separately). Per Stefan's decision, WP1's UOM-030/
+    031 are treated as canonical and the package's UOM-023/024 references
+    are mapped onto them at import time rather than loaded as a second,
+    parallel pair of rows.
+    """
 
     __tablename__ = "reference_formulations"
 
@@ -2936,13 +2963,68 @@ class ReferenceFormulation(Base):
     plant_use_rule = Column(Text)  # e.g. "Reference only; local material matching, safety review and validation required"
     sort_order = Column(Integer)
 
+    # --- Reconciliation additions (2026-08-08, Reference_Formulations_10 package) ---
+    chemistry_id = Column(Integer, ForeignKey("chemistries.id"))
+    production_method_id = Column(Integer, ForeignKey("production_methods.id"))
+    method_phase = Column(String(50))  # e.g. "Phase 1", "Future"
+    application_id = Column(Integer, ForeignKey("applications.id"))
+    construction_id = Column(Integer, ForeignKey("product_constructions.id"))
+    formulation_basis = Column(String(300))  # e.g. "100 parts polyol"
+    basis_uom_id = Column(Integer, ForeignKey("units_of_measure.id"))
+    reported_isocyanate_index = Column(Float)
+    index_basis = Column(Text)
+    reported_ab_mass_ratio = Column(Float)
+    water_level = Column(Float)
+    water_uom_id = Column(Integer, ForeignKey("units_of_measure.id"))
+    physical_blowing_agent_description = Column(String(300))
+    physical_blowing_agent_level = Column(Float)
+    blowing_agent_uom_id = Column(Integer, ForeignKey("units_of_measure.id"))
+    reported_free_rise_density_kg_m3 = Column(Float)
+    reported_minimum_fill_density_kg_m3 = Column(Float)
+    reported_molded_core_density_kg_m3 = Column(Float)
+    reported_cream_time_s = Column(Float)
+    reported_gel_or_string_time_s = Column(Float)
+    reported_rise_time_s = Column(Float)
+    reported_demold_time_min = Column(Float)
+    reported_mold_temp_c = Column(Float)
+    reported_thermal_conductivity_mw_mk = Column(Float)
+    reported_open_cell_content_pct = Column(Float)
+    reference_status = Column(String(100))  # e.g. "Locked reference"
+    validation_status = Column(String(100))  # e.g. "Pending technical validation"
+    local_rm_matching_status = Column(String(100))
+    safety_review_status = Column(String(100))
+    regulatory_review_status = Column(String(100))
+    release_to_plant_recipe = Column(Boolean, default=False)
+    source_class = Column(String(100))  # e.g. "Public patent", "Supplier technical presentation"
+    source_number = Column(String(100))  # e.g. "US7183330B2"
+    source_organisation = Column(String(200))
+    source_url = Column(String(500))
+    technical_notes = Column(Text)
+
     source = relationship("SourceRegister")
+    chemistry = relationship("Chemistry")
+    production_method = relationship("ProductionMethod")
+    application = relationship("Application")
+    construction = relationship("ProductConstruction")
+    basis_uom = relationship("UnitOfMeasure", foreign_keys=[basis_uom_id])
+    water_uom = relationship("UnitOfMeasure", foreign_keys=[water_uom_id])
+    blowing_agent_uom = relationship("UnitOfMeasure", foreign_keys=[blowing_agent_uom_id])
 
 
 class ReferenceFormulationComponent(Base):
     """One structured ingredient line extracted from a public reference
     formulation - patent text itself is not reproduced, only the
-    structured values (see sheet 19's own subtitle)."""
+    structured values (see sheet 19's own subtitle).
+
+    Reconciliation note (2026-08-08): extended for the
+    Reference_Formulations_10 package's own 10A_Reference_Components sheet
+    (100 rows, 16 columns), which - per its own subtitle and the Raw
+    Materials Master's "Recipe linkage rule" - links every ingredient line
+    to a real Material_ID rather than the free-text-only source_component_term
+    used by the original Wave 4 import. material_id is therefore mandatory
+    for this reconciled batch (100% exact-link, verified: 0 missing links
+    across all 100 rows, see 23_Master_Link_Check/99_QC in that package).
+    """
 
     __tablename__ = "reference_formulation_components"
 
@@ -2958,8 +3040,104 @@ class ReferenceFormulationComponent(Base):
     source_location = Column(String(300))
     interpretation_note = Column(Text)
 
+    # --- Reconciliation additions (2026-08-08, 10A_Reference_Components) ---
+    material_id = Column(Integer, ForeignKey("raw_material_catalog_entries.id"))
+    material_name = Column(String(300))  # workbook's own Material_Name, kept for direct display without a join
+    component_side = Column(String(50))  # e.g. "Polyol Blend Component", "Isocyanate Component"
+    amount_text = Column(String(100))  # rare rows where amount is reported as text, not a number
+    uom_id = Column(Integer, ForeignKey("units_of_measure.id"))  # UOM-023/024 mapped to canonical UOM-030/031, see ReferenceFormulation note
+    dosage_basis = Column(String(200))  # e.g. "Per 100 parts polyol"
+    reported_wt_pct = Column(Float)
+    oh_number_mgkoh_g = Column(Float)
+    master_link_status = Column(String(50))  # e.g. "EXACT MASTER LINK"
+    notes = Column(Text)
+
     reference_formulation = relationship("ReferenceFormulation")
     source = relationship("SourceRegister")
+    material = relationship("RawMaterialCatalogEntry")
+    uom = relationship("UnitOfMeasure", foreign_keys=[uom_id])
+
+
+class RawMaterialCatalogEntry(Base):
+    """Layer analogous to MachineModel above, but for raw materials: a
+    generic, commercially-verified research catalog of supplier
+    products - deliberately NOT company/plant-scoped, and deliberately
+    distinct from the existing plant-scoped RawMaterial table above (that
+    one is the plant's own already-approved material list built from a
+    dropdown as recipes are entered; this one is Charlie's broader
+    "commercial-grade knowledge master... broader than an approved vendor
+    list", per the source workbook's own Import_Guide sheet).
+
+    Added 2026-08-08 to hold
+    PI3_Plant_Edition_Rigid_Foam_Raw_Materials_Master_v2_MASTER_LINKED.xlsx's
+    Rigid_Raw_Materials sheet (151 rows) - the single source of truth the
+    Reference_Formulations_10 package's own ingredient lines (see
+    ReferenceFormulationComponent.material_id above) link to by Material_ID.
+    A commercial product listed here remains unapproved for plant use until
+    "TDS/SDS review, formulation compatibility, plant trial and procurement
+    qualification are completed" (Import_Guide's own "Plant approval" rule)
+    - this table is a research/reference catalog, not an approved-vendor
+    list, matching MachineModel's own separation from the plant's live
+    equipment records.
+
+    generic_class_id resolves the workbook's own PI3_Generic_Class_ID field
+    to a real FK against the existing RawMaterialCategory (RMC-*) table -
+    confirmed a genuine, resolvable link (all 17 distinct class codes used
+    across the 151 rows already exist among the 30 RMC-* rows loaded back
+    in WP3), not a new controlled-vocabulary gap.
+    """
+
+    __tablename__ = "raw_material_catalog_entries"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # Material_ID, e.g. "RF-ISO-001"
+
+    # --- Identity ---
+    category = Column(String(100))
+    subcategory = Column(String(200))
+    supplier = Column(String(200))
+    brand = Column(String(200))
+    product_name = Column(String(300))
+    chemistry_or_type = Column(String(300))
+    primary_function = Column(String(300))
+    rigid_foam_applications = Column(Text)
+    pur_pir = Column(String(50))  # free text "PUR"/"PIR"/blank
+
+    # --- APAC sourcing evidence ---
+    apac_availability_status = Column(String(300))
+    apac_subregions = Column(String(300))
+    thailand_availability = Column(String(300))
+    availability_confidence = Column(String(100))
+    availability_evidence_url = Column(String(500))
+    local_stock_or_lead_time = Column(String(300))
+
+    # --- Technical properties ---
+    oh_number_mgkoh_g = Column(Float)
+    functionality = Column(Float)
+    nco_content_pct = Column(Float)
+    viscosity_mpa_s_25c = Column(Float)
+    typical_use_note = Column(Text)
+
+    # --- Cost (indicative, category-level budgeting only - see Import_Guide) ---
+    indicative_cost_low_usd_kg = Column(Float)
+    indicative_cost_high_usd_kg = Column(Float)
+    indicative_cost_mid_usd_kg = Column(Float)
+    cost_basis = Column(String(200))
+    cost_date = Column(String(50))
+
+    # --- Verification / provenance ---
+    product_verification_status = Column(String(200))
+    product_source_url = Column(String(500))
+    price_source_url = Column(String(500))
+    pi3_notes = Column(Text)
+
+    # --- PI3 alignment ---
+    generic_class_id = Column(Integer, ForeignKey("raw_material_categories.id"))
+    generic_class_label = Column(String(200))  # workbook's own PI3_Generic_Class text
+    reference_formulation_count = Column(Integer)
+    reference_alignment_note = Column(Text)
+
+    generic_class = relationship("RawMaterialCategory")
 
 
 # ---------------------------------------------------------------------------
@@ -3210,6 +3388,9 @@ ALL_MODELS = [
     CalculationDefinition,
     ReferenceFormulation,
     ReferenceFormulationComponent,
+    # --- Reconciliation additions (2026-08-08, Raw Materials Master v2 +
+    # Reference_Formulations_10 package) ---
+    RawMaterialCatalogEntry,
 ]
 
 
