@@ -1058,6 +1058,60 @@ per Stefan's original plan ("delete it as soon as S02, S03, and S04
 are all done and evidenced") - branch scheduled for deletion this same
 session to stop the ~$0.01344/hour cost. WP6-S05 (controlled master-
 data validation) is next per straight-through S01-S13 sequencing.
+
+Branch wp6-s02-s04-validation deleted this session (confirmed via
+list_branches - only main remains). All further WP6 stages run
+directly against the shared production project (aazkdsqpytjciiqtvnfj,
+schema rigid_foam), since S05 onward validates already-imported live
+master data and application behaviour, not migration mechanics.
+
+2026-08-08 (WP6 Gate G5, Stage S05 Controlled master-data validation):
+ran VAL-005 through VAL-013 against live production. No duplicate
+controlled_ids across 21 vocabulary tables (VAL-005, Pass). UOM
+canonical uniqueness (VAL-007), COND-011 canonical with the provisional
+COND-020-THERM10 alias fully retired (VAL-008), sample-location ID
+uniqueness across 42 rows including all 6 interface/cross-width
+locations (VAL-009), MCAT-18/HEN-VACUMAT machine-taxonomy resolution
+(VAL-010), APAC availability vocabulary consistency for all 13
+China-based machine_models rows (VAL-011), reference-formulation
+provenance - source_id and validation_status non-null on all 10 rows
+(VAL-012), and issue_cause_links FK-integrity across all 243 links
+(VAL-013) all Pass.
+
+VAL-006 (orphan-reference check) required a methodology split: real
+FOREIGN KEY columns can't structurally hold orphans, so the check
+targeted the soft/text-based cross-reference fields instead
+(condition_ids_text, linked_issue_ids, linked_cause_ids) - all clean.
+Two apparent hits were investigated and dismissed as false positives:
+physical_property_methods.applicable_property_ids = "Multiple" for
+MTH-090/MTH-099 is the intentional sentinel documented in this file's
+own WP5 Wave 2 changelog, not an orphan; quality_issue_types.
+applicable_methods and raw_material_attribute_definitions.
+applicable_categories are free-text scope descriptions, not
+controlled_id lists, so checking them against a controlled_id set was
+an invalid check, not a real finding.
+
+One genuine new finding did surface: physical_property_definitions.
+source_ids and test_conditions.source_ids cite ~32 distinct
+standards-body codes (SRC-ISO-*, SRC-ASTM-*, SRC-EN-*, SRC-INT-01,
+SRC-PATENT-FAMILY) that do not exist anywhere in source_registers
+(17 rows, all internal-governance or patent-related). This contradicts
+the assumption recorded in this file's own WP5 Wave 4 changelog, which
+stated the ~20 standards-body rows from workbook sheet 28_Source_Register
+were "not yet referenced by anything and were left unimported" - VAL-006
+shows they ARE referenced, just never imported as rows. One instance of
+this same gap was introduced here in the v0.14.3 migration (COND-011's
+source_ids='SRC-ISO-8301', added without checking the source_registers
+row existed). Logged as DEF-003 (Medium severity, Open, Owner JC) -
+not a functional defect since nothing in the app reads source_registers
+as a hard dependency today, but a documentation-integrity gap in
+Charlie's content-governance territory. Findings and a remediation
+decision ask (import missing rows now / accept as deferred governance
+gap / Charlie reduces scope to codes in active use) presented to
+Stefan via PI3_Rigid_Foam_Phase_1_WP6_S05_Findings_and_DEF-003.docx,
+mirroring how DEF-001/DEF-002 were surfaced rather than fixed
+unilaterally. WP6-S05 itself is complete; DEF-003's disposition is an
+open decision, not a blocker to S06.
 """
 
-APP_VERSION = "0.14.7"
+APP_VERSION = "0.14.8"
