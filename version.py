@@ -1191,6 +1191,62 @@ DEF-007 (Medium, Owner Charlie, non-blocking for Gate G5) rather than
 fabricating placeholder values for any of it. WP6-S06 fully complete;
 straight-through sequencing continues to WP6-S07 (functional regression,
 23 checks).
+
+2026-08-08 (WP6-S07, Functional Regression, 23 checks): built a
+purpose-made AppTest regression harness (kept in the dev outputs folder,
+not the repo, since it's a test tool not app code) that seeds a fresh
+two-company dataset - Company A and a deliberately-distinct Company B,
+each with a full Plant/Machine/ProductFamily/FoamGrade/GradeSpecification/
+Supplier/RawMaterial/RecipeVersion/RecipeComponent/ProductionRun/
+ProductionPhase/ComponentStreamReading/Sample/PhysicalPropertyResult/
+QualityObservation/CustomerTrial/OptimizationTrial/ExpertNote/
+PI3AIConnectionSetting chain, plus Role/User rows for both companies - and
+runs every REG-001 through REG-023 check from the WP6 Master workbook's
+04_Regression_Matrix sheet against it. REG-002 through REG-017, REG-019
+and REG-021 use the AUTH_DISABLED broad-access dev bypass to smoke every
+operational page for a clean render with no exception; REG-001 (login/
+logout/invalid-login) drives the real DB-backed login form directly, no
+bypass; REG-018 (role permission enforcement) and REG-020 (multi-tenancy
+isolation) build real, restricted, non-AUTH_DISABLED sessions by hand
+(mirroring auth._start_db_session's session_state keys) so they prove the
+actual enforcement code path, not just that the dev bypass exists;
+REG-022 (imports) is a code-presence check (st.file_uploader paths still
+exist, untouched by this WP) rather than an end-to-end file upload, since
+no rigid-foam change this project has ever made touched any import
+helper; REG-023 (audit/logs) runs a full app_rigid_foam.py page load
+(through its own close_out_session() commit path) and confirms both
+PageViewEvent and PageLoadLog row counts increase. All 23 REG-IDs (24
+individual checks counting REG-001's separate valid/invalid-login
+sub-cases) passed, zero exceptions, zero cross-tenant data leaks, zero
+new defects raised.
+
+Building this harness surfaced one pre-existing (not rigid-foam-caused)
+environment bug, fixed as part of getting WP6-S07 itself to run: Streamlit's
+AppTest executes each page script in a new thread, but SQLAlchemy's default
+pool for in-memory SQLite ("sqlite://", the dev/test convention this app's
+whole test suite already uses) is SingletonThreadPool, which ties the one
+in-memory database to whichever thread opened it first - so a pytest
+fixture (main thread) seeding data and then AppTest (its own thread) using
+that same session crashes with "SQLite objects created in a thread can
+only be used in that same thread" the moment the connection is reset or
+closed. Confirmed pre-existing by reproducing the identical crash on an
+untouched, previously-passing test file before changing anything. Fixed
+in db.py: in-memory SQLite URLs now use StaticPool + check_same_thread=False
+(SQLAlchemy's own documented fix for exactly this case) instead of the
+default pool - scoped by an exact DATABASE_URL string check, so Postgres/
+Supabase and file-based SQLite dev fallback are both completely
+unaffected. Fixing the crash exposed a second, smaller issue: two tests in
+tests/test_wp4_recipe_optimization_page_smoke.py each assumed a "fresh"
+database with exactly one foam grade, but once the in-memory database
+genuinely persists across both tests within one pytest process (the whole
+point of the fix above), the second test's grade selectbox saw both
+tests' seeded grades instead of just its own. Fixed by adding an explicit
+schema drop/recreate at the top of that file's shared seeding helper
+(bypassing db.init_db()'s @st.cache_resource-wrapped one-time-per-process
+schema check, which would otherwise silently no-op the second call). Full
+suite (39 pytest files after this fix) passes clean; WP6-S07 fully
+complete; straight-through sequencing continues to WP6-S08 (access and
+tenancy validation).
 """
 
-APP_VERSION = "0.14.10"
+APP_VERSION = "0.14.11"

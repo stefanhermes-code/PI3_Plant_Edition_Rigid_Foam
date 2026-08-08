@@ -97,7 +97,25 @@ RIGID_FOAM_SCHEMA = "rigid_foam" if DATABASE_URL.startswith("postgresql") else N
 
 Base = declarative_base(cls=_NoDeepCopyMixin, metadata=MetaData(schema=RIGID_FOAM_SCHEMA))
 
-ENGINE = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=280)
+# In-memory SQLite ("sqlite://" or "sqlite:///:memory:", the dev-fallback/
+# test convention used by tests/test_*.py) defaults to SQLAlchemy's
+# SingletonThreadPool, which ties the one in-memory database to whichever
+# thread first opens it - a second thread (e.g. Streamlit's AppTest, which
+# runs each page script in its own new thread) then gets a connection
+# object it can't use, raising "SQLite objects created in a thread can
+# only be used in that same thread" the moment that connection is reset or
+# closed. StaticPool + check_same_thread=False (SQLAlchemy's own documented
+# fix for this exact case) shares the one in-memory connection across every
+# thread instead, so a pytest fixture (main thread) and an AppTest page run
+# (its own thread) see the same seeded data. Postgres (production/Supabase)
+# and file-based SQLite are unaffected - this only changes pooling for the
+# in-memory dev/test path.
+_engine_kwargs = dict(pool_pre_ping=True, pool_recycle=280)
+if DATABASE_URL in ("sqlite://", "sqlite:///:memory:"):
+    from sqlalchemy.pool import StaticPool
+    _engine_kwargs = dict(poolclass=StaticPool, connect_args={"check_same_thread": False})
+
+ENGINE = create_engine(DATABASE_URL, **_engine_kwargs)
 # expire_on_commit=False: keep already-loaded attributes readable after a
 # commit, since the session below is reused across Streamlit reruns rather
 # than recreated each time.

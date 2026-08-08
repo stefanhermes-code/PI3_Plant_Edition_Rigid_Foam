@@ -38,7 +38,30 @@ import db
 PAGE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pages", "15_Recipe_Optimization.py")
 
 
+def _reset_schema():
+    """Full drop/recreate before each fixture, not just init_db()'s
+    create-if-missing. Needed since the db.py StaticPool fix for in-memory
+    SQLite (2026-08-08, added so AppTest's separate thread can share the
+    same connection as this fixture's thread) means the in-memory database
+    now genuinely persists across both tests in this file within one
+    pytest run, instead of accidentally getting a fresh database per test
+    the way the old (crash-prone) SingletonThreadPool behavior happened to.
+    Without this, seeded_flexible_only's grade row would still be present
+    when seeded_rigid_only's test runs, giving the grade selectbox two
+    options instead of the single one this file's tests are built around
+    (see module docstring).
+
+    Calls create_all() directly rather than db.init_db(): init_db's actual
+    schema work is wrapped in @st.cache_resource (so a real server checks
+    the schema only once per process, not once per rerun - see db.py) and
+    would silently no-op the second time in this same test process, right
+    after drop_all() just removed every table."""
+    db.Base.metadata.drop_all(db.ENGINE)
+    db.Base.metadata.create_all(db.ENGINE)
+
+
 def _seed_base(u):
+    _reset_schema()
     session = db.get_session()
     company = db.Company(name=f"WP4 Page Smoke Co {u}", is_platform_owner=True)
     session.add(company); session.flush()
