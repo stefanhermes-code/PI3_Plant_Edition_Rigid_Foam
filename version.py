@@ -876,6 +876,46 @@ navigator background to a darker light blue (#A9D3EE) for contrast
 between the two, per Stefan's request while awaiting Charlie's reply
 on the Wave 5 v3 workbook review. primaryColor and textColor unchanged.
 No schema, data, or code change.
+
+2026-08-08 (Charlie's Response to JC v3 Clarification, plus the
+accompanying Governance Correction Register v1 and v3 QA Verification
+Register v1): all three items raised in JC's v3 review are now fully
+resolved, no further ambiguity. (1) Wave-boundary governance: the
+20-25 combined-workbook range in 01A_Canonical_Wave_Map is retired;
+package governance now uses each workbook's own actual sheet
+identifiers (this package's primary content is 23;23A;24;24A-E;25;
+26;26A;27;28;29, with 98/99 as support sheets) - this closes the
+drift pattern seen at every prior wave boundary. (2) Scope: Charlie
+confirms the already-imported Wave 5 dataset (4 recipes DEMO-RCP-001
+through 004, 41 components, 12 runs, 24 samples, 96 results, 16 grade
+specs, 12 failure cases) remains canonical; the v3 FINAL workbook was
+built from a different working draft and is formally withdrawn from
+the current import scope - not merged, not reconciled, excluded
+outright. Its four additional structures (actual material usage, run
+process settings, UAT test limits, expected PI3 outcomes) are parked
+for possible later reconciliation, not introduced now. (3) QA: Charlie
+reran all 27 formula-driven checks independently against the v3
+workbook (all PASS) plus the 3 governance checks, documented in a
+separate v3 QA Verification Register - resolving the blank-Result
+observation as a missing-cached-formula artifact, not a real failure;
+this is a technical record of the withdrawn draft only, not import
+authorization.
+
+Implemented the one accepted action: created the permanent COND-011
+("Mean test temperature 10 degC", id 26) in rigid_foam.test_conditions
+and migrated every live reference off the provisional COND-020-THERM10
+(id 19) - 24 physical_property_results rows and 4 grade_specifications
+rows via condition_id, plus 3 grade_specification_templates rows via
+condition_ids_text (semicolon-delimited token replace, e.g.
+"COND-002;COND-020-THERM10" -> "COND-002;COND-011"). Test values
+unchanged throughout - condition reference only. Verified independently
+after migration: 0 remaining live references to id 19 in any of the
+three tables, exactly one COND-011 row exists (no duplicate insert),
+and id 19's description was updated in place to record it as retired/
+superseded rather than deleted, preserving history. PROP-005/MTH-016
+(thermal conductivity) and PROP-018/MTH-012 (closed-cell content)
+were already correct and required no change. No other code, schema,
+or data changes in this batch.
 """
 
-APP_VERSION = "0.14.2"
+APP_VERSION = "0.14.3"
