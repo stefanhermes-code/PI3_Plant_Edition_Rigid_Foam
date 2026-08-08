@@ -15,6 +15,7 @@ import datetime as dt
 import pandas as pd
 import streamlit as st
 
+import analytics
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
 from cascades import delete_recipe_version_cascade, recipe_version_dependency_counts
@@ -554,6 +555,71 @@ else:
                 on_click=log_export_click, args=("recipe_formulation_record_docx",),
                 kwargs={"description": f"Recipe version #{v.id} ({v.version_label})"},
             )
+
+        with st.expander("🧮 Formulation chemistry (A:B ratio, theoretical CO2, isocyanate index)"):
+            st.caption(
+                "Calculated from this version's own components (php dosage), per Charlie's "
+                "calculation_definitions library (CALC-001, CALC-026, CALC-010/011, CALC-015). "
+                "Never guesses a missing input - a result shows 'insufficient data' with the "
+                "specific reason instead of a number when something needed isn't recorded."
+            )
+            ab_result = analytics.recipe_version_ab_mass_ratio(session, v)
+            co2_result = analytics.recipe_version_theoretical_co2(session, v)
+            index_result = analytics.recipe_version_isocyanate_index(session, v)
+
+            fc1, fc2, fc3 = st.columns(3)
+            with fc1:
+                st.markdown("**A:B mass ratio**")
+                if ab_result["computed_ratio"] is not None:
+                    st.metric("Computed", f"{ab_result['computed_ratio']:.3f}")
+                    st.caption(f"A-side {ab_result['a_side_php']:.2f} php : B-side {ab_result['b_side_php']:.2f} php")
+                else:
+                    st.warning("Insufficient data - no B-side components resolved.")
+                if ab_result["target_ratio"] is not None:
+                    st.caption(f"Target (RHF-010): {ab_result['target_ratio']:.3f}")
+                if ab_result["unassigned_components"]:
+                    st.caption(
+                        "Not assigned to a side: " + ", ".join(ab_result["unassigned_components"])
+                    )
+
+            with fc2:
+                st.markdown("**Theoretical CO2 (from water)**")
+                if co2_result["co2_per_100_parts"] is not None:
+                    st.metric("Per 100 parts", f"{co2_result['co2_per_100_parts']:.3f}")
+                    st.caption(f"Water content: {co2_result['water_php']:.3f} php")
+                else:
+                    st.warning(f"Insufficient data - {co2_result['reason']}")
+
+            with fc3:
+                st.markdown("**Isocyanate index**")
+                st.caption(
+                    f"Recorded (production): {index_result['recorded_ratio_index']:.1f}"
+                    if index_result["recorded_ratio_index"] is not None
+                    else "Recorded (production): not set"
+                )
+                if index_result["blocked"]:
+                    st.warning("Cannot independently verify - see reasons below.")
+                else:
+                    st.metric("Re-derived from equivalent weights", f"{index_result['computed_index']:.1f}")
+
+            if index_result["blocked"] and index_result["blocking_reasons"]:
+                st.caption("Why the index can't be re-derived from equivalent weights yet:")
+                for reason in index_result["blocking_reasons"]:
+                    st.caption(f"- {reason}")
+
+            st.write("**Per-component equivalent weights (CALC-010 / CALC-011)**")
+            eq_rows_display = [
+                {
+                    "Component": r["component"],
+                    "Side": r["side"],
+                    "NCO %": r["nco_pct"],
+                    "OH number": r["oh_number"],
+                    "Equivalent weight (g/eq)": r["equivalent_weight_g_eq"],
+                    "Status": r["missing_reason"] or "OK",
+                }
+                for r in index_result["components"]
+            ]
+            render_data_table(pd.DataFrame(eq_rows_display or [{"—": "No components recorded"}]))
 
         with st.expander("Edit details / delete this recipe version"):
             if not page_usable:

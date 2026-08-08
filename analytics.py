@@ -47,6 +47,8 @@ from db import (
     ProductionPhase,
     ProductionRun,
     RawMaterial,
+    RawMaterialAttributeDefinition,
+    RawMaterialAttributeValue,
     RecipeVersion,
 )
 from quality_standards import compute_pass_fail
@@ -752,6 +754,226 @@ def recipe_version_cost(session, recipe_version):
         "missing": missing,
         "complete": not missing,
     }
+
+
+# ---------------------------------------------------------------------------
+# Formulation chemistry: A:B mass ratio, theoretical CO2, equivalent
+# weights, isocyanate index (WP6-S06 DEF-006, 2026-08-08)
+#
+# Charlie's calculation_definitions library documents these formulas
+# (CALC-001, CALC-010, CALC-011, CALC-015, CALC-026) and three of the four
+# are flagged phase_status = "Phase 1" in his own controlled data, but
+# nothing in this app computed them live before now. Same "never fabricate
+# missing data" discipline as recipe_version_cost above: every function
+# here returns an honest None/partial result plus an explicit reason the
+# moment a required input isn't recorded, rather than guessing or
+# defaulting to zero.
+# ---------------------------------------------------------------------------
+
+
+def _component_side(component):
+    """A-side vs B-side for one recipe component, for the A:B MASS RATIO
+    only - this is a formulation-reporting label, not a chemistry
+    classification (different recipes in this app use it inconsistently:
+    the WP3 seed recipe calls the isocyanate 'A-side', the WP5-era
+    reference recipes call the isocyanate 'B-side' - see recipe_versions
+    2-5 vs 1). Prefers the structured stream_assignment field (RCF-004)
+    where populated, falling back to the free-text 'A-side (...)' /
+    'B-side (...)' prefix on role_in_formulation for older recipes that
+    predate stream_assignment. Returns "A", "B", or None if neither field
+    resolves a side - callers must not guess."""
+    sa = (component.stream_assignment or "").strip().lower()
+    if sa.startswith("a-side") or sa == "a":
+        return "A"
+    if sa.startswith("b-side") or sa == "b":
+        return "B"
+    role = (component.role_in_formulation or "").strip().lower()
+    if role.startswith("a-side"):
+        return "A"
+    if role.startswith("b-side"):
+        return "B"
+    return None
+
+
+def recipe_version_ab_mass_ratio(session, recipe_version):
+    """CALC-001 'A:B mass ratio' = A_mass / B_mass. Uses each component's
+    php as its mass - php already puts every component on the same
+    100-part formulation basis, so summing php within a side gives a real
+    mass ratio, not just an ingredient count. Components with no resolvable
+    side (see _component_side) are listed under unassigned_components
+    rather than silently dropped or guessed onto a side, and 'complete'
+    is False whenever any exist. Also returns the recipe's own recorded
+    target_ab_mass_ratio (RHF-010) for comparison, when set."""
+    a_php = 0.0
+    b_php = 0.0
+    unassigned = []
+    for c in recipe_version.components:
+        side = _component_side(c)
+        php = c.php or 0.0
+        if side == "A":
+            a_php += php
+        elif side == "B":
+            b_php += php
+        else:
+            unassigned.append(c.raw_material_name)
+
+    ratio = round(a_php / b_php, 4) if b_php else None
+    return {
+        "a_side_php": round(a_php, 2),
+        "b_side_php": round(b_php, 2),
+        "computed_ratio": ratio,
+        "target_ratio": recipe_version.target_ab_mass_ratio,
+        "unassigned_components": unassigned,
+        "complete": not unassigned and b_php > 0,
+    }
+
+
+def recipe_version_theoretical_co2(session, recipe_version):
+    """CALC-026 'Theoretical CO2 from water' = Water_mass x 44.01 / 18.02
+    (stoichiometric water-isocyanate reaction only; excludes any physical
+    blowing agent's own contribution, per CALC-026's validation_rule).
+    Water_mass is the recipe's Water component php, on the same 100-part
+    formulation basis as recipe_version_cost/recipe_version_ab_mass_ratio -
+    so the result is theoretical CO2 per 100 parts of formulation, not an
+    absolute batch mass. Returns co2_per_100_parts=None with an explicit
+    reason if the recipe has no component named 'Water', rather than
+    assuming zero water."""
+    water_components = [
+        c for c in recipe_version.components
+        if (c.raw_material_name or "").strip().lower() == "water"
+    ]
+    if not water_components:
+        return {
+            "water_php": None,
+            "co2_per_100_parts": None,
+            "reason": "No component named 'Water' found in this recipe's components.",
+        }
+    water_php = sum(c.php or 0.0 for c in water_components)
+    return {
+        "water_php": round(water_php, 3),
+        "co2_per_100_parts": round(water_php * 44.01 / 18.02, 3),
+        "reason": None,
+    }
+
+
+def recipe_version_equivalent_weights(session, recipe_version):
+    """CALC-010 (isocyanate equivalent weight, 4200 / NCO%) and CALC-011
+    (reactive-hydrogen/polyol equivalent weight, 56100 / OH number) for
+    every component of one recipe version. NCO%/OH# are looked up from
+    RawMaterialAttributeValue (RMA-004 / RMA-001), keyed off the
+    component's linked raw_material_id - the WP5 Wave 1 EAV table built
+    for exactly this purpose, but not yet populated for any raw material
+    in this app (0 rows, see the DEF-006 data-gap note to Charlie). A
+    component is treated as the isocyanate side if its role_in_formulation
+    mentions "isocyanate" or its nco_equivalent_flag is set; everything
+    else is treated as the reactive-hydrogen side. Never guesses a value:
+    a component with no linked raw_material_id, or no recorded attribute
+    value, gets an explicit missing_reason instead of being skipped or
+    defaulted to zero."""
+    attr_defs = {
+        d.controlled_id: d
+        for d in session.query(RawMaterialAttributeDefinition)
+        .filter(RawMaterialAttributeDefinition.controlled_id.in_(["RMA-001", "RMA-004"]))
+        .all()
+    }
+    oh_def = attr_defs.get("RMA-001")
+    nco_def = attr_defs.get("RMA-004")
+
+    raw_material_ids = [c.raw_material_id for c in recipe_version.components if c.raw_material_id]
+    values_by_material = {}
+    def_ids = [d.id for d in (oh_def, nco_def) if d]
+    if raw_material_ids and def_ids:
+        for v in (
+            session.query(RawMaterialAttributeValue)
+            .filter(
+                RawMaterialAttributeValue.raw_material_id.in_(raw_material_ids),
+                RawMaterialAttributeValue.attribute_definition_id.in_(def_ids),
+            )
+            .all()
+        ):
+            values_by_material.setdefault(v.raw_material_id, {})[v.attribute_definition_id] = v.value_numeric
+
+    rows = []
+    for c in recipe_version.components:
+        role = (c.role_in_formulation or "").lower()
+        is_isocyanate = bool(c.nco_equivalent_flag) or "isocyanate" in role
+        entry = {
+            "component": c.raw_material_name,
+            "role": c.role_in_formulation,
+            "php": c.php or 0.0,
+            "side": "Isocyanate" if is_isocyanate else "Reactive-hydrogen",
+            "nco_pct": None,
+            "oh_number": None,
+            "equivalent_weight_g_eq": None,
+            "missing_reason": None,
+        }
+        mat_values = values_by_material.get(c.raw_material_id, {}) if c.raw_material_id else {}
+        if not c.raw_material_id:
+            entry["missing_reason"] = "Component has no linked raw_material_id, so no attribute data can be looked up."
+            rows.append(entry)
+            continue
+        if is_isocyanate:
+            nco_pct = mat_values.get(nco_def.id) if nco_def else None
+            entry["nco_pct"] = nco_pct
+            if nco_pct:
+                entry["equivalent_weight_g_eq"] = round(4200.0 / nco_pct, 2)
+            else:
+                entry["missing_reason"] = "No NCO% recorded for this raw material (RMA-004 in raw_material_attribute_values)."
+        else:
+            oh_number = mat_values.get(oh_def.id) if oh_def else None
+            entry["oh_number"] = oh_number
+            if oh_number:
+                entry["equivalent_weight_g_eq"] = round(56100.0 / oh_number, 2)
+            else:
+                entry["missing_reason"] = "No OH number recorded for this raw material (RMA-001 in raw_material_attribute_values)."
+        rows.append(entry)
+    return rows
+
+
+def recipe_version_isocyanate_index(session, recipe_version):
+    """CALC-015 'Actual isocyanate index' = Actual_NCO_equivalents /
+    Actual_reactive_H_equivalents x 100, using each component's php as its
+    mass basis (same 100-part convention as the other functions here).
+    Per CALC-015's own validation_rule ("Block calculation when any
+    reactive component equivalent data is missing"), this returns
+    computed_index=None with an explicit per-component reason the moment
+    ANY component lacks the NCO%/OH# data it needs - it never partially
+    computes or guesses. Also returns the recipe's own recorded
+    ratio_index (RecipeVersion.ratio_index) for reference, since that is
+    the index value actually used in production today regardless of
+    whether it can be independently re-derived here."""
+    eq_rows = recipe_version_equivalent_weights(session, recipe_version)
+    blocking = [r for r in eq_rows if r["equivalent_weight_g_eq"] is None]
+    result = {
+        "recorded_ratio_index": recipe_version.ratio_index,
+        "computed_index": None,
+        "blocked": bool(blocking) or not eq_rows,
+        "blocking_reasons": [f"{r['component']}: {r['missing_reason']}" for r in blocking],
+        "components": eq_rows,
+    }
+    if result["blocked"]:
+        return result
+
+    nco_equivalents = 0.0
+    reactive_h_equivalents = 0.0
+    for r in eq_rows:
+        eq_weight = r["equivalent_weight_g_eq"]
+        if not eq_weight:
+            continue
+        # php treated as grams on the standard 100-part basis; g / (g/eq) = eq
+        equivalents = (r["php"] * 1000.0) / eq_weight
+        if r["side"] == "Isocyanate":
+            nco_equivalents += equivalents
+        else:
+            reactive_h_equivalents += equivalents
+
+    if not reactive_h_equivalents:
+        result["blocked"] = True
+        result["blocking_reasons"].append("Total reactive-hydrogen equivalents computed to zero.")
+        return result
+
+    result["computed_index"] = round(nco_equivalents / reactive_h_equivalents * 100, 1)
+    return result
 
 
 def recipe_version_diff(version_a, version_b):

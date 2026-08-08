@@ -1131,6 +1131,66 @@ tokens remain orphaned (was 32 before the fix). DEF-003 closed same day,
 Fix_Version 0.14.9. WP6-S05 is now fully complete with its one defect
 closed, not just deferred - straight-through sequencing continues to
 WP6-S06 (technical rules validation, needs Charlie).
+
+WP6-S06 (Technical rules validation) completed 2026-08-08. VAL-014 through
+VAL-023 (10 checks) run against live production data + code review.
+VAL-014/015/016/017 (thermal conductivity, closed-cell content,
+dimensional-stability mappings) confirmed sound, surfacing two Low-severity
+test_conditions vocabulary-hygiene items (DEF-004): the original WP3 seed
+result (physical_property_results id=1) still pointed to a stray
+pre-canonicalization condition row "CTX-THERM-INIT-10C-7D" instead of
+COND-011, and COND-005/COND-017 were exact-duplicate "28-day aged"
+conditions under two different controlled_ids (not caught by VAL-005,
+which only flags duplicate ID strings, not duplicate real-world meanings).
+Stefan approved fixing directly ("just fix it now"): repointed the stray
+result to COND-011, then discovered and repointed two more live
+references to COND-017 (grade_specification_templates.condition_ids_text
+GST-002, and a real FK grade_specifications.condition_id id=2 - the
+latter caused an initial delete migration to correctly fail on a Postgres
+FK violation before being fixed in a v2 migration) before retiring
+COND-017 in favor of COND-005. DEF-004 closed; 25/25 PROP-005 results now
+use canonical COND-011, zero stray references remain.
+
+VAL-018 through VAL-023 (isocyanate index, equivalent-weight, A:B ratio,
+theoretical CO2, formulation cost, reference-formulation display) found
+five of six describing capabilities with documented Phase-1-flagged
+formulas (calculation_definitions CALC-001/010/011/012/015) and
+supporting data models, but zero live implementation anywhere in the app
+(DEF-006, High). Stefan's decision: "build it all now." Added CALC-026
+("Theoretical CO2 from water") to calculation_definitions, which didn't
+exist at all before. Built four new analytics.py functions following the
+existing recipe_version_cost()'s "never fabricate missing data" pattern:
+recipe_version_ab_mass_ratio() (CALC-001) and recipe_version_theoretical_
+co2() (CALC-026) are fully computable today from real data - each
+recipe's own recipe_components.stream_assignment/role_in_formulation
+distinguishes A-side from B-side, and the Water component's php is
+real - verified against all 5 live recipe versions (e.g. RCP-UAT-DCP-
+EX1-V1 computes A:B = 136/113 = 1.204, matching its own recipe_basis text
+exactly). recipe_version_equivalent_weights() (CALC-010/011) and
+recipe_version_isocyanate_index() (CALC-015) are also now live, but
+correctly report an honest "insufficient data" reason for every component
+today rather than a fabricated number, since raw_material_attribute_
+values (the WP5 Wave 1 EAV table built specifically for NCO%/OH#) has 0
+rows for any of the 11 raw materials in rigid_foam. All four wired into a
+new "Formulation chemistry" expander on the Recipes page. Built a new
+read-only Reference Formulations page (pages/29_Reference_Formulations.py,
+added to nav under Setup) displaying all 10 imported ReferenceFormulation
+rows and their ~100 ReferenceFormulationComponent ingredient lines with
+full source citation - kept structurally and visually distinct from
+Recipes (separate nav entry/icon, a persistent "not a plant recipe"
+banner, no create/edit/delete) per VAL-023's original requirement. DEF-006
+closed.
+
+The one remaining gap - 0 of 11 raw_materials have cost_per_kg populated,
+and 0 rows exist in raw_material_attribute_values for NCO%/OH# on any raw
+material - is a raw-material master-data completeness issue, not a code
+defect (the cost/index/equivalent-weight calculation code is all correct
+and already proven against the 5 live recipes structurally; it simply has
+no real values to compute from yet). Split out from DEF-006 into its own
+DEF-007 (Medium, Owner Charlie, non-blocking for Gate G5) rather than
+fabricating placeholder values for any of it. WP6-S06 fully complete;
+straight-through sequencing continues to WP6-S07 (functional regression,
+23 checks).
 """
 
-APP_VERSION = "0.14.9"
+APP_VERSION = "0.14.10"

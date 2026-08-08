@@ -145,6 +145,7 @@ PAGE_CATALOG = {
     "product_family_foam_grade": "Product Family & Foam Grade",
     "raw_materials": "Raw Materials",
     "recipes": "Recipes",
+    "reference_formulations": "Reference Formulations",
     "production_run": "Production Run",
     "quality_test_result": "Quality Test Result",
     "quality_issue": "Quality Issue",

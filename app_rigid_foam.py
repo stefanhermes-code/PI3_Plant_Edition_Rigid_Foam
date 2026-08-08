@@ -270,6 +270,7 @@ setup_pages = [
     ("product_family_foam_grade", st.Page("pages/2_Product_Family_Foam_Grade.py", title="Product Family & Foam Grade", icon="🧬")),
     ("raw_materials", st.Page("pages/14_Raw_Materials.py", title="Raw Materials", icon="🧴")),
     ("recipes", st.Page("pages/3_Recipe_Version_Record.py", title="Recipes", icon="📋")),
+    ("reference_formulations", st.Page("pages/29_Reference_Formulations.py", title="Reference Formulations", icon="📚")),
 ]
 
 production_pages = [
