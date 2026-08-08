@@ -916,6 +916,39 @@ superseded rather than deleted, preserving history. PROP-005/MTH-016
 (thermal conductivity) and PROP-018/MTH-012 (closed-cell content)
 were already correct and required no change. No other code, schema,
 or data changes in this batch.
+
+2026-08-08 (WP6 Gate G5, Stage S01 Baseline Freeze - Charlie's
+Execution Plan + Master Register v1): Charlie delivered the final
+joint work package for Phase 1 - 13 execution stages, 28 validation
+checks, 30 UAT cases, 23 regression checks, defect log, evidence
+register, culminating in Stefan's Gate G5 release decision. Ran S01
+Baseline Freeze: recorded app version/commit, full rigid_foam schema
+snapshot (87 tables), and controlled-data baseline. Confirmed the
+WP5-accepted canonical Wave 5 demonstration dataset (4 recipes/41
+components/12 runs/24 samples/96 results/16 grade specs/12 failure
+cases) is present and exactly matching, coexisting cleanly with one
+older, clearly-labeled WP3 vertical-slice reference run chain that
+predates Wave 5 (run id 1 "RUN-UAT-RPUR-0001", foam_grade id 2,
+recipe_version id 1) - no overlap, no unexplained rows. COND-011
+migration reconfirmed in force. Recorded as Evidence EVD-001 in the
+WP6 master register; WP6-S01 marked Completed.
+
+Found and fixed one defect during baseline freeze (DEF-001, same
+day): rigid_foam.raw_material_catalog_entries (151 rows, the Raw
+Materials Master) was the only one of 87 rigid_foam tables with Row
+Level Security disabled, exposing it to Supabase's anon/authenticated
+client roles. The table has no company_id/plant_id column - it is a
+shared global reference catalog, not tenant data - so the fix matches
+the posture already standard on the other 86 tables: enabled RLS with
+no policies (ALTER TABLE ... ENABLE ROW LEVEL SECURITY; the app's
+owner-role connection bypasses RLS regardless, same as every other
+table, per the WP0 decision). Applied after Stefan's explicit approval
+per this project's standing security-review rule. Verified post-fix:
+all 151 rows still readable via the app connection; Supabase's
+security advisory for this table now reads "RLS enabled, no policies
+exist" - the same accepted state as the rest of the schema, no longer
+flagged as disabled. DEF-001 closed, retest PASS, recorded as EVD-002.
+No other code or schema changes in this batch.
 """
 
-APP_VERSION = "0.14.3"
+APP_VERSION = "0.14.4"
