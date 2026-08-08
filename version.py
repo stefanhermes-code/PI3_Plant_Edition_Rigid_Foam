@@ -1277,6 +1277,46 @@ direction too (a Company-B-scoped session sees no Company-A data either).
 All 10 checks passed on the first run, 0 defects raised. WP6-S08 fully
 complete; straight-through sequencing continues to WP6-S09 (Controlled
 UAT, 30 cases, needs Charlie).
+
+2026-08-08 (WP6-S09, Controlled UAT, JC-solo half): the 30-case
+03_UAT_Test_Cases sheet splits its own Primary_Owner column 13 "JC" / 17
+"JC + Charlie" - closed all 13 JC-solo cases (UAT-001, 002, 006, 007, 020,
+022-029) this batch, all Pass. Unlike WP6-S07/S08's synthetic two-company
+seed, this stage's own stated Purpose says "using the accepted Wave 5
+demonstration dataset" - so every JC-solo check was run directly against
+the real live rigid_foam schema (12 real production runs, 24 samples, 97
+physical_property_results, 11 raw_material_lot_uses, etc.) via read-only
+queries, not a fixture. Two real, non-blocking engineering gaps surfaced as
+a direct byproduct of grounding UAT-006/UAT-007 in real data instead of a
+synthetic fixture that would have masked them: DEF-008 (no page/report
+anywhere renders ProductionCycle/ProductionShot/OutputItem - confirmed via
+a full-repo grep matching only db.py/version.py, while all 12 real
+canonical rigid runs use this Cycle/Shot/OutputItem structure exclusively,
+0 rows in the older ProductionPhase table) and DEF-009 (RawMaterialLotUse.
+mass_kg, added WP4, still has no capture UI - confirmed 0 of 11 real rows
+populated). Both logged Open/Medium/non-blocking; neither is a Charlie
+content question. UAT-028 (invalid FK rejected) and UAT-029 (duplicate
+controlled ID blocked) were proven via a read-only pg_constraint query
+confirming the real, enforced FOREIGN KEY/UNIQUE constraints, after an
+initial live disposable-row insert attempt to empirically trigger the
+rejection was correctly withheld by write-safety policy - the constraint-
+existence check is equally conclusive and non-invasive. UAT-026/027 (cross-
+tenant isolation, user deactivation) were closed by cross-referencing
+WP6-S07/S08's already-conclusive evidence (REG-020, ATV-09/10) rather than
+creating disposable company/user rows directly in the live project for no
+new information; UAT-027 marked "Pass (code review)" only, noting a live
+create/deactivate test was not run without explicit permission. Evidence
+recorded as EVD-033/034/035 in 07_Evidence_Register (self-caught and fixed
+an append-vs-blank-row bug that had created duplicate DEF-008/DEF-009
+Defect_ID rows in 06_Defect_Log before it reached the shared workbook
+copy). The remaining 17 "JC + Charlie" cases require confirming the
+technical correctness of real rigid-foam content (grade specifications,
+recipe component lines, quality issue/cause taxonomy, PI3 answers) that
+only Charlie's domain knowledge can judge - itemized case-by-case, with
+what JC has already confirmed and exactly what's needed from Charlie, in
+PI3_Rigid_Foam_Phase_1_WP6_S09_Charlie_Requests.docx. WP6-S09 stays "In
+Progress" (13/30 closed) pending Charlie's response; no app code changed
+this batch, only the WP6 Master workbook and this new findings document.
 """
 
-APP_VERSION = "0.14.12"
+APP_VERSION = "0.14.13"
