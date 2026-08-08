@@ -1110,8 +1110,27 @@ decision ask (import missing rows now / accept as deferred governance
 gap / Charlie reduces scope to codes in active use) presented to
 Stefan via PI3_Rigid_Foam_Phase_1_WP6_S05_Findings_and_DEF-003.docx,
 mirroring how DEF-001/DEF-002 were surfaced rather than fixed
-unilaterally. WP6-S05 itself is complete; DEF-003's disposition is an
-open decision, not a blocker to S06.
+unilaterally.
+
+Stefan's decision (2026-08-08, same day): import the missing rows now.
+Sourced all 32 missing codes from Charlie's own existing research -
+found in two workbooks already in the dev docs folder: WP2 Technical
+Master Data's "14_Source_Register" sheet (23 of the 32, all ISO/ASTM
+standards) and WP5 Scale-Out Technical Content and Knowledge Library's
+"28_Source_Register" sheet (the remaining 8, plus confirming
+SRC-PATENT-FAMILY's intended meaning: "patent literature reactivity
+observations" for cream/gel/tack-free/rise-time fields), plus SRC-INT-01
+from WP2's own header ("PI3 Rigid Foam Edition WP1 Scope and Controlled
+Terminology"). None of this required new research - Charlie had already
+catalogued these sources for later waves; they just hadn't been carried
+into source_registers. Imported via two migrations
+(wp6_def003_import_standards_body_source_registers,
+wp6_def003_import_src_int_01), adding 32 rows (17 -> 49 total).
+Re-ran VAL-006's orphan check after import: 0 of 32 referenced source_ids
+tokens remain orphaned (was 32 before the fix). DEF-003 closed same day,
+Fix_Version 0.14.9. WP6-S05 is now fully complete with its one defect
+closed, not just deferred - straight-through sequencing continues to
+WP6-S06 (technical rules validation, needs Charlie).
 """
 
-APP_VERSION = "0.14.8"
+APP_VERSION = "0.14.9"
