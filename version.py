@@ -1038,6 +1038,26 @@ up. Post-cleanup, information_schema confirms exactly 86 tables again,
 matching production. VAL-002 (upgrade reaches the same structural
 schema as a clean build) and VAL-003 (upgrade preserves existing data)
 both Pass.
+
+2026-08-08 (WP6 Gate G5, Stage S04 Rollback/recovery validation): on
+the same branch, ran a full disaster-recovery rehearsal - DROP SCHEMA
+rigid_foam CASCADE, confirmed via information_schema that the schema
+was completely gone (0 tables, 0 schema rows), then rebuilt from the
+identical db.py-derived DDL used in S02. Confirmed exactly 86 tables
+restored (matching production table-for-table) and re-ran the FK-
+resolution check (Company -> Plant insert/join/rollback) against the
+rebuilt schema - passed, proving the recovery path is not just
+structurally complete but functionally live. This demonstrates the
+project's real, working recovery mechanism end to end: db.py's own
+ORM metadata is the single source of truth, and a full rebuild from it
+reaches the agreed working state deterministically. VAL-004 Pass.
+
+WP6-S02 through S04 are now all complete and evidenced on the isolated
+Supabase branch (wp6-s02-s04-validation, project lnjzlnmbkiqeibcfpplg)
+per Stefan's original plan ("delete it as soon as S02, S03, and S04
+are all done and evidenced") - branch scheduled for deletion this same
+session to stop the ~$0.01344/hour cost. WP6-S05 (controlled master-
+data validation) is next per straight-through S01-S13 sequencing.
 """
 
-APP_VERSION = "0.14.6"
+APP_VERSION = "0.14.7"
