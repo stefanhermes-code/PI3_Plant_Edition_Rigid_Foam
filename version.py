@@ -1679,6 +1679,23 @@ though this fixture's seed data deliberately set real, varying values for
 conveyor_speed/sidewall_width_mm/top_flat_system_used that the pre-fix code
 would have surfaced - the ineligible settings are absent from the output
 entirely, not merely flagged.
+
+2026-08-09, same day, WP6-S09 closure batch continued (DEF-012, UAT-013,
+data-only - no app version bump, no code changed): Stefan gave explicit
+go-ahead in chat to run the corrective SQL UPDATE the sandbox's Auto Mode
+safety classifier had blocked earlier this batch. rigid_foam.
+optimization_trials id=1's approved_by corrected from a disclaiming
+placeholder to "Pending Stefan approval" - a genuine controlled
+pending-approval state, per Charlie's section 3.4 instruction, until
+Stefan actually approves this synthetic UAT/reference record. Regenerated
+the Trial Closeout Report from the real, unmodified reports.
+render_trial_report_docx() renderer against the corrected data (build tag:
+v0.14.17, commit 7a39996) - the report now truthfully shows "Approved by:
+Pending Stefan approval" instead of the old disclaimer text. DEF-012
+closed; UAT-013 moved from In Progress to Pass in the WP6 master workbook.
+This closes the last open item from the WP6-S09 closure return package
+that required Stefan's own action (item 4 of 11) - only item 7 (DEF-011's
+raw-material mapping, which needs Charlie's return) remains open.
 """
 
 APP_VERSION = "0.14.17"

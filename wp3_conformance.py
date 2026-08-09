@@ -215,7 +215,20 @@ def resolve_actual_value(spec, result):
 # their previous (already-correct) behavior.
 _CONTROLLED_DIMENSION_RULES = {
     "thermal conductivity": (True, True),
-    "compressive strength": (True, True),
+    # Charlie's section 3.2 wording is "require the applicable test
+    # direction and the specimen geometry/context required by the
+    # SELECTED METHOD" - not literally "thickness" the way thermal
+    # conductivity's rule is worded, and no per-method geometry field is
+    # captured separately from Sample/Result.thickness_mm today. Reading
+    # this as an unconditional thickness requirement would mark every
+    # compressive-strength result in the current dataset INVALID (none of
+    # the 24 real compressive-strength results have a thickness on file at
+    # either level), which contradicts Charlie's own section 3.3 target
+    # tally (37 evaluated, only thermal conductivity carrying the 24
+    # thickness-driven INVALID results) - so this is read as orientation/
+    # direction only until a method-specific geometry field exists to
+    # actually check "required by the selected method" against.
+    "compressive strength": (False, True),
     "core density": (False, False),
     "closed-cell content": (False, False),
     "closed cell content": (False, False),
