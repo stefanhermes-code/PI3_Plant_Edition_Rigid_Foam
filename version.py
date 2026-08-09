@@ -1748,4 +1748,19 @@ workbook. This closes the last open item (item 7 of 11) from the original
 WP6-S09 closure return package.
 """
 
-APP_VERSION = "0.14.17"
+VERSION_0_14_18_NOTES = """
+Hotfix (2026-08-09): pages/29_Reference_Formulations.py (added under
+WP6-S06 DEF-006) crashed in production with AttributeError as soon as a
+user selected any reference formulation row - it reads rf.components to
+list a formulation's ingredient lines, but ReferenceFormulation never had
+a components relationship defined; only the reverse
+ReferenceFormulationComponent.reference_formulation existed. Fixed in
+db.py by adding ReferenceFormulation.components (order_by sequence,
+back_populates="reference_formulation") and back_populates on the
+existing reverse relationship, so SQLAlchemy doesn't warn about
+overlapping writes to the same FK. Additive ORM wiring only - no schema
+or data change, FK already existed. Verified with a fresh SQLite smoke
+test (warnings-as-errors) and py_compile on db.py + the affected page.
+"""
+
+APP_VERSION = "0.14.18"

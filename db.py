@@ -3046,6 +3046,18 @@ class ReferenceFormulation(Base):
     basis_uom = relationship("UnitOfMeasure", foreign_keys=[basis_uom_id])
     water_uom = relationship("UnitOfMeasure", foreign_keys=[water_uom_id])
     blowing_agent_uom = relationship("UnitOfMeasure", foreign_keys=[blowing_agent_uom_id])
+    # Added 2026-08-09 (production hotfix): pages/29_Reference_Formulations.py
+    # reads rf.components to list each formulation's ingredient lines - this
+    # relationship was missing entirely (only the reverse
+    # ReferenceFormulationComponent.reference_formulation existed), causing an
+    # AttributeError on every reference-formulation detail view. FK already
+    # exists (ReferenceFormulationComponent.reference_formulation_id); this is
+    # additive ORM wiring only, no schema/data change.
+    components = relationship(
+        "ReferenceFormulationComponent",
+        order_by="ReferenceFormulationComponent.sequence",
+        back_populates="reference_formulation",
+    )
 
 
 class ReferenceFormulationComponent(Base):
@@ -3089,7 +3101,7 @@ class ReferenceFormulationComponent(Base):
     master_link_status = Column(String(50))  # e.g. "EXACT MASTER LINK"
     notes = Column(Text)
 
-    reference_formulation = relationship("ReferenceFormulation")
+    reference_formulation = relationship("ReferenceFormulation", back_populates="components")
     source = relationship("SourceRegister")
     material = relationship("RawMaterialCatalogEntry")
     uom = relationship("UnitOfMeasure", foreign_keys=[uom_id])
