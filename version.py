@@ -1625,6 +1625,60 @@ WP6 master workbook/defect-log update, and the consolidated 11-item return
 package to Charlie are tracked as this batch's remaining, not-yet-complete
 steps. Full pytest suite (38 tests) passes with no regressions from any of
 the above.
+
+v0.14.16 -> v0.14.17 (2026-08-09, same day, WP6-S09 closure batch
+continued): regenerating UAT-011/012/014 against this exact v0.14.16
+commit (5ca9717) reproduced Charlie's section 3.3 target headline metrics
+exactly (49 attempted / 37 evaluated / 35 Pass / 2 Fail / 12 Invalid / 76%
+coverage / 95% pass rate) - confirming the DEF-010 refinement is correct
+as shipped, with one correction made along the way: Charlie's section 3.2
+wording for Compressive strength ("require the applicable test direction
+and the specimen geometry/context required by the selected method") was
+initially read too literally as an unconditional thickness requirement in
+_CONTROLLED_DIMENSION_RULES (matching Thermal conductivity's rule) - this
+would have marked all 24 real compressive-strength results INVALID (none
+have a thickness on file at either level) and broken the target tally.
+Corrected to (False, True) - direction/orientation only, since no
+per-method geometry field is captured separately from thickness_mm today
+- reproducing Charlie's exact target on the first real run against fresh
+data, which is itself strong evidence the correction is right.
+
+Re-running the UAT-015-019 live-page capture (JC action 7's script,
+re-run unmodified against today's code) to generate fresh evidence for
+this closure batch surfaced a second, real defect this batch's own UAT-016
+fix had introduced: reports.build_trend_analysis_report_data() still
+unconditionally formatted capability['cpl']/['lsl'] as floats, which
+crashes with "unsupported format string passed to NoneType.__format__" as
+soon as analytics.capability_analysis() returns a genuinely one-sided
+result (cpl/lsl deliberately None, not a fabricated opposite limit) for a
+real one-sided spec - exactly the Trend Analysis page's own Thermal
+conductivity case. Fixed by branching build_trend_analysis_report_data the
+same way the on-screen display already branches: a one-sided result shows
+only Cpk/Cpu-or-Cpl and the one real limit, plus an explicit "no real
+opposite limit, so none is shown or invented" note, instead of crashing.
+Caught before reaching Stefan or Charlie only because this closure batch's
+own re-capture step exercises the full page load path (the Trend Analysis
+page assembles its Word-report data unconditionally on every load, not
+lazily on button click) - not caught by the existing pytest suite, which
+has no case with a one-sided real spec feeding this exact function
+(tracked as a real test-coverage gap, not fixed in this batch).
+
+Re-ran the full pytest suite (38 tests, still passing) and the UAT-015-019
+live-page capture again after the fix: all 5 pages now render exception-
+free. The fresh capture independently confirms, on live rendered page
+output rather than code inspection alone: (a) UAT-016 - the capability
+section reads "This is a one-sided specification (<= 0.024) - there is no
+real opposite limit, so no lower/upper counterpart is shown or invented",
+and this fixture's own data happened to reproduce the exact CUSUM-vs-trend
+divergence pattern Charlie flagged (a downward slow-drift breach alongside
+an upward overall trend), correctly explained by the new reconciliation
+caption rather than silently contradicting itself; (b) UAT-017/018/019 -
+the correlation ranking, optimization ranking, and Root-Cause Assistant's
+run-vs-prior-run diff all show ONLY "Mixer rpm" as a process setting, even
+though this fixture's seed data deliberately set real, varying values for
+conveyor_speed/sidewall_width_mm/top_flat_system_used that the pre-fix code
+would have surfaced - the ineligible settings are absent from the output
+entirely, not merely flagged.
 """
 
-APP_VERSION = "0.14.16"
+APP_VERSION = "0.14.17"

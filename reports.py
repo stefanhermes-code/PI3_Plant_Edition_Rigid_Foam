@@ -3534,12 +3534,38 @@ def build_trend_analysis_report_data(
         else:
             read = "not enough margin - this process routinely produces results outside spec"
         capability_line = f"Cpk {cpk:.2f} - {read}."
-        capability_kv = [
-            ("Cpk (overall margin)", f"{cpk:.2f}"),
-            ("Cpu (margin to upper limit)", f"{capability['cpu']:.2f}"),
-            ("Cpl (margin to lower limit)", f"{capability['cpl']:.2f}"),
-            ("Spec range", f"{capability['lsl']:.3g} - {capability['usl']:.3g}"),
-        ]
+        # WP6-S09 closure (2026-08-09, UAT-016): capability_analysis() now
+        # returns a genuinely one-sided result (cpl/lsl or cpu/usl is None,
+        # not a fabricated opposite limit) whenever the real spec only has
+        # one real limit - see analytics.capability_analysis's docstring.
+        # Formatting capability['cpl']/['lsl'] unconditionally as before
+        # crashed with "unsupported format string passed to NoneType" the
+        # first time a one-sided spec (Trend Analysis's real Thermal
+        # conductivity "<=" case) reached this report. Branch the same way
+        # the on-screen display already does.
+        if capability.get("one_sided"):
+            op = capability.get("operator")
+            if op == "<=":
+                capability_kv = [
+                    ("Cpk = Cpu (margin to upper limit)", f"{cpk:.2f}"),
+                    ("Upper spec limit", f"{capability['usl']:.3g}"),
+                ]
+            else:
+                capability_kv = [
+                    ("Cpk = Cpl (margin to lower limit)", f"{cpk:.2f}"),
+                    ("Lower spec limit", f"{capability['lsl']:.3g}"),
+                ]
+            capability_kv.append((
+                "Note",
+                "One-sided specification - there is no real opposite limit, so none is shown or invented.",
+            ))
+        else:
+            capability_kv = [
+                ("Cpk (overall margin)", f"{cpk:.2f}"),
+                ("Cpu (margin to upper limit)", f"{capability['cpu']:.2f}"),
+                ("Cpl (margin to lower limit)", f"{capability['cpl']:.2f}"),
+                ("Spec range", f"{capability['lsl']:.3g} - {capability['usl']:.3g}"),
+            ]
 
     cusum_categories, cusum_series = [], []
     cusum_line = "Not enough data for a slow-drift check."
