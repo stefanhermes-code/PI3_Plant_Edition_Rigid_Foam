@@ -1761,6 +1761,19 @@ existing reverse relationship, so SQLAlchemy doesn't warn about
 overlapping writes to the same FK. Additive ORM wiring only - no schema
 or data change, FK already existed. Verified with a fresh SQLite smoke
 test (warnings-as-errors) and py_compile on db.py + the affected page.
+
+Also this date, data-only (no app code): WP6-S09 DEF-010 resolved per
+Charlie's technical resolution instruction. 24 eligible synthetic-UAT
+thermal-conductivity result rows (MTH-016/017/018, thickness_mm NULL)
+migrated to the controlled fixture value thickness_mm = 60.0 mm on both
+physical_property_results and the linked samples row, with Stefan's
+explicit go-ahead for the SQL UPDATE, matching the existing UAT-013 60mm
+convention and required provenance text. 2 pre-existing rows already at
+60.0 mm left untouched; all other fields on the 24 migrated rows verified
+unchanged via spot-check. UAT-009/011/012/014 regenerated against the
+real, unmodified wp3_conformance/reports functions and confirmed to match
+Charlie's cited expected values exactly. DEF-010 closed in the WP6 master
+workbook (v6).
 """
 
 APP_VERSION = "0.14.18"
