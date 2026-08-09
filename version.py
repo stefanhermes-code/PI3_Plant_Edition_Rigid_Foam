@@ -1776,4 +1776,90 @@ Charlie's cited expected values exactly. DEF-010 closed in the WP6 master
 workbook (v6).
 """
 
-APP_VERSION = "0.14.18"
+VERSION_0_15_0_NOTES = """
+v0.14.18 -> v0.15.0 (2026-08-09, Post-G5 Reference Data Enrichment): Stefan
+and Charlie signed off Gate G5 (WP6-S13); this is the first batch of work
+after that sign-off, per Stefan's post-G5 instruction to load a new
+scientific reference data package Charlie prepared (8 exact formulations,
+2 research families, linked process/performance data, and a raw-material
+reconciliation) - deliberately separate from the "Production Method
+hierarchy" architecture change Stefan flagged as parked until after this
+data load, which he will explain and scope separately.
+
+Schema additions in db.py, following the same "Reference Library vs.
+plant Recipe Version" separation established since WP5 Wave 4/the
+Raw Materials Master v2 reconciliation: two new EAV-style child tables -
+ReferenceFormulationPerformanceResult (reference_formulation_performance_
+results) and ReferenceFormulationProcessingNote (reference_formulation_
+processing_notes) - because the source data reports up to 13 performance
+values and 9 process steps per recipe, too variable for fixed columns;
+and one new top-level table, ReferenceFormulationFamily (reference_
+formulation_families), kept deliberately separate from ReferenceFormulation
+per Charlie's explicit governance instruction, since a family reports a
+parameter range/optimization result across an experimental design, not one
+exact recipe. ReferenceFormulation gained two new relationships
+(performance_results, processing_notes), both back_populates-paired with
+the new child tables' own reference_formulation relationship, matching the
+back_populates fix already applied for .components in v0.14.18. Both new
+EAV tables preserve every reported unit/method/condition/orientation as
+free text (property_text/method_text/test_condition_text/orientation_text)
+regardless of whether a clean controlled-vocabulary link exists, so nothing
+from the source is ever lost to a forced classification - same principle
+as every prior wave's *_text sibling-column pattern.
+
+Imported: 8 exact reference formulations (RFREF-001 through 008) and 52
+ingredient/component lines; 40 processing-step records and 53 performance-
+result records across those 8 recipes; 2 research formulation families
+(RFFAM-001/002, a PIR sandwich-panel optimization study); 6 new source-
+register rows (SRC-SCI-001..004, SRC-INT-02/03); and 15 new raw-material
+catalog entries (RF-REF-043..057) reconciled against the existing 151-row
+catalog - 7 of the 22 total raw-material references in the package
+resolved to exact pre-existing catalog identities (matched by exact name
+only, never fuzzy-substituted), the other 15 are genuinely new commercial
+identities not previously catalogued. Two controlled-vocabulary gaps
+closed directly, both flagged as judgment calls for Charlie's disposition
+rather than decided silently: (1) PROP-057 "Start time" added as a new
+physical_property_definitions row - a standard PU foam reaction-profile
+term with no existing controlled match, added as a clear sibling of the
+already-controlled Cream/Gel/Rise/Tack-free time properties; (2) two
+source orientation terms ("Rise direction Z", "Transverse direction X")
+mapped onto the existing LOC-060/LOC-061 (parallel/perpendicular-to-rise)
+controlled terms as the closest available proxy, while the exact source
+wording is preserved verbatim in orientation_text on every affected row so
+no information is lost if Charlie later decides a distinct controlled term
+is warranted. PM-200/PM-300 (Charlie's own explicit governance assignments
+from his 07_PI3_Control_Mapping sheet) and PROP-057 were seeded as real
+controlled rows, not fabricated - Charlie's own workbook had already named
+and assigned them.
+
+Final regression/count verification against the real rigid_foam schema
+confirmed zero collisions and zero regressions to any pre-existing data:
+reference_formulations 10->18, reference_formulation_components 100->152,
+raw_material_catalog_entries 151->166, source_registers 49->55,
+production_methods 3->5, physical_property_definitions 56->57,
+reference_formulation_families 0->2 - every delta exactly matches the
+package's own scope (8/52/15/6/2/1/2 rows respectively), with the original
+pre-existing rows in every one of those tables confirmed byte-for-byte
+unchanged. Verified via py_compile and a live import of db.py with
+SQLAlchemy's configure_mappers() (catches ORM relationship/FK errors
+py_compile alone cannot) - one real bug caught this way and fixed before
+release: ReferenceFormulationFamily's initial draft carried three stray
+relationship lines copy-pasted from a different class (a duplicate
+`source` relationship and two relationships referencing columns that
+don't exist on this table, material_id/uom_id), which would have crashed
+on first import; removed, leaving only the five relationships this table's
+own columns actually support (chemistry, intended_production_method,
+application, intended_construction, source).
+
+No dedicated UI page surfaces reference_formulation_performance_results,
+reference_formulation_processing_notes, or reference_formulation_families
+yet - same schema-first/UI-later pattern as every prior wave; the existing
+Reference Formulations viewing page (pages/29, built under WP6-S06/DEF-006)
+continues to show only the ReferenceFormulation/ReferenceFormulationComponent
+data it already knew about. Deferred, not silently dropped, per Stefan's
+own sequencing: the "Production Method hierarchy" architecture change
+(Plant -> Production Method -> Machine -> PU Materials) remains completely
+untouched pending his separate explanation and scoping.
+"""
+
+APP_VERSION = "0.15.0"

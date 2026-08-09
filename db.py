@@ -3058,6 +3058,25 @@ class ReferenceFormulation(Base):
         order_by="ReferenceFormulationComponent.sequence",
         back_populates="reference_formulation",
     )
+    # Added 2026-08-09 (Post-G5 Reference Data Enrichment, Charlie/JC scientific
+    # reference package): the 8 new RFREF-* rows carry a much richer, variable
+    # per-recipe property set (up to 13 performance rows and 9 process steps for
+    # a single recipe) than ReferenceFormulation's own fixed reported_* columns
+    # can hold - those columns still carry one "headline" value per property
+    # where a single clean value exists (e.g. reported_free_rise_density_kg_m3),
+    # but the full granular dataset (uncertainty, method, test condition,
+    # orientation, every process step) lives in these two EAV-style child
+    # tables instead of forcing new fixed columns for each one-off property.
+    performance_results = relationship(
+        "ReferenceFormulationPerformanceResult",
+        order_by="ReferenceFormulationPerformanceResult.sequence",
+        back_populates="reference_formulation",
+    )
+    processing_notes = relationship(
+        "ReferenceFormulationProcessingNote",
+        order_by="ReferenceFormulationProcessingNote.step_no",
+        back_populates="reference_formulation",
+    )
 
 
 class ReferenceFormulationComponent(Base):
@@ -3102,9 +3121,150 @@ class ReferenceFormulationComponent(Base):
     notes = Column(Text)
 
     reference_formulation = relationship("ReferenceFormulation", back_populates="components")
+
+
+class ReferenceFormulationPerformanceResult(Base):
+    """One reported performance/property value for an exact scientific
+    reference formulation (RFREF-*) - Post-G5 Reference Data Enrichment,
+    2026-08-09, from Charlie/JC's scientific reference package
+    (04_Performance_Data sheet, 53 rows across RFREF-003..008).
+
+    EAV by design: the source properties vary per recipe (some report only
+    reactivity times, others add cell-structure and compressive data), so a
+    fixed-column model would need a new column for every one-off property.
+    property_definition_id/method_id/test_condition_id/orientation_id link to
+    the existing WP2/WP5 controlled masters where a clean match exists;
+    property_text/method_text/test_condition_text/orientation_text always
+    hold the exact source term regardless, so nothing is lost when a
+    controlled link isn't available (see PROP-057 "Start time", added for
+    this batch as a standard sibling of Cream/Gel/Rise/Tack-free time).
+    reported_uom is free text on purpose - preserves the exact source unit
+    (e.g. mW/(m*K) vs W/(m*K) for thermal conductivity) rather than forcing
+    every row through a single UOM master conversion.
+    """
+
+    __tablename__ = "reference_formulation_performance_results"
+
+    id = Column(Integer, primary_key=True)
+    reference_formulation_id = Column(Integer, ForeignKey("reference_formulations.id"), nullable=False)
+    sequence = Column(Integer)
+    record_type = Column(String)  # e.g. "Exact scientific reference recipe"
+    property_definition_id = Column(Integer, ForeignKey("physical_property_definitions.id"))
+    property_text = Column(String, nullable=False)  # exact source property name
+    result_value = Column(Float)
+    result_value_text = Column(String)  # non-numeric results, if ever needed
+    uncertainty_or_range = Column(String)  # e.g. "+/- 2"
+    reported_uom = Column(String)
+    method_id = Column(Integer, ForeignKey("physical_property_methods.id"))
+    method_text = Column(String)  # e.g. "ISO 8301"
+    test_condition_id = Column(Integer, ForeignKey("test_conditions.id"))
+    test_condition_text = Column(String)
+    orientation_id = Column(Integer, ForeignKey("orientations.id"))
+    orientation_text = Column(String)  # e.g. "Rise direction Z" - kept verbatim even when orientation_id maps to a close but not identical controlled term
+    sample_age = Column(String)
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+    source_url = Column(String)
+    notes = Column(Text)
+
+    reference_formulation = relationship("ReferenceFormulation", back_populates="performance_results")
+    property_definition = relationship("PhysicalPropertyDefinition")
+    method = relationship("PhysicalPropertyMethod")
+    test_condition = relationship("TestCondition")
+    orientation = relationship("Orientation")
     source = relationship("SourceRegister")
-    material = relationship("RawMaterialCatalogEntry")
-    uom = relationship("UnitOfMeasure", foreign_keys=[uom_id])
+
+
+class ReferenceFormulationProcessingNote(Base):
+    """One reported process step/parameter for an exact scientific reference
+    formulation (RFREF-*) - Post-G5 Reference Data Enrichment, 2026-08-09,
+    from Charlie/JC's scientific reference package (03_Processing_Data
+    sheet, 40 rows across all 8 RFREF-001..008).
+
+    value_text always holds the exact source value (including ranges like
+    "30-60" or qualitative text like "Open-mold free rise"); value_numeric is
+    populated only when the source value is a clean number, for any future
+    calculation/filtering use without re-parsing text.
+    """
+
+    __tablename__ = "reference_formulation_processing_notes"
+
+    id = Column(Integer, primary_key=True)
+    reference_formulation_id = Column(Integer, ForeignKey("reference_formulations.id"), nullable=False)
+    step_no = Column(Integer)
+    process_phase = Column(String)  # e.g. "Metering and dispensing"
+    parameter = Column(String, nullable=False)  # e.g. "Final mix time after pMDI addition"
+    value_text = Column(String)
+    value_numeric = Column(Float)
+    unit = Column(String)
+    condition_or_context = Column(Text)
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+    source_url = Column(String)
+    notes = Column(Text)
+
+    reference_formulation = relationship("ReferenceFormulation", back_populates="processing_notes")
+    source = relationship("SourceRegister")
+
+
+class ReferenceFormulationFamily(Base):
+    """A research formulation family/optimization result (RFFAM-*) -
+    deliberately a separate table from ReferenceFormulation, per Charlie's
+    explicit governance instruction: exact scientific reference recipes and
+    research formulation families must never be confused with each other or
+    with a plant recipe. A family reports a parameter range/optimization
+    result across an experimental design, not one exact recipe - see
+    record_status ("RESEARCH FAMILY ONLY") and import_action, both always
+    more restrictive than a locked exact reference.
+
+    Post-G5 Reference Data Enrichment, 2026-08-09: 2 rows (RFFAM-001/002)
+    from Charlie/JC's scientific reference package (06_Formulation_Families
+    sheet), a PIR sandwich-panel optimization study. Ingredient composition
+    is captured as fixed pbw columns (mirroring the source sheet exactly)
+    rather than a child components table, since every row in this study
+    reports the same fixed set of components (low/high-functionality polyol,
+    TEP, silicone surfactant, water, blowing catalyst, trimerization
+    catalyst, n-pentane, pMDI) - unlike RFREF-*'s variable ingredient lists,
+    which do need a real child table.
+    """
+
+    __tablename__ = "reference_formulation_families"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True, nullable=False)  # e.g. "RFFAM-001"
+    variant_name = Column(String)
+    record_type = Column(String)  # e.g. "Scientific formulation family / optimization result"
+    rigid_foam_type = Column(String)
+    chemistry_id = Column(Integer, ForeignKey("chemistries.id"))
+    isocyanate_index = Column(Float)
+    low_functionality_polyol_pbw = Column(Float)
+    high_functionality_polyol_pbw = Column(Float)
+    hf_polyol_value_status = Column(String)  # e.g. "Derived by balance to 100 total polyol"
+    tep_pbw = Column(Float)
+    silicone_surfactant_pbw = Column(Float)
+    water_pbw = Column(Float)
+    blowing_catalyst_pbw = Column(Float)
+    trimerization_catalyst_pbw = Column(Float)
+    n_pentane_pbw = Column(Float)
+    pmdi_status = Column(String)
+    pmdi_study_range_pbw = Column(String)  # e.g. "230-255" - a range, not one value
+    experimental_method = Column(String)
+    intended_production_method_id = Column(Integer, ForeignKey("production_methods.id"))
+    application_id = Column(Integer, ForeignKey("applications.id"))
+    intended_construction_id = Column(Integer, ForeignKey("product_constructions.id"))
+    study_optimized_performance = Column(Text)
+    record_status = Column(String)  # e.g. "RESEARCH FAMILY ONLY"
+    import_action = Column(String)  # e.g. "Reference Library only; do not convert directly to plant Recipe Version"
+    source_id = Column(Integer, ForeignKey("source_registers.id"))
+    source_url = Column(String)
+    mapping_confidence = Column(String)
+    caution = Column(Text)
+    notes = Column(Text)
+    sort_order = Column(Integer)
+
+    chemistry = relationship("Chemistry")
+    intended_production_method = relationship("ProductionMethod")
+    application = relationship("Application")
+    intended_construction = relationship("ProductConstruction")
+    source = relationship("SourceRegister")
 
 
 class RawMaterialCatalogEntry(Base):
@@ -3490,6 +3650,10 @@ ALL_MODELS = [
     RawMaterialCatalogEntry,
     # --- WP5 Wave 5 additions (2026-08-08) ---
     ControlledFailureCase,
+    # --- Post-G5 Reference Data Enrichment additions (2026-08-09) ---
+    ReferenceFormulationPerformanceResult,
+    ReferenceFormulationProcessingNote,
+    ReferenceFormulationFamily,
 ]
 
 
