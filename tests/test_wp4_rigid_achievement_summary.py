@@ -56,6 +56,18 @@ def _seed_grade(session):
     if propdef is None:
         propdef = db.PhysicalPropertyDefinition(name="Thermal conductivity")
         session.add(propdef); session.flush()
+    # mandatory_context set (unconditionally - the row may have been
+    # created by a different fixture in this same in-memory-SQLite test
+    # session without it, since "Thermal conductivity" is looked up/reused
+    # by name across several WP4 test files) to match the real PROP-005 row
+    # (WP5 Wave 2, Charlie's controlled data - see wp3_conformance._property_
+    # dimension_requirements), so this fixture's missing_thickness/missing_
+    # orientation scenarios below still correctly trigger validate_result_
+    # completeness's INVALID status under the WP6-S09 property-specific
+    # completeness fix (2026-08-09) - thermal conductivity genuinely needs
+    # both fields, per its own real text.
+    propdef.mandatory_context = "Record mean test temperature, thickness, orientation, test age and conditioning"
+    session.flush()
     propmethod = db.PhysicalPropertyMethod(property_definition_id=propdef.id, method_code="ISO 8301", controlled_id=f"MTH-016-A-{u}")
     session.add(propmethod); session.flush()
 

@@ -58,10 +58,12 @@ from helpers import (
     page_setup,
     render_data_table,
     render_function_action_intro,
+    rigid_sample_dimension_fields,
     set_pending_banner,
     show_pending_banner,
     view_only_notice,
 )
+from reports import _is_rigid_grade
 from tenant_scope import (
     apply_scope,
     clear_scope_cache,
@@ -209,6 +211,7 @@ with tab_create:
         )
         sub_create, sub_edit_delete, sub_import = st.tabs(["Create Sample", "Edit/Delete Sample", "CSV / Excel import"])
 
+        managed_trial_is_rigid = _is_rigid_grade(managed_trial.foam_grade)
         with sub_create:
             if not page_usable:
                 st.caption("View-only access - adding a sample is restricted for your role.")
@@ -217,11 +220,14 @@ with tab_create:
                     zone_label = st.selectbox("Zone *", ZONE_LABELS, key=f"ot_sample_zone_{managed_trial.id}")
                     sample_ts = combine_date_time("Sample creation time", f"ot_sample_ts_{managed_trial.id}")
                     sample_notes = st.text_area("Notes", key=f"ot_sample_notes_{managed_trial.id}")
+                    dimension_fields = rigid_sample_dimension_fields(
+                        session, f"ot_sample_{managed_trial.id}", managed_trial_is_rigid
+                    )
                     if st.form_submit_button("Save sample"):
                         session.add(
                             Sample(
                                 optimization_trial_id=managed_trial.id, zone_label=zone_label,
-                                sample_ts=sample_ts, notes=sample_notes,
+                                sample_ts=sample_ts, notes=sample_notes, **dimension_fields,
                             )
                         )
                         session.commit()
@@ -268,10 +274,16 @@ with tab_create:
                         e_notes = st.text_area(
                             "Notes", value=selected_sample.notes or "", key=f"edit_ot_sample_notes_{selected_sample.id}"
                         )
+                        e_dimension_fields = rigid_sample_dimension_fields(
+                            session, f"edit_ot_sample_{selected_sample.id}", managed_trial_is_rigid,
+                            defaults=selected_sample,
+                        )
                         if st.form_submit_button("Save changes", disabled=not page_usable) and page_usable:
                             selected_sample.zone_label = e_zone
                             selected_sample.sample_ts = e_sample_ts
                             selected_sample.notes = e_notes
+                            for field, value in e_dimension_fields.items():
+                                setattr(selected_sample, field, value)
                             session.commit()
                             st.success("Sample updated.")
                             st.rerun()

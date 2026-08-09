@@ -36,6 +36,19 @@ tests/test_wp4_unit_conversion.py for the current, correct expectation for
 this exact scenario, evaluated against the real (non-stand-in)
 wp3_conformance.compute_conformance_report. The other 9 cases are
 unaffected (none of them involve a unit mismatch) and still match.
+
+WP6-S09 update (2026-08-09, per Charlie's WP6 sequence item 1):
+wp3_conformance.validate_result_completeness() became property-specific -
+it now only requires orientation_id/thickness_mm when the result's own
+PhysicalPropertyDefinition.mandatory_context says that property needs them
+(see that function's docstring). _result() below now attaches a
+property_definition stand-in exposing the real PROP-005 (Thermal
+conductivity) mandatory_context text ("Record mean test temperature,
+thickness, orientation, test age and conditioning" - Charlie's own WP5
+Wave 2 data, queried directly from Supabase, not invented) so UAT-07/08
+still correctly exercise the missing-thickness/missing-orientation checks
+for the one property every case here actually is. Purely additive to the
+stand-in; CASES/expectations themselves are unchanged.
 """
 
 import os
@@ -65,12 +78,21 @@ SPEC = SimpleNamespace(
 )
 
 
+# Real PROP-005 mandatory_context text, queried directly from Supabase
+# rigid_foam.physical_property_definitions (Charlie's WP5 Wave 2 controlled
+# data, not invented) - see wp3_conformance._property_dimension_requirements.
+_THERMAL_CONDUCTIVITY_PROPERTY_DEFINITION = SimpleNamespace(
+    mandatory_context="Record mean test temperature, thickness, orientation, test age and conditioning"
+)
+
+
 def _result(measured_value, property_id="PROP-005", method_id="MTH-016", uom="W/(m.K)",
             condition_id="CTX-THERM-INIT-10C-7D", thickness_mm=60, orientation_id="ORI-THERM-THROUGH-THICKNESS",
             location_id=None):
     sample = SimpleNamespace(thickness_mm=thickness_mm)
     return SimpleNamespace(
         property_definition_id=property_id,
+        property_definition=_THERMAL_CONDUCTIVITY_PROPERTY_DEFINITION,
         property_name="Thermal conductivity",
         property_method_id=method_id,
         condition_id=condition_id,

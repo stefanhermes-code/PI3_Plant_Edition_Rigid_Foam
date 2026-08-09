@@ -201,24 +201,73 @@ def resolve_actual_value(spec, result):
     return raw, raw, result.unit, False
 
 
+def _property_dimension_requirements(property_definition):
+    """(requires_thickness, requires_orientation) for one
+    PhysicalPropertyDefinition, derived from that property's own
+    mandatory_context text (Charlie's controlled per-property statement of
+    what must be recorded for it to be interpretable - see db.py's
+    PhysicalPropertyDefinition.mandatory_context, WP5 Wave 2) rather than a
+    hardcoded property list living in this module. Real examples actually
+    on file: PROP-005 Thermal conductivity - "Record mean test temperature,
+    thickness, orientation, test age and conditioning" (needs both);
+    PROP-007 Compressive strength - "Record loading direction and whether
+    maximum occurs before 10 percent strain" (needs orientation, not
+    thickness); PROP-002 Core density - "Remove facings and dense surface
+    skin per approved method" (needs neither). Matching Charlie's own text
+    directly means this stays correct automatically as mandatory_context is
+    corrected/extended, rather than drifting out of sync with a second,
+    hand-maintained list.
+
+    Returns (False, False) if property_definition is None (legacy/"Other"
+    result with no linked definition, or a test stand-in that doesn't model
+    one) - nothing to check a requirement against."""
+    text = (getattr(property_definition, "mandatory_context", None) or "").lower()
+    requires_thickness = "thickness" in text
+    requires_orientation = "orientation" in text or "direction" in text
+    return requires_thickness, requires_orientation
+
+
 def validate_result_completeness(result, sample=None):
-    """Checks that a PhysicalPropertyResult carries the minimum context a
-    direction-sensitive, thickness-sensitive property like thermal
-    conductivity needs before it can be evaluated at all - Gate 2 item
-    G2-10 / WP3 UAT cases 07 and 08 ("missing thickness" / "missing
-    orientation" both expect INVALID, not a computed verdict).
+    """Checks that a PhysicalPropertyResult carries the minimum context
+    its own property genuinely needs before it can be evaluated - Gate 2
+    item G2-10 / WP3 UAT cases 07 and 08 ("missing thickness" / "missing
+    orientation" both expect INVALID for thermal conductivity, which needs
+    both).
+
+    WP6-S09 fix (2026-08-09, per Charlie's WP6 sequence item 1, "make
+    completeness validation property/method specific"): this used to
+    require BOTH orientation_id and Sample.thickness_mm for every property
+    unconditionally, even though the docstring always described the intent
+    as being for "a direction-sensitive, thickness-sensitive property like
+    thermal conductivity" specifically. Against real WP5 Wave 5 data that
+    meant every property - core density, closed-cell content, and so on,
+    none of which need either field - was marked INVALID unless thickness
+    happened to be on file, which for 96 of 97 real results it wasn't (see
+    PI3_Rigid_Foam_Phase_1_WP6_S09_Evidence_Package.docx, DEF-010). Fixed by
+    checking each requirement only when this result's own
+    PhysicalPropertyDefinition.mandatory_context says it's needed (see
+    _property_dimension_requirements above) - purely a narrowing: thermal
+    conductivity (and every other property whose mandatory_context
+    mentions thickness/orientation/direction) is checked exactly as before,
+    every other property's rows are no longer blocked by a requirement
+    that was never really theirs.
 
     thickness_mm lives on the linked Sample (see db.py's Sample model), not
     on PhysicalPropertyResult itself, so pass the Sample row (or None if
-    unavailable) - a result with no thickness on file is exactly this case.
+    unavailable) - a result with no thickness on file, for a property that
+    needs it, is exactly this case.
 
     Returns (True, None) if complete, or (False, reason) naming the first
     missing field."""
-    if result.orientation_id is None:
+    property_definition = getattr(result, "property_definition", None)
+    requires_thickness, requires_orientation = _property_dimension_requirements(property_definition)
+
+    if requires_orientation and result.orientation_id is None:
         return False, "missing orientation"
-    thickness = sample.thickness_mm if sample is not None else None
-    if thickness is None:
-        return False, "missing thickness"
+    if requires_thickness:
+        thickness = sample.thickness_mm if sample is not None else None
+        if thickness is None:
+            return False, "missing thickness"
     return True, None
 
 

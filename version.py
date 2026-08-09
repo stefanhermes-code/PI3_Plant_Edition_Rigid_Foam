@@ -1405,6 +1405,109 @@ Full pytest suite (37 tests) and the frozen WP3 UAT fixture
 (tests/test_wp3_uat_cases.py) both still pass with no regressions (UAT-06's
 documented, pre-existing, unrelated MISMATCH aside - see that file's own
 header note).
+
+v0.14.14 -> v0.14.15 (2026-08-09, WP6-S09 Charlie-response batch, 8 actions):
+Charlie reviewed the consolidated evidence package and returned an 8-item
+sequence for JC, closed in full this batch, then handed back for his own
+review/closure of the joint UAT cases.
+
+(1) wp3_conformance.validate_result_completeness() rewritten to be property/
+method-specific: a new _property_dimension_requirements() helper reads each
+result's own PhysicalPropertyDefinition.mandatory_context text (Charlie's own
+WP5 Wave 2 controlled data) to decide whether THAT property genuinely needs
+thickness and/or orientation, instead of unconditionally requiring both for
+every property regardless of what it actually measures. New PhysicalProperty
+Result.property_definition relationship added to db.py (pure additive
+mapping on the pre-existing property_definition_id FK) so the check can read
+it. tests/test_wp3_uat_cases.py (frozen Gate-2 fixture) updated with a
+realistic property_definition stand-in so it keeps passing under the new
+logic without weakening what it tests.
+
+(2) Closed a real, previously-unknown UI gap surfaced by fix (1): Sample.
+orientation_id/location_id/sample_scope/thickness_mm/age_hours (added WP3,
+2026-08-06) had zero capture UI anywhere in the app - every real value on
+file was written by a seeding script, never through the app itself. Built
+helpers.rigid_sample_dimension_fields() (shared, gated to rigid grades via
+reports._is_rigid_grade) and wired it into Create+Edit Sample on all 3
+sample-creation pages (9_Samples_Conditioning, 11_Customer_Trials,
+12_Optimization_Trials). New AppTest-based regression test (tests/
+test_wp6s09_rigid_sample_dimension_fields.py) actually submits the form and
+checks DB persistence, not just page-load-without-exception. Real data
+finding surfaced downstream: only 1 of 25 real Thermal-conductivity results
+has a Sample.thickness_mm on file - the other 24 genuinely lack it (open
+defect DEF-010, not backfilled here since it's Charlie's controlled specimen
+data, not JC's to invent).
+
+(3) reports.render_period_summary_docx(): headline block rebuilt so coverage
+context (checks attempted / evaluated / coverage %) is part of the headline
+table itself when available, not buried in a footnote paragraph a reader
+could skip past.
+
+(4) UAT-013's synthetic OptimizationTrial (id=1) had a fabricated-sounding
+named approval ("Stefan Hermes (Executive Sponsor)") and a nonsensical
+future trial_date/date_closed (2026-08-26, 17 days after "today"). Corrected
+directly in Supabase to today's date (2026-08-09) and an honest disclaiming
+approved_by/reviewed_by string ("Not a real approval - synthetic UAT/
+reference record, no approver review occurred") rather than a more
+plausible-looking but still-fake substitute.
+
+(5) Re-ran UAT-009/011/012/014 against the fixed logic, using real Supabase
+data (grade_specifications, physical_property_results, production_runs,
+samples, and the relevant orientation/location/condition names) mirrored
+into SimpleNamespace stand-ins with each result's real property_definition.
+mandatory_context attached. Result: Core density, Compressive strength and
+Closed-cell content (none of which need thickness per their own mandatory_
+context) now resolve to real Pass/Fail verdicts for the first time across
+all 13 real production runs (2 genuine Fails on run 5); Thermal conductivity
+(which does need thickness) remains correctly INVALID on 24 of 25 runs,
+reflecting the real DEF-010 gap rather than a fabricated Pass. Regenerated
+UAT-011 (Batch Release Record, run 2), UAT-012 (Period Summary, all 13
+runs, 49 checks attempted/37 evaluated/76% coverage/95% pass rate), and
+UAT-014 (Sample Certificate, sample #2) as real .docx examples, visually
+verified via the LibreOffice->PDF->JPEG pipeline.
+
+(6) Built actual-evidence documentation (real field values, not row-id
+pointers) for UAT-003 (4 grade specifications coexisting with full method/
+unit/condition context - Pass), UAT-004 (5 representative raw-material
+catalog entries resolving to real supplier/brand/chemistry - Pass), UAT-005
+(the 4 canonical demo recipes' 41 component lines - Fail, new defect
+DEF-011: 0 of 41 lines carry a raw_material_id/supplier FK, only a free-text
+material name; PHP dosages themselves are correct), UAT-008 (25 canonical
+samples' location/orientation/age/parent-run context - Pass), and UAT-010
+(all 12 controlled failure cases' issue/cause taxonomy links - Pass, every
+QI-*/CAUSE-* code confirmed to resolve to a real Wave 3 row).
+
+(7) Captured one real, live-rendered page output each for UAT-015 through
+UAT-019 (the 5 Industrial Intelligence pages) via Streamlit's AppTest against
+a seeded rigid grade with 8 real production runs (real GradeSpecification,
+real rising Finalized-phase mixer rpm, one real QualityObservation) - not a
+description of intended behavior. All 5 passed: Recipe Optimization
+evaluated Thermal conductivity against its real spec (Achieved: Yes);
+Trend Analysis's full SPC toolkit (control chart/capability/CUSUM/trend
+test) all fired on real rigid units/context; Process-Property Correlation
+ranked Mixer rpm top (r=0.995) using only real rigid/shared settings fields;
+Root-Cause Assistant compared run #8 against the real prior run #7 and
+surfaced the two settings that actually differed, framed as a lead not a
+diagnosis; Machine Settings Optimization ranked Mixer rpm's high range as
+most favorable, framed as review guidance, never an automatic setpoint.
+
+(8) UAT-021 ("PI3 interpretation without altering deterministic values"):
+a genuine live OpenAI call could not be made from this sandbox (no real
+OPENAI_API_KEY configured, and JC does not enter the deployed app's
+password) - that step remains Stefan's, as already logged. What WAS run:
+the real Trend Analysis page code end-to-end via AppTest, with only the
+OpenAI network call itself substituted (ai_assistant.ask_assistant mocked to
+return a clearly-labeled placeholder), capturing all 28 deterministic
+elements on the page before and after clicking "Get PI3 interpretation" -
+byte-for-byte identical both times, confirming PI3's answer is purely
+additive (its own session_state key, its own render block) and that its only
+available data tool (pi3_query_tool.py) is SELECT-only, guarded, with no
+write path to the database or to the page's computed values.
+
+Two new defects logged this batch (DEF-010 already existed; DEF-011 new):
+neither blocks this batch's own sign-off, both flagged for Charlie/WP6-S11
+defect-closure triage, not silently absorbed. Full pytest suite (38 tests)
+passes with no regressions.
 """
 
-APP_VERSION = "0.14.14"
+APP_VERSION = "0.14.15"

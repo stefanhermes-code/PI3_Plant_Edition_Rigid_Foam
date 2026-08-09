@@ -664,12 +664,34 @@ def render_period_summary_docx(data):
         subtitle = f"{subtitle} · {data['dataset_label']}"
     _docx_report_header(doc, "Plant / Period Summary Report", subtitle)
     issue_label = data.get("quality_issues_label", "Quality issues")
-    _docx_kv_table(doc, [
-        ("Production runs", data["total_runs"]),
-        ("Quality test pass rate", f"{data['pass_rate']}%" if data["pass_rate"] is not None else "—"),
+    # WP6-S09 fix (2026-08-09, per Charlie's WP6 sequence item 3, "correct
+    # the UAT-012 headline metrics"): the headline block itself used to lead
+    # with a bare "Quality test pass rate: 100%" and relegate coverage to a
+    # paragraph below it - a reader who only looks at the headline table
+    # (the whole point of a headline) never sees that the 100% came from 1
+    # of 49 attempted checks. The headline now carries the coverage figures
+    # directly, and the pass-rate row's own label says what it's a rate of,
+    # rather than reading as an unqualified plant-wide number.
+    headline_rows = [("Production runs", data["total_runs"])]
+    if data.get("total_checks_attempted"):
+        headline_rows.extend([
+            ("Grade-specification checks attempted", data["total_checks_attempted"]),
+            ("Checks evaluated to Pass/Fail", data["total_results_scored"]),
+            ("Coverage (evaluated / attempted)", f"{data.get('coverage_pct')}%" if data.get("coverage_pct") is not None else "—"),
+            (
+                "Quality test pass rate (of checks evaluated)",
+                f"{data['pass_rate']}%" if data["pass_rate"] is not None else "—",
+            ),
+        ])
+    else:
+        headline_rows.append(
+            ("Quality test pass rate", f"{data['pass_rate']}%" if data["pass_rate"] is not None else "—")
+        )
+    headline_rows.extend([
         (issue_label, data["total_quality_issues"]),
         ("Recurring quality issues", data["recurring_issues"]),
     ])
+    _docx_kv_table(doc, headline_rows)
     if data.get("total_checks_attempted"):
         doc.add_paragraph(
             f"Pass rate is calculated over {data['total_results_scored']} of "

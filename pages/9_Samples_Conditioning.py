@@ -51,10 +51,12 @@ from helpers import (
     page_setup,
     render_data_table,
     render_function_action_intro,
+    rigid_sample_dimension_fields,
     set_pending_banner,
     show_pending_banner,
     view_only_notice,
 )
+from reports import _is_rigid_grade
 from tenant_scope import apply_scope, company_picker, run_ids_for_company
 
 SAMPLE_REQUIRED_COLUMNS = ["production_run_id", "zone_label"]
@@ -114,10 +116,12 @@ with tab_create:
             format_func=lambda r: f"Run #{r.id} — {r.foam_grade.grade_name} · {r.run_date}",
             key="sample_run_select",
         )
+        run_is_rigid = _is_rigid_grade(run.foam_grade)
         with st.form("add_sample"):
             zone_label = st.selectbox("Zone *", ZONE_LABELS)
             sample_ts = combine_date_time("Sample creation time", "sample_ts")
             notes = st.text_area("Notes")
+            dimension_fields = rigid_sample_dimension_fields(session, "add_sample", run_is_rigid)
             submitted = st.form_submit_button("Save sample")
             if submitted:
                 phases_for_run = (
@@ -134,7 +138,10 @@ with tab_create:
                     )
                 else:
                     session.add(
-                        Sample(production_run_id=run.id, zone_label=zone_label, sample_ts=sample_ts, notes=notes)
+                        Sample(
+                            production_run_id=run.id, zone_label=zone_label, sample_ts=sample_ts, notes=notes,
+                            **dimension_fields,
+                        )
                     )
                     session.commit()
                     st.success("Sample saved.")
@@ -239,6 +246,10 @@ with tab_edit_delete:
                     default_time=selected_sample.sample_ts.time() if selected_sample.sample_ts else None,
                 )
                 e_notes = st.text_area("Notes", value=selected_sample.notes or "", key=f"edit_sample_notes_{selected_sample.id}")
+                edit_run_is_rigid = _is_rigid_grade(selected_sample.production_run.foam_grade) if selected_sample.production_run else False
+                e_dimension_fields = rigid_sample_dimension_fields(
+                    session, f"edit_sample_{selected_sample.id}", edit_run_is_rigid, defaults=selected_sample
+                )
                 if st.form_submit_button("Save changes", disabled=not page_usable) and page_usable:
                     phases_for_edit_run = (
                         session.query(ProductionPhase)
@@ -256,6 +267,8 @@ with tab_edit_delete:
                         selected_sample.zone_label = e_zone
                         selected_sample.sample_ts = e_sample_ts
                         selected_sample.notes = e_notes
+                        for field, value in e_dimension_fields.items():
+                            setattr(selected_sample, field, value)
                         session.commit()
                         st.success("Sample updated.")
                         st.rerun()

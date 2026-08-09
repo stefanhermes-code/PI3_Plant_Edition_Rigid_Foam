@@ -3,6 +3,7 @@
 import datetime as dt
 import json
 import re
+from types import SimpleNamespace
 
 import altair as alt
 import pandas as pd
@@ -12,7 +13,17 @@ import ai_assistant
 import audit_log
 import reports
 from auth import current_user
-from db import ExpertNote, FoamGrade, Plant, ProductFamily, ProductionRun, RecipeVersion, get_session
+from db import (
+    ExpertNote,
+    FoamGrade,
+    Location,
+    Orientation,
+    Plant,
+    ProductFamily,
+    ProductionRun,
+    RecipeVersion,
+    get_session,
+)
 
 
 def expert_note_plant_id_for_link(entity_type, entity_id, session):
@@ -424,6 +435,95 @@ def combine_date_time(label, key_prefix, default_date=None, default_time=None):
     d = c1.date_input(f"{label} — date", value=default_date or dt.date.today(), key=f"{key_prefix}_date")
     t = c2.time_input(f"{label} — time", value=default_time or dt.datetime.now().time(), key=f"{key_prefix}_time")
     return dt.datetime.combine(d, t)
+
+
+_SAMPLE_SCOPE_OPTIONS = ["", "Bulk", "Core", "Skin"]
+
+
+def rigid_sample_dimension_fields(session, key_prefix, is_rigid, defaults=None):
+    """Renders the WP3 rigid-foam-only Sample context widgets (orientation,
+    location in part, specimen scope, thickness, age at test) and returns a
+    dict of the current values, ready to spread into a Sample(...) call -
+    {} (nothing rendered) when is_rigid is False, since flexible-foam
+    samples don't use any of these five columns.
+
+    WP6-S09 addition (2026-08-09, per Charlie's WP6 sequence item 2,
+    "implement the correct test-specimen data handling for properties that
+    genuinely require dimensions"): Sample.orientation_id/location_id/
+    sample_scope/thickness_mm/age_hours have existed since WP3
+    (2026-08-06) but had no capture UI anywhere in the app - every real
+    rigid Sample.thickness_mm/orientation_id on file up to this point was
+    written by a seeding script, not through Production Samples / Customer
+    Trials & Samples / Optimization Trials & Samples. Without this,
+    wp3_conformance.validate_result_completeness's property-specific
+    thickness/orientation check (same date's other fix) could never be
+    satisfied by anything a real user enters going forward - see
+    PI3_Rigid_Foam_Phase_1_WP6_S09_Evidence_Package.docx, DEF-010.
+
+    defaults, if given, is the existing Sample row being edited (its
+    current values prefill the widgets); leave it None for a blank Add
+    form. Every field here stays optional - a rigid sample with none of
+    them filled in is exactly today's real-data state, not an error."""
+    if not is_rigid:
+        return {}
+    defaults = defaults or SimpleNamespace(
+        orientation_id=None, location_id=None, sample_scope=None, thickness_mm=None, age_hours=None,
+    )
+    orientations = session.query(Orientation).order_by(Orientation.sort_order).all()
+    locations = session.query(Location).order_by(Location.sort_order).all()
+
+    st.caption(
+        "Rigid-foam specimen context (optional, but needed for thermal conductivity and other "
+        "direction/thickness-sensitive properties to be evaluated against a grade specification)."
+    )
+    c1, c2 = st.columns(2)
+    orientation_options = [None] + orientations
+    orientation_idx = next(
+        (i for i, o in enumerate(orientation_options) if o is not None and o.id == defaults.orientation_id), 0
+    )
+    orientation = c1.selectbox(
+        "Orientation", orientation_options, index=orientation_idx,
+        format_func=lambda o: "— not set —" if o is None else o.name,
+        key=f"{key_prefix}_orientation",
+    )
+    location_options = [None] + locations
+    location_idx = next(
+        (i for i, l in enumerate(location_options) if l is not None and l.id == defaults.location_id), 0
+    )
+    location = c2.selectbox(
+        "Location in part", location_options, index=location_idx,
+        format_func=lambda l: "— not set —" if l is None else l.name,
+        key=f"{key_prefix}_location",
+    )
+
+    c3, c4, c5 = st.columns(3)
+    scope_idx = (
+        _SAMPLE_SCOPE_OPTIONS.index(defaults.sample_scope)
+        if defaults.sample_scope in _SAMPLE_SCOPE_OPTIONS else 0
+    )
+    sample_scope = c3.selectbox(
+        "Specimen scope", _SAMPLE_SCOPE_OPTIONS, index=scope_idx,
+        format_func=lambda s: "— not set —" if s == "" else s,
+        key=f"{key_prefix}_scope",
+    )
+    thickness_mm = c4.number_input(
+        "Thickness (mm)", min_value=0.0, step=0.1, value=float(defaults.thickness_mm or 0.0),
+        key=f"{key_prefix}_thickness",
+        help="Specimen thickness as tested - required for thermal conductivity/resistance and a few "
+        "other properties to be evaluated; leave at 0 if not measured.",
+    )
+    age_hours = c5.number_input(
+        "Age at test (hours)", min_value=0.0, step=1.0, value=float(defaults.age_hours or 0.0),
+        key=f"{key_prefix}_age",
+        help="Time between demold/cut and this sample being tested, if tracked.",
+    )
+    return {
+        "orientation_id": orientation.id if orientation else None,
+        "location_id": location.id if location else None,
+        "sample_scope": sample_scope or None,
+        "thickness_mm": thickness_mm or None,
+        "age_hours": age_hours or None,
+    }
 
 
 def parse_dt(value):

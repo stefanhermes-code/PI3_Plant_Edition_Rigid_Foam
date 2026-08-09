@@ -1520,6 +1520,17 @@ class PhysicalPropertyResult(Base):
     orientation = relationship("Orientation")
     location = relationship("Location")
     source = relationship("SourceRegister")
+    # --- WP6-S09 addition (2026-08-09). property_definition_id has existed
+    # on this table since WP3 (2026-08-06) but had no ORM relationship - the
+    # FK column already exists, so this is a pure additive mapping, no
+    # migration needed. Added so wp3_conformance.validate_result_completeness
+    # can look up this result's own PhysicalPropertyDefinition.mandatory_context
+    # (Charlie's controlled per-property text describing what must be
+    # recorded for that property to be interpretable) and scope its
+    # thickness/orientation requirement to properties that actually need it,
+    # rather than requiring both for every property regardless - see that
+    # function's docstring for the full rationale.
+    property_definition = relationship("PhysicalPropertyDefinition")
 
 
 # ---------------------------------------------------------------------------
