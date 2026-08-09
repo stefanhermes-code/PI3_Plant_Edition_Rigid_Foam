@@ -444,6 +444,33 @@ class PlantProductionMethod(Base):
 # ---------------------------------------------------------------------------
 MACHINE_OEMS = ["Laader Berg", "Hennecke", "Cannon", "Other"]
 
+# foam_grade_machines - join table for the FoamGrade <-> Machine many-to-many
+# assignment (Production Method Hierarchy architecture change, 2026-08-09).
+# A plain association table (no extra columns needed yet) rather than a
+# mapped class with its own back-populated relationships, since nothing
+# today needs to attach data to the assignment itself - if that changes
+# (e.g. an assignment-specific status or date), promote this to a full
+# class then, same "text field first, promote only if a concrete need shows
+# up" precedent as WP5's ProcessingWindow.
+#
+# Defined here (before Machine/FoamGrade, and referenced below by object,
+# not by string) rather than passing secondary="foam_grade_machines" as a
+# string: this app sets Base.metadata's own `schema` to RIGID_FOAM_SCHEMA in
+# real Postgres use (see near Base's definition), which makes this table's
+# real key in Base.metadata.tables "<schema>.foam_grade_machines" - so a
+# bare unqualified string here would fail to resolve at mapper-configure
+# time against the real Postgres schema (surfaced only in production, where
+# RIGID_FOAM_SCHEMA is actually set - local/CI runs against SQLite, where
+# RIGID_FOAM_SCHEMA resolves to None, so this bug was invisible to every
+# local py_compile/configure_mappers()/pytest check run before release).
+# Passing the Table object directly sidesteps name resolution entirely.
+foam_grade_machines = Table(
+    "foam_grade_machines",
+    Base.metadata,
+    Column("foam_grade_id", Integer, ForeignKey("foam_grades.id"), primary_key=True),
+    Column("machine_id", Integer, ForeignKey("machines.id"), primary_key=True),
+)
+
 
 class Machine(Base):
     __tablename__ = "machines"
@@ -574,7 +601,7 @@ class Machine(Base):
     # "the same PU Material may legitimately be produced on several
     # machines", via the new foam_grade_machines join table below FoamGrade.
     foam_grades = relationship(
-        "FoamGrade", secondary="foam_grade_machines", back_populates="machines"
+        "FoamGrade", secondary=foam_grade_machines, back_populates="machines"
     )
 
 
@@ -656,27 +683,8 @@ class FoamGrade(Base):
     # ProductionMethod.effective_top_level()) to this same top-level
     # method; enforced in helpers.py, not a DB constraint.
     machines = relationship(
-        "Machine", secondary="foam_grade_machines", back_populates="foam_grades"
+        "Machine", secondary=foam_grade_machines, back_populates="foam_grades"
     )
-
-
-# ---------------------------------------------------------------------------
-# 3a2. foam_grade_machines - join table for the FoamGrade <-> Machine
-# many-to-many assignment (Production Method Hierarchy architecture
-# change, 2026-08-09). A plain association table (no extra columns needed
-# yet) rather than a mapped class with its own back-populated
-# relationships, since nothing today needs to attach data to the
-# assignment itself - if that changes (e.g. an assignment-specific status
-# or date), promote this to a full class then, same "text field first,
-# promote only if a concrete need shows up" precedent as WP5's
-# ProcessingWindow.
-# ---------------------------------------------------------------------------
-foam_grade_machines = Table(
-    "foam_grade_machines",
-    Base.metadata,
-    Column("foam_grade_id", Integer, ForeignKey("foam_grades.id"), primary_key=True),
-    Column("machine_id", Integer, ForeignKey("machines.id"), primary_key=True),
-)
 
 
 # ---------------------------------------------------------------------------

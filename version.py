@@ -1982,4 +1982,49 @@ Production Method context later (explicitly deferred per Stefan's decision
 on lab trial scope).
 """
 
-APP_VERSION = "0.16.0"
+VERSION_0_16_1_NOTES = """
+v0.16.0 -> v0.16.1 (2026-08-09, same day, production hotfix): v0.16.0
+crashed every single page in production immediately after deploy
+(InvalidRequestError from SQLAlchemy's mapper configuration, redacted by
+Streamlit's on-screen error - Stefan supplied the real deploy log, which
+had the actual traceback).
+
+Root cause: db.py's new Machine.foam_grades / FoamGrade.machines
+many-to-many relationships were written as `relationship(...,
+secondary="foam_grade_machines")` - a bare string. Every local check
+before release (py_compile, a live configure_mappers() smoke test, the
+full pytest suite) ran against SQLite, where db.py's RIGID_FOAM_SCHEMA is
+None and Base.metadata has no schema, so that table's key in
+Base.metadata.tables is the plain "foam_grade_machines" - the string
+resolved fine every time. Against the real Supabase Postgres server,
+though, db.py sets Base.metadata's own `schema` to RIGID_FOAM_SCHEMA
+("rigid_foam"), which changes that same table's key to
+"rigid_foam.foam_grade_machines" - so the bare string secondary= no
+longer resolves, and the very first ORM query of any request (SQLAlchemy
+configures every mapper lazily, on first use, not at import time) raised
+"expression 'foam_grade_machines' failed to locate a name". This gap
+existed even though a dedicated Postgres schema-migration test already
+existed (test_schema_migration.py, WP0 Gate 0) - that test proves raw
+DDL/foreign-key correctness against a disposable Postgres schema, but
+never calls SQLAlchemy's ORM configure_mappers() or runs an ORM query, so
+it could not have caught a relationship string-resolution bug.
+
+Fix: moved the foam_grade_machines Table definition (db.py) above the
+Machine class (previously below FoamGrade), and changed both
+relationships to pass the Table object directly - `secondary=
+foam_grade_machines` - instead of a string. Passing the object sidesteps
+name resolution entirely, so it's correct regardless of whether
+Base.metadata has a schema set. No schema/data change - this is a code-
+only fix; the Supabase migration and backfill from v0.16.0 stand as-is.
+
+Added tests/test_orm_configure_under_schema_qualified_metadata.py: a
+permanent regression test that imports db.py in a fresh subprocess with
+DATABASE_URL set to a postgresql:// URL (no live connection needed -
+SQLAlchemy's configure_mappers() only inspects metadata/relationships,
+never issues SQL), so RIGID_FOAM_SCHEMA actually resolves to "rigid_foam"
+and every relationship gets exercised under the same schema-qualified
+metadata shape production uses - closing the exact gap that let this
+bug ship. Full suite (42 tests total) passes.
+"""
+
+APP_VERSION = "0.16.1"
