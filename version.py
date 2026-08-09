@@ -1696,6 +1696,56 @@ closed; UAT-013 moved from In Progress to Pass in the WP6 master workbook.
 This closes the last open item from the WP6-S09 closure return package
 that required Stefan's own action (item 4 of 11) - only item 7 (DEF-011's
 raw-material mapping, which needs Charlie's return) remains open.
+
+2026-08-09, same day, WP6-S09 closure batch continued (DEF-011, UAT-005,
+data-only - no app version bump, no code changed): Charlie delivered his
+mapping decision (PI3_Rigid_Foam_Phase_1_WP6_S09_DEF011_Charlie_Mapping_
+Decision_for_JC.xlsx) via the shared dev-docs folder, which he can now
+read/write directly. Per his D1-D10 governing rules and JC_Actions steps,
+migrated all 41 rigid_foam.recipe_components rows (recipe_version_id 2-5,
+the four canonical DEMO-RCP recipes): created 37 distinct controlled
+raw_materials rows (one per Charlie's "controlled identity key" column,
+CTRL-WATER and CTRL-TCPP each reused across their multiple occurrences)
+and backfilled recipe_components.raw_material_id/supplier/
+provenance_class/release_note on every row. raw_material_name and php
+were left completely untouched (D7) - verified byte-identical to the
+pre-migration export after the update. No commercial grade was invented
+for any generic source placeholder (D2): supplier stayed NULL/Unknown on
+36 of 41 rows. The one pre-approved exact commercial match (D5): Polycat 5
+(component 38, DEMO-RCP-003) now resolves to a new raw_materials row
+carrying default_supplier="Evonik", matching the existing catalog's
+RF-CAT-001 (POLYCAT 5, Evonik). Three named commercial products with no
+catalog match (DABCO 2097, DABCO K15, M50S pMDI - components 37/40/52):
+confirmed via ilike search that none exist anywhere in the 151-row
+raw_material_catalog_entries table, so each was created as a
+"NAMED PRODUCT - CATALOG ID PENDING" controlled record, supplier Unknown -
+no fuzzy match made, no Charlie confirmation loop needed since there was
+nothing to confirm. Two cases deliberately left ambiguous rather than
+guessed, per Charlie's explicit non-fabrication instruction: component 42
+("D5", role "Physical blowing agent/additive") created as
+"CONTROLLED UNKNOWN IDENTITY" with category_id left NULL - chemistry and
+supplier are genuinely unknown from the source, not merely unresolved;
+component 51 ("Pentane") created with category_id left NULL since the
+source never states which isomer (n-pentane vs. isopentane) it is, rather
+than guessing one of the two specific existing categories.
+
+Verified 41/41 recipe_components rows now carry a non-null
+raw_material_id (previously 0/41 - the original DEF-011 finding).
+Regenerated UAT-005 evidence for all 4 canonical recipes using the real,
+unmodified reports.render_recipe_formulation_record_docx() renderer
+against the migrated data (build tag: v0.14.17, commit 7a39996) - visually
+confirmed the DEMO-RCP-003 copy shows Polycat 5 with Supplier=Evonik and
+every other component correctly still showing Supplier Unknown. Also
+regenerated UAT-011 (Batch Release Record, run 2) and UAT-014 (Sample
+Certificate, sample #2) as post-migration confirmation copies, per
+Charlie's D9 instruction - both use DEMO-RCP-001 v1, which contains none
+of DEF-011's exact-commercial-match or named-product-pending cases, so
+their formulation sections and conformance verdicts are unchanged from the
+existing v0.14.16 evidence, as expected; this is recorded as a confirmation
+of no unintended side effect, not fabricated as a false before/after.
+DEF-011 closed; UAT-005 moved from Fail to Pass in the WP6 master
+workbook. This closes the last open item (item 7 of 11) from the original
+WP6-S09 closure return package.
 """
 
 APP_VERSION = "0.14.17"
