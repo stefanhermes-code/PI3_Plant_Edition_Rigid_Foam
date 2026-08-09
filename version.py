@@ -2027,4 +2027,61 @@ metadata shape production uses - closing the exact gap that let this
 bug ship. Full suite (42 tests total) passes.
 """
 
-APP_VERSION = "0.16.1"
+VERSION_0_16_2_NOTES = """
+v0.16.1 -> v0.16.2 (2026-08-09, same day, Post-G5 PM Hierarchy closure -
+Deliverable #6 walkthrough finding): a live Claude-in-Chrome walkthrough
+of the real production app, done to capture Deliverable #6 screenshot/
+walkthrough evidence, found that the Production Run page's Edit form
+showed Machine as "not selected" and Production Method blank for a real
+run (id=1) that Supabase correctly stores as machine_id=1/
+production_method_id=6 - the exact same bug also affected the Add Run
+form, meaning the one real Machine at the UAT plant could not be
+selected in either form in production.
+
+Root cause: pages/4_Production_Run_Trial_Record.py's new Machine-
+narrowing filter (`assigned_machines = [m for m in grade.machines if
+m.active]`, added in v0.16.0 for the Production Method Hierarchy change)
+excludes any Machine whose `active` column is not exactly True. db.py
+declares `Machine.active = Column(Boolean, default=True)`, but that
+Python-side default only applies on ORM inserts; the one real Machine
+row was inserted via raw SQL during earlier WP3 UAT seeding, so its
+active column was NULL, not True - `if m.active` evaluates NULL as
+falsy, silently dropping it from both dropdowns. The 3 AppTest smoke
+tests added in v0.16.0 (Section 2.1 of Deliverable #5) didn't catch this
+because synthetic test-seeded Machines always get active=True through
+the ORM - the exact condition that triggers the bug (active IS NULL)
+only existed on this one real, raw-SQL-seeded row, which no automated
+test exercised.
+
+This was more than a display bug: the Edit form's "Save changes" button
+writes `selected_run.machine_id = machine.id if machine else None` and
+the equivalent for production_method_id - so saving the Edit form with
+the Machine field silently reset to unselected would have overwritten
+run 1's correct values with NULL. Caught by inspection before any save
+was made; no production data was actually corrupted.
+
+Fix, both authorized by Stefan after being told what was found and why
+a data-only fix required his sign-off (the auto-mode permission
+classifier blocked JC's initial attempt at the SQL write pending
+explicit authorization): (1) data - `UPDATE rigid_foam.machines SET
+active = true WHERE id = 1`, backfilling the one real row to match the
+model's documented default. (2) code - changed the filter at both sites
+(lines ~395 and ~522) from `if m.active` to `if m.active is not False`,
+so NULL/unset is treated as active (matching default=True) while an
+explicit False still deactivates equipment; this prevents any future
+raw-SQL-seeded or legacy Machine row from silently disappearing from
+either form again, independent of the one-row data fix. Also removed
+_cached_active_machines_for_plant(), a helper made dead code by the
+same v0.16.0 batch (superseded by the grade.machines-based filter, never
+called after that change landed).
+
+Re-verified: full pytest suite (42 tests) passes unchanged; live browser
+re-check of both the Edit and Add Run forms against the real Supabase
+data pending in this same session. Deliverables #5 and #8 are being
+revised to disclose this finding and its resolution rather than stand on
+their original "Pass"/"no open defects" wording, consistent with this
+project's practice of full disclosure (see v0.16.1's own hotfix note and
+Deliverable #7's documented rollback-ordering mistake).
+"""
+
+APP_VERSION = "0.16.2"

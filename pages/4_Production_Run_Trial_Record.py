@@ -118,19 +118,6 @@ def _cached_versions_for_grade(_session, grade_id):
     return _session.query(RecipeVersion).filter(RecipeVersion.foam_grade_id == grade_id).all()
 
 
-@st.cache_data(ttl=30)
-def _cached_active_machines_for_plant(_session, plant_id):
-    """Active Machine rows for one plant - same repeated-query pattern as
-    _cached_versions_for_grade above, same fix."""
-    if not plant_id:
-        return []
-    return (
-        _session.query(Machine)
-        .filter(Machine.plant_id == plant_id, Machine.active.is_(True))
-        .all()
-    )
-
-
 RUN_REQUIRED_COLUMNS = ["foam_grade_id", "recipe_version_id"]
 RUN_OPTIONAL_COLUMNS = [
     "machine_id", "run_date", "batch_reference", "block_reference",
@@ -392,7 +379,17 @@ with tab_runs:
                     # machine at the plant - per Charlie's "filter PU
                     # Materials by Machine assignment in production
                     # workflows" requirement (spec section 7.4).
-                    assigned_machines = [m for m in grade.machines if m.active] if grade else []
+                    # `active` defaults to True at the model level
+                    # (db.py: Machine.active = Column(Boolean,
+                    # default=True)), but that default only applies on
+                    # ORM inserts - a row written via raw SQL can have
+                    # active=NULL. Treat NULL/unset as active (only an
+                    # explicit False deactivates), so legacy or
+                    # directly-seeded Machine rows aren't silently
+                    # excluded. Found 2026-08-09 via live walkthrough:
+                    # the real UAT plant's one Machine had active=NULL
+                    # and was invisible in this dropdown as a result.
+                    assigned_machines = [m for m in grade.machines if m.active is not False] if grade else []
                     if grade and not assigned_machines:
                         st.caption(
                             "⚠️ This PU Material has no Machine assigned yet - assign one on the "
@@ -518,8 +515,8 @@ with tab_runs:
                     st.caption("⚠️ This foam grade has no recipe version yet - add one on the Recipes page first.")
                 # Filtered to this PU Material's own Machine assignment
                 # (FoamGrade.machines) - see the same note in the Edit Run
-                # form above.
-                assigned_machines = [m for m in grade.machines if m.active] if grade else []
+                # form above, including the NULL-is-active handling.
+                assigned_machines = [m for m in grade.machines if m.active is not False] if grade else []
                 machine = st.selectbox(
                     "Machine / foaming line" + ("" if assigned_machines else " (none assigned to this PU Material yet)"),
                     [None] + assigned_machines,
