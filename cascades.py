@@ -26,6 +26,7 @@ from db import (
     PhysicalPropertyResult,
     PI3AIConnectionSetting,
     Plant,
+    PlantProductionMethod,
     ProductFamily,
     ProductionEvent,
     ProductionPhase,
@@ -36,6 +37,7 @@ from db import (
     RecipeVersion,
     RuntimeDataRecord,
     Sample,
+    foam_grade_machines,
 )
 
 
@@ -328,6 +330,12 @@ def delete_foam_grade_cascade(session, foam_grade_id):
     session.query(FoamGradeTargetProperty).filter(
         FoamGradeTargetProperty.foam_grade_id == foam_grade_id
     ).delete(synchronize_session=False)
+    # Production Method Hierarchy architecture change (2026-08-09): clear
+    # this grade's Machine assignments (the foam_grade_machines join
+    # table) before deleting the grade itself.
+    session.execute(
+        foam_grade_machines.delete().where(foam_grade_machines.c.foam_grade_id == foam_grade_id)
+    )
     session.query(FoamGrade).filter(FoamGrade.id == foam_grade_id).delete(synchronize_session=False)
 
 
@@ -408,6 +416,9 @@ def plant_dependency_counts(session, plant_id):
     counts["pi3/ai connectivity setting(s)"] = (
         session.query(PI3AIConnectionSetting).filter(PI3AIConnectionSetting.plant_id == plant_id).count()
     )
+    counts["activated production method(s)"] = (
+        session.query(PlantProductionMethod).filter(PlantProductionMethod.plant_id == plant_id).count()
+    )
     return counts
 
 
@@ -443,6 +454,37 @@ def delete_plant_cascade(session, plant_id):
     for ot_id in remaining_ot_ids:
         delete_optimization_trial_cascade(session, ot_id)
 
+    # Production Method Hierarchy architecture change (2026-08-09): clear
+    # this plant's Machines' foam_grade_machines assignments before
+    # deleting the Machines themselves (a plain association table has no
+    # ON DELETE CASCADE configured, and FoamGrade rows under a *different*
+    # plant could theoretically still reference one of these machine ids
+    # if data were ever malformed - belt-and-suspenders, not expected in
+    # practice since FoamGrade/Machine are always assigned within the same
+    # plant).
+    plant_machine_ids = [
+        m.id for m in session.query(Machine.id).filter(Machine.plant_id == plant_id).all()
+    ]
+    if plant_machine_ids:
+        session.execute(
+            foam_grade_machines.delete().where(foam_grade_machines.c.machine_id.in_(plant_machine_ids))
+        )
     session.query(Machine).filter(Machine.plant_id == plant_id).delete(synchronize_session=False)
     session.query(PI3AIConnectionSetting).filter(PI3AIConnectionSetting.plant_id == plant_id).delete(synchronize_session=False)
+    session.query(PlantProductionMethod).filter(PlantProductionMethod.plant_id == plant_id).delete(synchronize_session=False)
     session.query(Plant).filter(Plant.id == plant_id).delete(synchronize_session=False)
+
+
+def unlink_machine_dependents(session, machine_id):
+    """Called right before deleting a Machine (page 1's inline delete
+    handler - this is the one machine-delete path that isn't itself a
+    "delete everything under X" cascade, since a Machine can be safely
+    unlinked rather than dragging its Production Runs down with it).
+    Clears the foam_grade_machines assignment rows for this machine (new,
+    Production Method Hierarchy architecture change, 2026-08-09) and
+    unlinks ProductionRun.machine_id (pre-existing behavior, moved here
+    from the page's own inline code so both effects live in one place)."""
+    session.execute(foam_grade_machines.delete().where(foam_grade_machines.c.machine_id == machine_id))
+    session.query(ProductionRun).filter(ProductionRun.machine_id == machine_id).update(
+        {"machine_id": None}, synchronize_session="fetch"
+    )

@@ -90,6 +90,7 @@ from helpers import (
     csv_excel_uploader,
     dedupe_import_rows,
     delete_with_confirm,
+    effective_top_level_method,
     import_within_row_limit,
     page_setup,
     parse_dt,
@@ -342,6 +343,7 @@ with tab_runs:
                     "Date": r.run_date,
                     "Batch": r.batch_reference,
                     "Block": r.block_reference,
+                    "Production Method": r.production_method.name if r.production_method else "—",
                     "Machine": r.machine.name if r.machine else "—",
                     "Operator": r.operator_or_team_reference,
                 }
@@ -383,10 +385,20 @@ with tab_runs:
                         st.caption(f"Recipe version in use: **{current_version.version_label}** (current)")
                     else:
                         st.caption("⚠️ This foam grade has no recipe version yet - add one on the Recipes page first.")
-                    machines_for_plant = _cached_active_machines_for_plant(
-                        session, grade.product_family.plant_id if grade else None
-                    )
-                    machine_options = [None] + machines_for_plant
+                    # Machine choices are filtered to this PU Material's own
+                    # Machine assignment (FoamGrade.machines, the new
+                    # many-to-many from the Production Method Hierarchy
+                    # architecture change, 2026-08-09) - not every active
+                    # machine at the plant - per Charlie's "filter PU
+                    # Materials by Machine assignment in production
+                    # workflows" requirement (spec section 7.4).
+                    assigned_machines = [m for m in grade.machines if m.active] if grade else []
+                    if grade and not assigned_machines:
+                        st.caption(
+                            "⚠️ This PU Material has no Machine assigned yet - assign one on the "
+                            "Product Family & Foam Grade page first."
+                        )
+                    machine_options = [None] + assigned_machines
                     machine_idx = next(
                         (i for i, m in enumerate(machine_options) if m is not None and m.id == selected_run.machine_id),
                         0,
@@ -395,6 +407,12 @@ with tab_runs:
                         "Machine / foaming line", machine_options, index=machine_idx,
                         format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
                         key=f"edit_run_machine_{selected_run.id}",
+                    )
+                    run_method = effective_top_level_method(machine.production_method) if machine and machine.production_method else None
+                    st.caption(
+                        f"Plant: **{grade.product_family.plant.name if grade else '—'}** · "
+                        f"Production Method: **{run_method.name if run_method else '—'}** · "
+                        f"Machine: **{machine.name if machine else '—'}**"
                     )
                     run_date = st.date_input(
                         "Run date", value=selected_run.run_date or dt.date.today(),
@@ -426,6 +444,16 @@ with tab_runs:
                             selected_run.plant_id = grade.product_family.plant_id
                             selected_run.recipe_version_id = current_version.id
                             selected_run.machine_id = machine.id if machine else None
+                            # Production Method Hierarchy architecture change
+                            # (2026-08-09): this snapshot is deliberately
+                            # re-derived on every edit (not left as whatever
+                            # it was originally set to) - editing a run's own
+                            # Machine is a genuine correction to that run,
+                            # not the "Machine master reclassified later"
+                            # case the immutability rule protects against
+                            # (see db.py's ProductionRun.production_method_id
+                            # docstring).
+                            selected_run.production_method_id = run_method.id if run_method else None
                             selected_run.run_date = run_date
                             selected_run.batch_reference = batch_reference
                             selected_run.block_reference = block_reference
@@ -488,13 +516,20 @@ with tab_runs:
                     st.caption(f"Recipe version in use: **{current_version.version_label}** (current)")
                 else:
                     st.caption("⚠️ This foam grade has no recipe version yet - add one on the Recipes page first.")
-                machines_for_plant = _cached_active_machines_for_plant(
-                    session, grade.product_family.plant_id if grade else None
-                )
+                # Filtered to this PU Material's own Machine assignment
+                # (FoamGrade.machines) - see the same note in the Edit Run
+                # form above.
+                assigned_machines = [m for m in grade.machines if m.active] if grade else []
                 machine = st.selectbox(
-                    "Machine / foaming line" + ("" if machines_for_plant else " (none set up for this plant yet)"),
-                    [None] + machines_for_plant,
+                    "Machine / foaming line" + ("" if assigned_machines else " (none assigned to this PU Material yet)"),
+                    [None] + assigned_machines,
                     format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
+                )
+                run_method = effective_top_level_method(machine.production_method) if machine and machine.production_method else None
+                st.caption(
+                    f"Plant: **{grade.product_family.plant.name if grade else '—'}** · "
+                    f"Production Method: **{run_method.name if run_method else '—'}** · "
+                    f"Machine: **{machine.name if machine else '—'}**"
                 )
                 block_reference = st.text_input("Block reference")
                 operator = st.text_input("Operator / team reference")
@@ -513,6 +548,7 @@ with tab_runs:
                             batch_reference=_generate_batch_reference(session, run_date, plant_ids),
                             block_reference=block_reference,
                             machine_id=machine.id if machine else None,
+                            production_method_id=run_method.id if run_method else None,
                             operator_or_team_reference=operator,
                             notes=notes,
                         )
@@ -609,6 +645,21 @@ with tab_runs:
                                 seq_by_prefix[prefix] = _max_batch_seq_for_prefix(session, prefix, plant_ids)
                             seq_by_prefix[prefix] += 1
                             batch_val = f"{prefix}-{seq_by_prefix[prefix]:02d}"
+                        # Production Method Hierarchy architecture change
+                        # (2026-08-09): derive the snapshot the same way
+                        # manual entry does - from the imported machine's
+                        # own effective top-level method, not the foam
+                        # grade's, since the machine is the actual source of
+                        # method context (a grade can only be assigned to
+                        # machines under one method per Charlie's
+                        # consistency rule, so either source agrees).
+                        imported_machine = (
+                            session.get(Machine, int(machine_val)) if not pd.isna(machine_val) else None
+                        )
+                        imported_method = (
+                            effective_top_level_method(imported_machine.production_method)
+                            if imported_machine and imported_machine.production_method else None
+                        )
                         session.add(
                             ProductionRun(
                                 plant_id=grade_row.product_family.plant_id,
@@ -617,7 +668,8 @@ with tab_runs:
                                 run_date=final_run_date,
                                 batch_reference=batch_val,
                                 block_reference=str(row.get("block_reference", "") or ""),
-                                machine_id=int(machine_val) if not pd.isna(machine_val) else None,
+                                machine_id=imported_machine.id if imported_machine else None,
+                                production_method_id=imported_method.id if imported_method else None,
                                 operator_or_team_reference=str(row.get("operator_or_team_reference", "") or ""),
                                 notes=str(row.get("notes", "") or ""),
                             )

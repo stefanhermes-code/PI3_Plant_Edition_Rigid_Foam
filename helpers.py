@@ -17,9 +17,12 @@ from db import (
     ExpertNote,
     FoamGrade,
     Location,
+    Machine,
     Orientation,
     Plant,
+    PlantProductionMethod,
     ProductFamily,
+    ProductionMethod,
     ProductionRun,
     RecipeVersion,
     get_session,
@@ -279,6 +282,63 @@ def activate_recipe_version(session, foam_grade_id, new_version):
         RecipeVersion.id != new_version.id,
     ).update({"is_active": False}, synchronize_session=False)
     new_version.is_active = True
+
+
+def top_level_production_methods(session):
+    """The controlled, customer-facing Production Method identities a Plant
+    can activate - parent_method_id IS NULL. Legacy granular
+    sub-classifications (e.g. PM-120/130 under the new "Discontinuous
+    factory-molded and press-foamed PUR/PIR" identity) are deliberately
+    excluded here; they remain available as a more specific tag elsewhere
+    (Machine.production_method_id can still point at one directly - see
+    effective_top_level_method below), but a Plant does not activate them
+    individually."""
+    return (
+        session.query(ProductionMethod)
+        .filter(ProductionMethod.parent_method_id.is_(None))
+        .order_by(ProductionMethod.sort_order, ProductionMethod.name)
+        .all()
+    )
+
+
+def effective_top_level_method(method):
+    """Which top-level method a (possibly granular/legacy) ProductionMethod
+    row ultimately belongs to. Thin wrapper around the model method so
+    page code has one obvious place to import this from, matching this
+    module's existing style (activate_recipe_version, etc.) of small named
+    helpers rather than inline .parent_method_id checks scattered across
+    pages."""
+    return method.effective_top_level() if method else None
+
+
+def activated_methods_for_plant(session, plant_id):
+    """Top-level Production Methods currently active for a plant, per the
+    new plant_production_methods join table - what Machine setup's method
+    picker (page 1) and the Foam Grade method picker (page 2) both filter
+    to. Returns ProductionMethod rows, not the join rows themselves."""
+    return (
+        session.query(ProductionMethod)
+        .join(PlantProductionMethod, PlantProductionMethod.production_method_id == ProductionMethod.id)
+        .filter(PlantProductionMethod.plant_id == plant_id, PlantProductionMethod.active.is_(True))
+        .order_by(ProductionMethod.sort_order, ProductionMethod.name)
+        .all()
+    )
+
+
+def machines_for_plant_and_method(session, plant_id, top_level_method_id):
+    """Machines at a plant whose own production_method_id resolves
+    (effective_top_level) to the given top-level method - the filter
+    Charlie's spec requires machine setup/selection to apply once a
+    Production Method is chosen (spec section 7.2/7.3). Done in Python
+    over a plant-scoped query rather than a SQL join on a computed
+    expression, since effective_top_level() is a one-hop Python method,
+    not something worth expressing as SQL for the data volumes this app
+    runs at."""
+    machines = session.query(Machine).filter(Machine.plant_id == plant_id).all()
+    return [
+        m for m in machines
+        if m.production_method_id and effective_top_level_method(m.production_method).id == top_level_method_id
+    ]
 
 
 def next_version_label(current_label, existing_count):

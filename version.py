@@ -1862,4 +1862,124 @@ own sequencing: the "Production Method hierarchy" architecture change
 untouched pending his separate explanation and scoping.
 """
 
-APP_VERSION = "0.15.0"
+VERSION_0_16_0_NOTES = """
+v0.15.0 -> v0.16.0 (2026-08-09, Production Method Hierarchy architecture
+change): implements Charlie's formal specification "PI3_Rigid_Foam_Edition_
+Architecture_Change_Production_Method_Hierarchy_for_JC.docx" - the change
+Stefan flagged as parked pending his own explanation and scoping (see
+v0.15.0's notes) - now unblocked and delivered in this batch, per the
+PDCA feedback-loop process the spec's section 14 required (impact
+assessment + implementation design produced first, as
+PI3_Rigid_Foam_Edition_Production_Method_Hierarchy_Impact_Assessment_and_
+Design.docx, surfacing 5 open engineering decisions; Stefan resolved all
+5 directly in chat before any schema/code was touched).
+
+Locked hierarchy per the spec: Plant -> Production Method -> Machine -> PU
+Material -> Raw Materials -> Recipes. Production Method becomes an
+independent, plant-activatable application level between Plant and
+Machine, with 4 new customer-facing top-level identities (PM-400
+"Discontinuous factory-molded and press-foamed PUR/PIR", PM-410
+"Continuous panel / lamination", PM-420 "Field pour-in-place cavity
+filling", PM-430 "Spray-applied rigid polyurethane foam") - minted fresh in
+a non-colliding numeric range per Stefan's decision, not repurposing the
+existing PM-120/130/200/210/300 codes. PM-120/130 now nest under PM-400 and
+PM-200/210 under PM-410 via a new self-referencing parent_method_id column
+on production_methods; PM-300 remains its own separate top-level identity,
+unchanged. Existing legacy codes retained verbatim for traceability -
+zero rows renamed or reclassified.
+
+Schema additions in db.py: ProductionMethod.parent_method_id (nullable
+self-FK) + effective_top_level() model method (single place that resolves
+"which top-level method does this row ultimately belong to" - wrapped by
+helpers.effective_top_level_method() for page code); new
+PlantProductionMethod join table (plant_id, production_method_id, active,
+activated_at) implementing genuine per-plant Production Method activation,
+not just an unconstrained tag; new foam_grade_machines plain association
+Table implementing the many-to-many Machine<->PU Material relationship
+Stefan confirmed (a PU Material may legitimately run on several machines;
+Machine assignments must stay consistent with the plant's activated
+Production Methods); new ProductionRun.production_method_id - a
+deliberate, explicit exception to this codebase's usual "compute live,
+never duplicate" discipline, snapshotting the run's Production Method
+context at creation time per Charlie's historical-traceability
+requirement, so a later Machine-master reclassification never silently
+rewrites what a past run's records say it was produced under (editing a
+run's own Machine, a genuine correction, does re-derive this snapshot -
+see pages/4's Edit Run form).
+
+Per Stefan's explicit resolution of the 5 open decisions: Product Family
+stays exactly where it is, a Plant-level business/reporting grouping,
+NOT part of the operational hierarchy - FoamGrade keeps its existing
+ProductFamily link and separately gained the new Machine assignment;
+cross-table consistency ("a Machine's method must be one of its plant's
+activated methods") is enforced in page code (helpers.
+activated_methods_for_plant / machines_for_plant_and_method), matching
+this codebase's established app-layer-over-DB-constraint convention, not
+a database CHECK; lab trials (CustomerTrial/OptimizationTrial) stay
+outside this mandatory hierarchy for now - only ProductionRun carries the
+full Plant->Method->Machine chain in this batch, Machine remains optional/
+deferred for genuinely laboratory-based trial work.
+
+UI changes, all following the established "narrowing pickers live outside
+st.form" convention (OEM/Model on page 1, Family/Method/Machines on page
+2): pages/1_Plant_Installation_Overview.py gained a "Production Methods
+activated at this plant" checkbox section on the Edit Plant panel, and the
+Add/Edit Machine forms now pick Plant -> Production Method (filtered to
+that plant's activated methods) -> optional granular sub-classification ->
+OEM -> Model, with a live breadcrumb caption and Save disabled until a
+method is chosen; the Machines table gained a Production Method column;
+Machine deletion now routes through cascades.unlink_machine_dependents
+(clears foam_grade_machines links + unlinks dependent ProductionRuns).
+pages/2_Product_Family_Foam_Grade.py's Add/Edit Foam Grade forms gained a
+Production Method picker (filtered to the grade's plant) and a Machines
+multiselect (filtered to machines already tagged with that method); the
+Foam Grade table gained Production Method and Machines columns.
+pages/4_Production_Run_Trial_Record.py's Add/Edit Run forms now filter the
+Machine picker to the selected grade's own Machine assignment (not every
+active machine at the plant), show a live Plant/Method/Machine breadcrumb,
+and set/re-derive the production_method_id snapshot on save; CSV import
+derives the same snapshot per imported row; the run overview table gained
+a Production Method column. cascades.py: delete_foam_grade_cascade and
+delete_plant_cascade now also clear foam_grade_machines rows;
+plant_dependency_counts now reports activated Production Method counts.
+
+Supabase migration applied directly against the real rigid_foam schema
+(pm_hierarchy_schema): production_methods.parent_method_id column,
+production_runs.production_method_id column, new plant_production_methods
+and foam_grade_machines tables. Seeded PM-400/410/420/430 and set
+parent_method_id on PM-120/130 (-> PM-400) and PM-200/210 (-> PM-410);
+PM-300 left untouched. Backfilled the real pre-existing data with zero
+data-loss/reclassification: the one real Machine (tagged PM-120, whose
+effective top-level is PM-400) got its plant's PlantProductionMethod
+activated against PM-400; all 5 existing FoamGrade rows got a
+foam_grade_machines link to that Machine; all 13 existing ProductionRun
+rows got production_method_id backfilled to PM-400 (derived from their
+Machine's effective top-level method). Verified via count check: 9 total
+production_methods (5 top-level), 1 plant activation, 5 foam-grade/machine
+links, 13/13 runs carrying a method snapshot.
+
+Tested via py_compile across db.py/helpers.py/cascades.py/pages 1, 2, 4;
+a live import + SQLAlchemy configure_mappers() smoke test on db.py; the
+full existing pytest suite (38 tests, all pre-existing behavior
+unaffected); and a new tests/test_pm_hierarchy_pages_smoke.py (3 new
+AppTest cases) covering the Add-record flows on pages 1, 2, and 4 - proving
+the plant-activation filtering, method-filtered Machine multiselect, and
+the Machine-derived production_method_id snapshot on run creation all
+actually render/persist, not just that db.py imports cleanly. (The
+Edit-record flows on all three pages are exercised manually instead of via
+AppTest, since they're gated behind clickable_table's st.dataframe
+row-click selection event, which AppTest's headless harness cannot
+simulate - a testing-harness limitation documented in the new test file's
+module docstring, not a defect in the pages.)
+
+Not yet started in this batch (flagged in the original impact-assessment
+doc as likely follow-up work, not confirmed in-scope for this pass): the
+breadcrumb/Production-Method-filtering rollout to pages 5 (Quality Test
+Result), 6 (Quality Issue), 9 (Samples & Conditioning), 11/12 (Customer/
+Optimization Trials), 15-19 (Industrial Intelligence), 21 (Report); and any
+schema/UI change letting CustomerTrial/OptimizationTrial optionally carry
+Production Method context later (explicitly deferred per Stefan's decision
+on lab trial scope).
+"""
+
+APP_VERSION = "0.16.0"

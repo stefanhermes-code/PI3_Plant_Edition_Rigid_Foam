@@ -11,12 +11,15 @@ from cascades import (
     foam_grade_dependency_counts,
     product_family_dependency_counts,
 )
-from db import FoamGrade, FoamGradeTargetProperty, PhysicalPropertyDefinition, Plant, ProductFamily, get_session, init_db
+from db import FoamGrade, FoamGradeTargetProperty, Machine, PhysicalPropertyDefinition, Plant, ProductFamily, get_session, init_db
 from helpers import (
+    activated_methods_for_plant,
     clickable_table,
     csv_excel_uploader,
     dedupe_import_rows,
     delete_with_confirm,
+    effective_top_level_method,
+    machines_for_plant_and_method,
     page_setup,
     render_data_table,
     render_function_action_intro,
@@ -209,26 +212,56 @@ with tab_grade:
                 if not page_usable:
                     st.caption("View-only access - adding a foam grade is restricted for your role.")
                 else:
+                    # Family (and therefore Plant), Production Method, and the
+                    # Machine-assignment multiselect all live outside the
+                    # st.form below - each narrows the next, same reason as
+                    # page 1's Plant -> Method -> sub-classification chain.
+                    family = st.selectbox("Product family *", families, format_func=lambda f: f.name, key="add_grade_family")
+                    plant_methods = activated_methods_for_plant(session, family.plant_id)
+                    if not plant_methods:
+                        st.warning(
+                            "This product family's plant has no activated Production Methods yet. "
+                            "Enable one on the Plant & Foam Equipment Overview page first."
+                        )
+                        method_choice = None
+                        assignable_machines = []
+                    else:
+                        method_choice = st.selectbox(
+                            "Production Method *", plant_methods, format_func=lambda m: m.name, key="add_grade_method"
+                        )
+                        assignable_machines = machines_for_plant_and_method(session, family.plant_id, method_choice.id)
+                        if not assignable_machines:
+                            st.caption(
+                                "No machines at this plant are tagged with this Production Method yet - "
+                                "add one on the Plant & Foam Equipment Overview page, or assign machines "
+                                "to this PU Material later."
+                            )
+                    assigned_machines = st.multiselect(
+                        "Machines this PU Material can be produced on",
+                        assignable_machines, format_func=lambda m: m.name, key="add_grade_machines",
+                    ) if assignable_machines else []
                     with st.form("add_grade"):
-                        family = st.selectbox("Product family *", families, format_func=lambda f: f.name)
                         grade_name = st.text_input("Grade name / code *")
                         target_density = st.number_input("Target density (kg/m3)", min_value=0.0, step=0.5)
                         target_hardness = st.number_input("Target hardness (N, 40% ILD)", min_value=0.0, step=1.0)
                         notes = st.text_area("Notes")
-                        submitted = st.form_submit_button("Save foam grade")
+                        submitted = st.form_submit_button("Save foam grade", disabled=method_choice is None)
                         if submitted:
                             if not grade_name:
                                 st.error("Grade name is required.")
+                            elif method_choice is None:
+                                st.error("Activate a Production Method for this plant first.")
                             else:
-                                session.add(
-                                    FoamGrade(
-                                        product_family_id=family.id,
-                                        grade_name=grade_name,
-                                        target_density=target_density or None,
-                                        target_hardness=target_hardness or None,
-                                        notes=notes,
-                                    )
+                                new_grade = FoamGrade(
+                                    product_family_id=family.id,
+                                    grade_name=grade_name,
+                                    target_density=target_density or None,
+                                    target_hardness=target_hardness or None,
+                                    notes=notes,
+                                    production_method_id=method_choice.id,
                                 )
+                                new_grade.machines = list(assigned_machines)
+                                session.add(new_grade)
                                 session.commit()
                                 clear_scope_cache()
                                 st.success(f"Foam grade '{grade_name}' added. Add any other target physical "
@@ -294,6 +327,8 @@ with tab_grade:
                 {
                     "Grade": grade.grade_name,
                     "Family": grade.product_family.name,
+                    "Production Method": grade.production_method.name if grade.production_method else "—",
+                    "Machines": len(grade.machines),
                     "Target density (kg/m3)": grade.target_density,
                     "Target hardness (N, 40% ILD)": grade.target_hardness,
                     "Other target properties": len(grade.target_properties),
@@ -315,12 +350,38 @@ with tab_grade:
                 if not page_usable:
                     st.caption("View-only access - editing and deleting is restricted for your role.")
                 else:
-                    with st.form(f"edit_grade_{selected_grade.id}"):
-                        e_family = st.selectbox(
-                            "Product family *", families,
-                            index=next((i for i, f in enumerate(families) if f.id == selected_grade.product_family_id), 0),
-                            format_func=lambda f: f.name, key=f"edit_grade_family_{selected_grade.id}",
+                    e_family = st.selectbox(
+                        "Product family *", families,
+                        index=next((i for i, f in enumerate(families) if f.id == selected_grade.product_family_id), 0),
+                        format_func=lambda f: f.name, key=f"edit_grade_family_{selected_grade.id}",
+                    )
+                    e_plant_methods = activated_methods_for_plant(session, e_family.plant_id)
+                    current_grade_method = (
+                        effective_top_level_method(selected_grade.production_method)
+                        if selected_grade.production_method else None
+                    )
+                    if not e_plant_methods:
+                        st.warning(
+                            "This product family's plant has no activated Production Methods yet. "
+                            "Enable one on the Plant & Foam Equipment Overview page first."
                         )
+                        e_method_choice = None
+                        e_assignable_machines = []
+                    else:
+                        e_method_choice = st.selectbox(
+                            "Production Method *", e_plant_methods, format_func=lambda m: m.name,
+                            index=next((i for i, m in enumerate(e_plant_methods) if current_grade_method and m.id == current_grade_method.id), 0),
+                            key=f"edit_grade_method_{selected_grade.id}",
+                        )
+                        e_assignable_machines = machines_for_plant_and_method(session, e_family.plant_id, e_method_choice.id)
+                        if not e_assignable_machines:
+                            st.caption("No machines at this plant are tagged with this Production Method yet.")
+                    e_assigned_machines = st.multiselect(
+                        "Machines this PU Material can be produced on",
+                        e_assignable_machines, default=[m for m in selected_grade.machines if m in e_assignable_machines],
+                        format_func=lambda m: m.name, key=f"edit_grade_machines_{selected_grade.id}",
+                    ) if e_assignable_machines else []
+                    with st.form(f"edit_grade_{selected_grade.id}"):
                         e_grade_name = st.text_input(
                             "Grade name / code *", value=selected_grade.grade_name, key=f"edit_grade_name_{selected_grade.id}"
                         )
@@ -333,15 +394,19 @@ with tab_grade:
                             value=float(selected_grade.target_hardness or 0.0), key=f"edit_grade_hardness_{selected_grade.id}",
                         )
                         e_notes = st.text_area("Notes", value=selected_grade.notes or "", key=f"edit_grade_notes_{selected_grade.id}")
-                        if st.form_submit_button("Save changes"):
+                        if st.form_submit_button("Save changes", disabled=e_method_choice is None):
                             if not e_grade_name.strip():
                                 st.error("Grade name is required.")
+                            elif e_method_choice is None:
+                                st.error("Activate a Production Method for this plant first.")
                             else:
                                 selected_grade.product_family_id = e_family.id
                                 selected_grade.grade_name = e_grade_name.strip()
                                 selected_grade.target_density = e_density or None
                                 selected_grade.target_hardness = e_hardness or None
                                 selected_grade.notes = e_notes
+                                selected_grade.production_method_id = e_method_choice.id
+                                selected_grade.machines = list(e_assigned_machines)
                                 session.commit()
                                 st.success("Foam grade updated.")
                                 st.rerun()

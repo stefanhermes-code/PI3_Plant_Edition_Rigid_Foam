@@ -4,7 +4,7 @@ import streamlit as st
 
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
-from cascades import delete_plant_cascade, plant_dependency_counts
+from cascades import delete_plant_cascade, plant_dependency_counts, unlink_machine_dependents
 from db import (
     MACHINE_OEMS,
     MAXFOAM_MODELS,
@@ -12,11 +12,22 @@ from db import (
     Company,
     Machine,
     Plant,
+    PlantProductionMethod,
+    ProductionMethod,
     ProductionRun,
     get_session,
     init_db,
 )
-from helpers import clickable_table, delete_with_confirm, page_setup, render_function_action_intro, view_only_notice
+from helpers import (
+    activated_methods_for_plant,
+    clickable_table,
+    delete_with_confirm,
+    effective_top_level_method,
+    page_setup,
+    render_function_action_intro,
+    top_level_production_methods,
+    view_only_notice,
+)
 from tenant_scope import clear_scope_cache, company_picker
 
 page_setup("Plant & Foam Equipment Overview")
@@ -172,6 +183,40 @@ else:
                         st.success("Plant updated.")
                         st.rerun()
 
+            st.markdown("**Production Methods activated at this plant**")
+            st.caption(
+                "Enable the production methods this plant actually runs. Machines and PU Materials "
+                "at this plant can only be assigned a method that's enabled here."
+            )
+            all_top_level_methods = top_level_production_methods(session)
+            activated_ids = {m.id for m in activated_methods_for_plant(session, selected_plant.id)}
+            existing_rows_by_method = {
+                r.production_method_id: r
+                for r in session.query(PlantProductionMethod)
+                .filter(PlantProductionMethod.plant_id == selected_plant.id)
+                .all()
+            }
+            for method in all_top_level_methods:
+                checked = st.checkbox(
+                    f"{method.name} ({method.controlled_id})",
+                    value=method.id in activated_ids,
+                    key=f"pm_activate_{selected_plant.id}_{method.id}",
+                    disabled=not page_usable,
+                )
+                existing_row = existing_rows_by_method.get(method.id)
+                if checked and not existing_row:
+                    session.add(PlantProductionMethod(plant_id=selected_plant.id, production_method_id=method.id, active=True))
+                    session.commit()
+                    st.rerun()
+                elif checked and existing_row and not existing_row.active:
+                    existing_row.active = True
+                    session.commit()
+                    st.rerun()
+                elif not checked and existing_row and existing_row.active:
+                    existing_row.active = False
+                    session.commit()
+                    st.rerun()
+
             counts = plant_dependency_counts(session, selected_plant.id)
             total_related = sum(counts.values())
             if total_related:
@@ -230,19 +275,59 @@ else:
         if not page_usable:
             st.caption("View-only access - adding a machine is restricted for your role.")
         else:
+            # Plant, Production Method, sub-classification, OEM and Model
+            # all live outside the st.form below - each one's choice
+            # narrows the next (Plant -> which methods are activated for
+            # it; Method -> which granular sub-classification exists under
+            # it; OEM -> which Model list applies), and widgets inside a
+            # form don't rerun until submit, so none of that narrowing
+            # could happen live if they lived inside it.
+            plant_for_machine = st.selectbox("Plant *", plants, format_func=lambda p: p.name, key="add_machine_plant")
+            plant_methods = activated_methods_for_plant(session, plant_for_machine.id)
+            if not plant_methods:
+                st.warning(
+                    "This plant has no activated Production Methods yet. Enable one under "
+                    "'Production Methods activated at this plant' above before adding a machine."
+                )
+                method_choice = None
+                sub_choice = None
+            else:
+                method_choice = st.selectbox(
+                    "Production Method *", plant_methods, format_func=lambda m: m.name, key="add_machine_method"
+                )
+                method_children = (
+                    session.query(ProductionMethod)
+                    .filter(ProductionMethod.parent_method_id == method_choice.id)
+                    .order_by(ProductionMethod.sort_order, ProductionMethod.name)
+                    .all()
+                )
+                sub_choice = None
+                if method_children:
+                    sub_options = ["(general - no specific sub-classification)"] + method_children
+                    sub_pick = st.selectbox(
+                        "Specific classification (optional)", sub_options,
+                        format_func=lambda o: o if isinstance(o, str) else f"{o.name} ({o.controlled_id})",
+                        key="add_machine_method_sub",
+                    )
+                    sub_choice = sub_pick if not isinstance(sub_pick, str) else None
             oem = st.selectbox("OEM / manufacturer", MACHINE_OEMS, key="add_machine_oem")
             model = _machine_model_picker(oem, "", "add_machine")
             with st.form("add_machine"):
-                plant_for_machine = st.selectbox("Plant *", plants, format_func=lambda p: p.name)
                 name = st.text_input("Machine / line name * (e.g. Line 1, Maxfoam A)")
                 machine_code = st.text_input("Machine code")
-                st.caption(f"OEM: **{oem}** · Model: **{model or '—'}** (change above, outside this form)")
+                st.caption(
+                    f"Plant: **{plant_for_machine.name}** · Production Method: "
+                    f"**{(sub_choice or method_choice).name if method_choice else '—'}** · "
+                    f"OEM: **{oem}** · Model: **{model or '—'}** (change above, outside this form)"
+                )
                 active = st.checkbox("Active", value=True)
                 notes = st.text_area("Notes")
-                submitted = st.form_submit_button("Save machine")
+                submitted = st.form_submit_button("Save machine", disabled=method_choice is None)
                 if submitted:
                     if not name:
                         st.error("Machine / line name is required.")
+                    elif method_choice is None:
+                        st.error("Activate a Production Method for this plant first.")
                     else:
                         session.add(
                             Machine(
@@ -253,6 +338,7 @@ else:
                                 model=model,
                                 active=active,
                                 notes=notes,
+                                production_method_id=(sub_choice or method_choice).id,
                             )
                         )
                         session.commit()
@@ -276,6 +362,7 @@ else:
         machine_rows = [
             {
                 "Plant": m.plant.name,
+                "Production Method": m.production_method.name if m.production_method else "—",
                 "Machine": m.name,
                 "Code": m.machine_code or "—",
                 "OEM": m.oem or "—",
@@ -304,6 +391,48 @@ else:
                 # Add-machine picker above - switching OEM needs to swap
                 # the Model widget immediately, which a form can't do
                 # until submit.
+                e_plant = st.selectbox(
+                    "Plant *", plants,
+                    index=next((i for i, p in enumerate(plants) if p.id == selected_machine.plant_id), 0),
+                    format_func=lambda p: p.name, key=f"edit_machine_plant_{selected_machine.id}",
+                )
+                e_plant_methods = activated_methods_for_plant(session, e_plant.id)
+                current_top_level = (
+                    effective_top_level_method(selected_machine.production_method)
+                    if selected_machine.production_method else None
+                )
+                if not e_plant_methods:
+                    st.warning(
+                        "This plant has no activated Production Methods yet. Enable one under "
+                        "'Production Methods activated at this plant' above."
+                    )
+                    e_method_choice = None
+                    e_sub_choice = None
+                else:
+                    e_method_choice = st.selectbox(
+                        "Production Method *", e_plant_methods, format_func=lambda m: m.name,
+                        index=next((i for i, m in enumerate(e_plant_methods) if current_top_level and m.id == current_top_level.id), 0),
+                        key=f"edit_machine_method_{selected_machine.id}",
+                    )
+                    e_method_children = (
+                        session.query(ProductionMethod)
+                        .filter(ProductionMethod.parent_method_id == e_method_choice.id)
+                        .order_by(ProductionMethod.sort_order, ProductionMethod.name)
+                        .all()
+                    )
+                    e_sub_choice = None
+                    if e_method_children:
+                        e_sub_options = ["(general - no specific sub-classification)"] + e_method_children
+                        e_default_index = next(
+                            (i for i, o in enumerate(e_sub_options) if not isinstance(o, str) and o.id == selected_machine.production_method_id),
+                            0,
+                        )
+                        e_sub_pick = st.selectbox(
+                            "Specific classification (optional)", e_sub_options,
+                            format_func=lambda o: o if isinstance(o, str) else f"{o.name} ({o.controlled_id})",
+                            index=e_default_index, key=f"edit_machine_method_sub_{selected_machine.id}",
+                        )
+                        e_sub_choice = e_sub_pick if not isinstance(e_sub_pick, str) else None
                 e_oem = st.selectbox(
                     "OEM / manufacturer", MACHINE_OEMS,
                     index=MACHINE_OEMS.index(selected_machine.oem) if selected_machine.oem in MACHINE_OEMS else 0,
@@ -311,21 +440,22 @@ else:
                 )
                 e_model = _machine_model_picker(e_oem, selected_machine.model, f"edit_machine_{selected_machine.id}")
                 with st.form(f"edit_machine_{selected_machine.id}"):
-                    e_plant = st.selectbox(
-                        "Plant *", plants,
-                        index=next((i for i, p in enumerate(plants) if p.id == selected_machine.plant_id), 0),
-                        format_func=lambda p: p.name, key=f"edit_machine_plant_{selected_machine.id}",
-                    )
                     e_name = st.text_input("Machine / line name *", value=selected_machine.name, key=f"edit_machine_name_{selected_machine.id}")
                     e_code = st.text_input(
                         "Machine code", value=selected_machine.machine_code or "", key=f"edit_machine_code_{selected_machine.id}"
                     )
-                    st.caption(f"OEM: **{e_oem}** · Model: **{e_model or '—'}** (change above, outside this form)")
+                    st.caption(
+                        f"Plant: **{e_plant.name}** · Production Method: "
+                        f"**{(e_sub_choice or e_method_choice).name if e_method_choice else '—'}** · "
+                        f"OEM: **{e_oem}** · Model: **{e_model or '—'}** (change above, outside this form)"
+                    )
                     e_active = st.checkbox("Active", value=selected_machine.active, key=f"edit_machine_active_{selected_machine.id}")
                     e_notes = st.text_area("Notes", value=selected_machine.notes or "", key=f"edit_machine_notes_{selected_machine.id}")
-                    if st.form_submit_button("Save changes"):
+                    if st.form_submit_button("Save changes", disabled=e_method_choice is None):
                         if not e_name.strip():
                             st.error("Machine / line name is required.")
+                        elif e_method_choice is None:
+                            st.error("Activate a Production Method for this plant first.")
                         else:
                             selected_machine.plant_id = e_plant.id
                             selected_machine.name = e_name.strip()
@@ -334,6 +464,7 @@ else:
                             selected_machine.model = e_model
                             selected_machine.active = e_active
                             selected_machine.notes = e_notes
+                            selected_machine.production_method_id = (e_sub_choice or e_method_choice).id
                             session.commit()
                             st.success("Machine updated.")
                             st.rerun()
@@ -348,9 +479,7 @@ else:
                     warning = "No production runs reference this machine — deleting it is safe."
 
                 def _do_delete_machine(_session=session, _id=selected_machine.id):
-                    _session.query(ProductionRun).filter(ProductionRun.machine_id == _id).update(
-                        {"machine_id": None}, synchronize_session="fetch"
-                    )
+                    unlink_machine_dependents(_session, _id)
                     _session.query(Machine).filter(Machine.id == _id).delete(synchronize_session=False)
                     _session.commit()
                     st.session_state.pop("machine_selected_id", None)

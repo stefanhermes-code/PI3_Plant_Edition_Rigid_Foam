@@ -34,6 +34,7 @@ from sqlalchemy import (
     Integer,
     MetaData,
     String,
+    Table,
     Text,
     UniqueConstraint,
     create_engine,
@@ -403,6 +404,33 @@ class Plant(Base):
     company = relationship("Company")
     product_families = relationship("ProductFamily", back_populates="plant")
     pi3_ai_settings = relationship("PI3AIConnectionSetting", back_populates="plant")
+    production_methods = relationship("PlantProductionMethod", back_populates="plant")
+
+
+# ---------------------------------------------------------------------------
+# 1a2. plant_production_methods - Production Method Hierarchy architecture
+# change (2026-08-09). This is the per-Plant "on/off switch" for Charlie's
+# global, shared production_methods vocabulary: a Plant activates one or
+# more TOP-LEVEL methods (parent_method_id IS NULL on ProductionMethod)
+# here, and Machine setup/selection for that Plant is filtered to only the
+# rows activated in this table - not the raw global list. Enforcing
+# "production_method_id references a top-level row" and "machine's plant
+# has that row activated" is done at the application layer (helpers.py),
+# matching this codebase's existing convention of app-level enforcement
+# for cross-table consistency rules rather than a DB CHECK constraint
+# (e.g. RecipeVersion.is_active's exclusivity).
+# ---------------------------------------------------------------------------
+class PlantProductionMethod(Base):
+    __tablename__ = "plant_production_methods"
+
+    id = Column(Integer, primary_key=True)
+    plant_id = Column(Integer, ForeignKey("plants.id"), nullable=False)
+    production_method_id = Column(Integer, ForeignKey("production_methods.id"), nullable=False)
+    active = Column(Boolean, default=True)
+    activated_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    plant = relationship("Plant", back_populates="production_methods")
+    production_method = relationship("ProductionMethod")
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +569,13 @@ class Machine(Base):
     production_method = relationship("ProductionMethod")
     machine_model = relationship("MachineModel")
     machine_config = relationship("MachineConfiguration")
+    # Production Method Hierarchy architecture change (2026-08-09): many-to-
+    # many with FoamGrade (PU Material) - Charlie's explicit decision that
+    # "the same PU Material may legitimately be produced on several
+    # machines", via the new foam_grade_machines join table below FoamGrade.
+    foam_grades = relationship(
+        "FoamGrade", secondary="foam_grade_machines", back_populates="machines"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -613,6 +648,35 @@ class FoamGrade(Base):
     specifications = relationship(
         "GradeSpecification", back_populates="foam_grade", cascade="all, delete-orphan"
     )
+    # Production Method Hierarchy architecture change (2026-08-09): the
+    # many-to-many counterpart of Machine.foam_grades above. production_method_id
+    # (already existed, from WP3) is now the authoritative "applicable
+    # Production Method" for this PU Material - per Charlie's decision,
+    # every Machine assigned here must resolve (via
+    # ProductionMethod.effective_top_level()) to this same top-level
+    # method; enforced in helpers.py, not a DB constraint.
+    machines = relationship(
+        "Machine", secondary="foam_grade_machines", back_populates="foam_grades"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 3a2. foam_grade_machines - join table for the FoamGrade <-> Machine
+# many-to-many assignment (Production Method Hierarchy architecture
+# change, 2026-08-09). A plain association table (no extra columns needed
+# yet) rather than a mapped class with its own back-populated
+# relationships, since nothing today needs to attach data to the
+# assignment itself - if that changes (e.g. an assignment-specific status
+# or date), promote this to a full class then, same "text field first,
+# promote only if a concrete need shows up" precedent as WP5's
+# ProcessingWindow.
+# ---------------------------------------------------------------------------
+foam_grade_machines = Table(
+    "foam_grade_machines",
+    Base.metadata,
+    Column("foam_grade_id", Integer, ForeignKey("foam_grades.id"), primary_key=True),
+    Column("machine_id", Integer, ForeignKey("machines.id"), primary_key=True),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -912,9 +976,26 @@ class ProductionRun(Base):
     notes = Column(Text)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
+    # Production Method Hierarchy architecture change (2026-08-09): an
+    # IMMUTABLE snapshot, not a live-derived value - deliberately breaking
+    # from this app's usual "compute live, never duplicate" discipline
+    # (e.g. wp3_conformance's pass/fail). Set once at run creation from the
+    # selected Machine's effective top-level method (ProductionMethod.
+    # effective_top_level()) and never auto-updated afterward. Per
+    # Stefan/Charlie's explicit confirmation on JC's impact assessment:
+    # this is required so a run's historical method context survives a
+    # later correction/reclassification of the Machine master record -
+    # if that snapshot behavior were live-derived instead, correcting a
+    # Machine's method tag would silently rewrite every past run made on
+    # it, which is exactly what Charlie's traceability requirement rules
+    # out. Nullable at the DB level only so existing rows can be backfilled
+    # by migration; every new row going forward must set it at creation.
+    production_method_id = Column(Integer, ForeignKey("production_methods.id"))
+
     plant = relationship("Plant")
     foam_grade = relationship("FoamGrade")
     machine = relationship("Machine")
+    production_method = relationship("ProductionMethod")
     recipe_version = relationship("RecipeVersion", back_populates="production_runs")
     runtime_records = relationship("RuntimeDataRecord", back_populates="production_run")
     # Note: phases/events/lot_uses/samples are deliberately NOT exposed as
@@ -1901,7 +1982,22 @@ class ProductionMethod(Base):
     "Continuous Lamination", "Spray Applied", "Pour-in-Place/RIM". Drives
     which ProcessSettingDefinition rows apply (method-aware settings, see
     WP3e below) and which equipment hierarchy makes sense for a given
-    Machine/ProductionUnit."""
+    Machine/ProductionUnit.
+
+    Production Method Hierarchy architecture change (2026-08-09, per
+    Charlie's decision on JC's engineering impact assessment): this table
+    now holds two tiers in one self-referencing list, not a flat list.
+    parent_method_id is NULL for a "top-level operational" row - one of
+    the 4 new customer-facing identities (PM-400/410/420/430) plus the
+    pre-existing PM-300 - which is what a Plant activates
+    (PlantProductionMethod, below) and what Machine.production_method_id
+    must resolve to. A non-NULL parent_method_id marks a pre-existing,
+    more granular legacy classification (PM-120/130/200/210) nested
+    under one of the new top-level rows - per Charlie's explicit
+    instruction, these are RETAINED UNCHANGED for traceability, not
+    renamed or merged into the broader new identity. effective_top_level()
+    below is the one place that resolves "which top-level method does
+    this row ultimately belong to" so every caller uses the same rule."""
 
     __tablename__ = "production_methods"
 
@@ -1910,6 +2006,16 @@ class ProductionMethod(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text)
     sort_order = Column(Integer)
+    parent_method_id = Column(Integer, ForeignKey("production_methods.id"))
+
+    parent_method = relationship("ProductionMethod", remote_side=[id])
+
+    def effective_top_level(self):
+        """The top-level (parent_method_id IS NULL) method this row
+        belongs to - itself if it already is top-level, else its parent.
+        Legacy rows are never nested more than one level deep, so a
+        single hop is always sufficient."""
+        return self.parent_method if self.parent_method_id else self
 
 
 class Application(Base):
@@ -3654,6 +3760,8 @@ ALL_MODELS = [
     ReferenceFormulationPerformanceResult,
     ReferenceFormulationProcessingNote,
     ReferenceFormulationFamily,
+    # --- Production Method Hierarchy architecture change additions (2026-08-09) ---
+    PlantProductionMethod,
 ]
 
 
