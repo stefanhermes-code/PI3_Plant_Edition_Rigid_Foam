@@ -55,6 +55,24 @@ def evaluate_specification(spec, actual_value):
     - margin: how far inside (positive) or outside (negative) the limit the
       actual value is, in the property's own unit. None alongside a None
       verdict.
+
+    WP6-S09 fix (2026-08-09, per Charlie's UAT-011 review): "<=" and ">="
+    used to require spec.target_value specifically, with no fallback to
+    lower_limit/upper_limit. That matched tests/test_wp3_uat_cases.py's
+    frozen fixture (which always populates target_value alongside upper_
+    limit/lower_limit for a "<="/">=" spec, e.g. target_value=0.024,
+    upper_limit=0.024) but NOT the real seeded grade_specifications rows
+    (WP5 Wave 5), which for every real "<="/">=" row leave target_value
+    NULL and store the actual ceiling/floor in upper_limit/lower_limit -
+    the exact same field convention "between" already used. The result was
+    every real rigid-foam spec evaluating to (None, None) - a matched
+    result silently excluded from Pass/Fail with no error, which is why
+    Charlie found the Batch Release Record's target/Pass-Fail columns
+    blank against real data despite this module existing since WP3. Fixed
+    by falling back to upper_limit ("<=") / lower_limit (">=") whenever
+    target_value is None - purely additive: the frozen fixture always sets
+    target_value too, so its behavior is unchanged; this only starts
+    evaluating specs that previously fell through to None.
     """
     if actual_value is None:
         return None, None
@@ -62,16 +80,18 @@ def evaluate_specification(spec, actual_value):
     op = (spec.target_operator or "<=").strip()
 
     if op == "<=":
-        if spec.target_value is None:
+        limit = spec.target_value if spec.target_value is not None else spec.upper_limit
+        if limit is None:
             return None, None
-        margin = spec.target_value - actual_value
-        return ("Pass" if actual_value <= spec.target_value else "Fail"), margin
+        margin = limit - actual_value
+        return ("Pass" if actual_value <= limit else "Fail"), margin
 
     if op == ">=":
-        if spec.target_value is None:
+        limit = spec.target_value if spec.target_value is not None else spec.lower_limit
+        if limit is None:
             return None, None
-        margin = actual_value - spec.target_value
-        return ("Pass" if actual_value >= spec.target_value else "Fail"), margin
+        margin = actual_value - limit
+        return ("Pass" if actual_value >= limit else "Fail"), margin
 
     if op == "=":
         if spec.target_value is None:
@@ -203,7 +223,8 @@ def validate_result_completeness(result, sample=None):
 
 
 def compute_conformance_report(
-    session, foam_grade_id, production_run_id=None, customer_trial_id=None, optimization_trial_id=None
+    session, foam_grade_id, production_run_id=None, customer_trial_id=None, optimization_trial_id=None,
+    sample_id=None,
 ):
     """Assembles a live conformance report: every GradeSpecification for
     this grade, matched against the best available PhysicalPropertyResult
@@ -233,6 +254,14 @@ def compute_conformance_report(
     optional source FKs" pattern already used throughout db.py (Sample,
     PhysicalPropertyResult, ...). Returns [] if none is given - nothing to
     evaluate against.
+
+    sample_id (WP6-S09 addition, 2026-08-09, for the Sample Certificate of
+    Analysis report - Charlie's UAT-014 review): optional additional filter
+    narrowing the candidate results down to one specific sample, on top of
+    whichever source filter above is given. A production run/trial can carry
+    several samples, each with its own result per property - the Sample
+    Certificate needs conformance evaluated against just the one sample it's
+    reporting on, not every sample under that run.
     """
     specs = session.query(GradeSpecification).filter(GradeSpecification.foam_grade_id == foam_grade_id).all()
 
@@ -245,6 +274,8 @@ def compute_conformance_report(
         query = query.filter(PhysicalPropertyResult.optimization_trial_id == optimization_trial_id)
     else:
         return []
+    if sample_id:
+        query = query.filter(PhysicalPropertyResult.sample_id == sample_id)
     results = query.all()
 
     rows = []

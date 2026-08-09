@@ -1317,6 +1317,94 @@ what JC has already confirmed and exactly what's needed from Charlie, in
 PI3_Rigid_Foam_Phase_1_WP6_S09_Charlie_Requests.docx. WP6-S09 stays "In
 Progress" (13/30 closed) pending Charlie's response; no app code changed
 this batch, only the WP6 Master workbook and this new findings document.
+
+2026-08-09 (WP6-S09, Controlled UAT, Charlie's technical response batch):
+implements Charlie's WP6-S09_Technical_Instructions_for_JC response, closing
+UAT-011/012/013/014 and capturing UAT-009/030 evidence. Two real defects in
+wp3_conformance.py, latent since WP3, surfaced by tracing the corrected
+UAT-011 logic against real data: (1) evaluate_specification()'s "<="/">="
+branches required spec.target_value specifically with no fallback to
+upper_limit/lower_limit - every real seeded grade_specifications row (WP5
+Wave 2) leaves target_value NULL and stores the limit in upper_limit/
+lower_limit instead, so every real spec evaluated to (None, None); fixed by
+falling back to upper_limit/lower_limit when target_value is None (purely
+additive - tests/test_wp3_uat_cases.py's frozen fixture always sets
+target_value too, so 9/10 of its cases are unaffected; UAT-06 continues to
+report its own documented, pre-existing, unrelated MISMATCH per that file's
+own header note). (2) 4 real grade_specifications rows (Core density, grades
+3-6) used target_operator="RANGE" - a GradeSpecificationTemplate target_type
+vocabulary value, not a real GradeSpecification one (see db.py's
+GRADE_SPEC_OPERATORS = ["<=", ">=", "=", "between"]) - corrected to
+"between" directly in Supabase (4 rows). compute_conformance_report() also
+gained an optional sample_id filter for the Sample Certificate of Analysis
+(UAT-014), which must scope conformance to one sample's own results, not
+every sample under its run/trial.
+
+reports.py: build_batch_release_record_data, build_period_summary_data, and
+build_sample_certificate_data now branch on a new _is_rigid_grade(grade)
+helper (grade.chemistry_id is not None, mirroring WP4's existing Recipe
+Optimization convention) - the rigid branch resolves Pass/Fail through
+wp3_conformance.compute_conformance_report() instead of the flexible app's
+flat quality_standards.compute_pass_fail(target_value), which every real
+rigid PhysicalPropertyResult (target_value always NULL) silently failed to
+resolve. New shared helpers _conformance_verdict/_conformance_rows_for_
+display reshape wp3_conformance's raw rows into the existing Property/
+Specification/Actual/Unit/Pass-Fail/Test method/Condition/Spec reference/
+Tested table shape (_docx_section already renders any dict-shaped row
+generically, so no renderer changes were needed). Period Summary
+(UAT-012) also now labels the report "Synthetic UAT / Reference Dataset"
+whenever the date range includes a synthetic run (every real seeded run's
+notes field states this explicitly - there is no dedicated is_synthetic
+column), renames the quality-issue field to "Recorded production quality
+issues" (the 12 controlled UAT failure cases live as computed Fail verdicts,
+not as QualityObservation rows, so the old plain "Quality issues" label
+risked being read as the complete picture), and now reports checks-attempted/
+coverage-% alongside the pass rate - a pass rate computed only over a small
+evaluable count (see below) would otherwise read as more conclusive than it
+is.
+
+New finding surfaced while regenerating the real UAT-011/012/014 report
+examples against the fixed code: only 1 of 97 real physical_property_results
+(the original WP3 Gate-2 fixture, sample id=1) has a Sample.thickness_mm on
+file. wp3_conformance.validate_result_completeness() requires thickness on
+every property it evaluates, not only thickness/orientation-sensitive ones
+(its own docstring names thermal conductivity specifically) - so today,
+even with both fixes above applied, every one of the 13 real production
+runs' conformance rows still resolves to INVALID ("missing thickness")
+rather than Pass/Fail. Not changed this batch pending Charlie's decision
+(see PI3_Rigid_Foam_Phase_1_WP6_S09_Evidence_Package.docx) on whether that
+check should scope to direction/thickness-sensitive properties only, plus
+real specimen-thickness data for the 23 affected samples.
+
+UAT-013 (Trial Closeout Report): zero CustomerTrial/OptimizationTrial rows
+existed in the real dataset, so one clearly-labeled "Synthetic UAT /
+Reference" OptimizationTrial (OPT-UAT-0001, id=1) was seeded directly in
+Supabase, closed, with one linked Sample (id=26, deliberately given
+thickness_mm=60 so this one demo record can exercise a complete conformance
+evaluation end to end) and 4 PhysicalPropertyResult rows - the real
+render_trial_report_docx() needed no code changes; it only reads narrative/
+closeout fields and QualityObservation, not conformance.
+
+UAT-021: OPENAI_API_KEY/PI3_VECTOR_STORE_ID Streamlit Cloud secrets and the
+WP3 UAT/Reference plant's PI3AIConnectionSetting.pi3_ai_connectivity_enabled
+flag are both confirmed in place; running one live PI3 question against the
+deployed app is left to Stefan (or a credential-free mechanism) since JC
+cannot log into the deployed app without entering a password.
+
+Sample #2 (UAT-014): the sample's own notes field referenced COND-020
+(Dimensional stability exposure) at the sample level even though no
+individual result on that sample actually uses it (each result already
+carried the correct per-property condition/orientation - COND-011 +
+through-thickness for thermal conductivity, COND-022 + parallel-to-rise for
+compressive strength, COND-003 for density/closed-cell) - notes corrected to
+describe the real per-property conditions, and zone_label populated from
+the location (LOC-041) already recorded on its results, rather than left
+blank.
+
+Full pytest suite (37 tests) and the frozen WP3 UAT fixture
+(tests/test_wp3_uat_cases.py) both still pass with no regressions (UAT-06's
+documented, pre-existing, unrelated MISMATCH aside - see that file's own
+header note).
 """
 
-APP_VERSION = "0.14.13"
+APP_VERSION = "0.14.14"

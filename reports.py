@@ -513,14 +513,71 @@ def build_period_summary_data(session, plant_id=None, product_family_id=None, da
         .filter(PhysicalPropertyResult.production_run_id.in_(run_ids)).all()
         if run_ids else []
     )
-    # Recomputed live rather than trusted from each result's stored
-    # pass_fail column - see the same note in
-    # analytics.property_results_dataframe.
-    computed_verdicts = [compute_pass_fail(r.property_name, r.target_value, r.actual_value) for r in results]
-    pass_count = computed_verdicts.count("Pass")
-    fail_count = computed_verdicts.count("Fail")
+    # WP6-S09 fix (2026-08-09, UAT-012 per Charlie's review): a rigid-foam
+    # grade's Pass/Fail is governed by its own GradeSpecification rows
+    # (method/condition/orientation-aware limits - see wp3_conformance.py),
+    # not the flexible app's flat compute_pass_fail(property_name,
+    # target_value, actual_value). Every real rigid PhysicalPropertyResult
+    # has target_value = NULL (the ceiling/floor lives in the spec's own
+    # upper_limit/lower_limit instead), so the flat path silently scored
+    # every real result as unresolved and this report's pass rate was
+    # always blank against real data. Uses the same _is_rigid_grade /
+    # compute_conformance_report pattern as build_batch_release_record_data
+    # (UAT-011), aggregated per (grade, run) the same way
+    # wp3_conformance.compute_grade_conformance_summary already does
+    # app-wide; a grade with no chemistry_id (flexible-style, none exist in
+    # this app today) keeps the original flat-property scoring as a
+    # fallback.
+    pass_count = 0
+    fail_count = 0
+    unresolved_count = 0  # EXCLUDED_CONTEXT / INVALID / NO_RESULT rows - see note below
+    total_checks = 0
+    runs_by_grade = {}
+    for r in runs:
+        runs_by_grade.setdefault(r.foam_grade_id, []).append(r)
+
+    for grade_id, grade_runs in runs_by_grade.items():
+        grade = session.get(FoamGrade, grade_id)
+        if _is_rigid_grade(grade):
+            for run in grade_runs:
+                for row in wp3_conformance.compute_conformance_report(session, grade_id, production_run_id=run.id):
+                    total_checks += 1
+                    if row["verdict"] == "Pass":
+                        pass_count += 1
+                    elif row["verdict"] == "Fail":
+                        fail_count += 1
+                    else:
+                        unresolved_count += 1
+        else:
+            grade_run_ids = {r.id for r in grade_runs}
+            legacy_results = [r for r in results if r.production_run_id in grade_run_ids]
+            legacy_verdicts = [compute_pass_fail(r.property_name, r.target_value, r.actual_value) for r in legacy_results]
+            total_checks += len(legacy_verdicts)
+            pass_count += legacy_verdicts.count("Pass")
+            fail_count += legacy_verdicts.count("Fail")
+            unresolved_count += sum(1 for v in legacy_verdicts if v not in ("Pass", "Fail"))
+
     total_scored = pass_count + fail_count
     pass_rate = round(100 * pass_count / total_scored) if total_scored else None
+    # WP6-S09 (UAT-012, per Charlie's review): pass_rate on its own is
+    # dangerously misleading when most grade-specification checks couldn't
+    # be evaluated at all - e.g. 1 evaluable check that happens to Pass
+    # reads as "100%" even when 48 other checks in the same period are
+    # EXCLUDED_CONTEXT/INVALID/NO_RESULT. total_checks/unresolved_count let
+    # the report say plainly how much of the picture that percentage
+    # actually covers.
+    coverage_pct = round(100 * total_scored / total_checks) if total_checks else None
+
+    # WP6-S09 (UAT-012): flag the report clearly when the date range
+    # includes synthetic/demonstration runs, rather than presenting a
+    # pass-rate/quality-issue summary that reads as real plant history.
+    # Every real seeded production run's notes field states this
+    # explicitly ("Synthetic UAT run", "Synthetic end-to-end data set") -
+    # there is no dedicated is_synthetic column on ProductionRun (see
+    # db.py), so that note text is the authoritative signal.
+    dataset_label = "Synthetic UAT / Reference Dataset" if any(
+        "synthetic" in (r.notes or "").lower() for r in runs
+    ) else None
 
     observations = (
         session.query(QualityObservation)
@@ -560,10 +617,21 @@ def build_period_summary_data(session, plant_id=None, product_family_id=None, da
         "product_family": product_family_label(session, product_family_id),
         "date_from": date_from,
         "date_to": date_to,
+        "dataset_label": dataset_label,
         "total_runs": len(runs),
         "pass_rate": pass_rate,
         "total_results_scored": total_scored,
+        "total_checks_attempted": total_checks,
+        "unresolved_checks": unresolved_count,
+        "coverage_pct": coverage_pct,
         "total_quality_issues": len(observations),
+        # WP6-S09 (UAT-012): the 12 controlled UAT failure cases (WP3 Gate 2)
+        # live as computed Fail verdicts from GradeSpecification/
+        # PhysicalPropertyResult (see pass_rate above), not as rows in this
+        # QualityObservation-backed count - labeled explicitly so this
+        # number is never mistaken for the full set of quality failures in
+        # the period.
+        "quality_issues_label": "Recorded production quality issues",
         "recurring_issues": len(recurring),
         "runs": run_rows,
         "quality_issues": issue_rows,
@@ -591,18 +659,29 @@ def render_period_summary_pdf(data):
 
 def render_period_summary_docx(data):
     doc = Document()
-    _docx_report_header(
-        doc, "Plant / Period Summary Report",
-        f"{data['plant']} · {data['product_family']} · {data['date_from'] or 'earliest'} to {data['date_to'] or 'latest'}",
-    )
+    subtitle = f"{data['plant']} · {data['product_family']} · {data['date_from'] or 'earliest'} to {data['date_to'] or 'latest'}"
+    if data.get("dataset_label"):
+        subtitle = f"{subtitle} · {data['dataset_label']}"
+    _docx_report_header(doc, "Plant / Period Summary Report", subtitle)
+    issue_label = data.get("quality_issues_label", "Quality issues")
     _docx_kv_table(doc, [
         ("Production runs", data["total_runs"]),
         ("Quality test pass rate", f"{data['pass_rate']}%" if data["pass_rate"] is not None else "—"),
-        ("Quality issues", data["total_quality_issues"]),
+        (issue_label, data["total_quality_issues"]),
         ("Recurring quality issues", data["recurring_issues"]),
     ])
+    if data.get("total_checks_attempted"):
+        doc.add_paragraph(
+            f"Pass rate is calculated over {data['total_results_scored']} of "
+            f"{data['total_checks_attempted']} grade-specification checks attempted "
+            f"({data.get('coverage_pct')}% coverage); the remaining "
+            f"{data['unresolved_checks']} could not be evaluated to Pass/Fail "
+            "(excluded context, invalid/incomplete result context, or no matching "
+            "result) and are not counted in either direction. A pass rate near a "
+            "small evaluable count is not a statement about the untested majority."
+        )
     _docx_section(doc, "Production runs in range", data["runs"])
-    _docx_section(doc, "Quality issues in range", data["quality_issues"])
+    _docx_section(doc, f"{issue_label} in range", data["quality_issues"])
     _docx_section(doc, "Breakdown by foam grade", data["grade_breakdown"])
     return _docx_bytes(doc)
 
@@ -1208,6 +1287,94 @@ def _fallplate_deviations(session, setup_phase, finalized_phase):
     return deviations
 
 
+def _is_rigid_grade(grade):
+    """A grade is 'rigid' (has a controlled chemistry, hence real
+    grade_specifications rows to evaluate against) vs. a legacy
+    flexible-style grade with no chemistry - same is_rigid convention
+    already used by pages/15_Recipe_Optimization.py's WP4 branch."""
+    return bool(grade and grade.chemistry_id is not None)
+
+
+def _conformance_verdict(conformance_rows):
+    """Overall verdict text from wp3_conformance.compute_conformance_report()'s
+    raw rows. "No specification on file" when the grade has zero
+    grade_specifications rows at all (nothing to report against - distinct
+    from "Incomplete testing", which means specs exist but couldn't all be
+    evaluated)."""
+    if not conformance_rows:
+        return "No specification on file"
+    verdicts = [r["verdict"] for r in conformance_rows]
+    if "Fail" in verdicts:
+        return "Non-conforming"
+    if verdicts and all(v == "Pass" for v in verdicts):
+        return "Conforming"
+    return "Incomplete testing"
+
+
+def _conformance_rows_for_display(session, results_lookup, conformance_rows):
+    """Reshapes wp3_conformance.compute_conformance_report() rows into the
+    flat Property/Specification/Actual/Unit/Pass-Fail/Test method/Condition/
+    Spec reference/Tested columns the Batch Release Record and Sample
+    Certificate tables render - joining back to the matched
+    PhysicalPropertyResult (results_lookup, keyed by id, already loaded by
+    the caller) for the test-method/condition/tested-at context
+    compute_conformance_report's own return rows don't carry.
+
+    WP6-S09 (Charlie's UAT-011/UAT-014 technical review, 2026-08-09): this
+    replaces resolving Target/Pass-Fail from a target_value stored directly
+    on the result row (quality_standards.compute_pass_fail, still used
+    below for legacy/flexible-style grades) with resolution against the
+    grade's own controlled grade_specifications - the traceable conformance
+    basis Charlie's review requires. "Spec reference" cites the
+    grade_specifications row's own id (GS-<id>) - there is no separate
+    revision field on this table; the row id plus its Source Register link
+    (via GradeSpecification.source), where present, is the traceable
+    reference this schema actually carries.
+    """
+    out = []
+    for row in conformance_rows:
+        result = results_lookup.get(row["result_id"]) if row.get("result_id") else None
+        spec = session.get(GradeSpecification, row["spec_id"]) if row.get("spec_id") else None
+
+        if spec is None:
+            target_text = "—"
+        else:
+            op = (spec.target_operator or "<=").strip()
+            if op == "between":
+                target_text = f"{spec.lower_limit}–{spec.upper_limit} {spec.unit or ''}".strip()
+            else:
+                limit = spec.target_value
+                if limit is None:
+                    limit = spec.upper_limit if op == "<=" else (spec.lower_limit if op == ">=" else None)
+                target_text = f"{op} {limit} {spec.unit or ''}".strip() if limit is not None else "—"
+
+        status = row.get("status")
+        if status in ("Pass", "Fail"):
+            pass_fail_text = status
+        else:
+            pass_fail_text = {
+                "EXCLUDED_CONTEXT": f"Excluded ({row.get('excluded_reason') or 'context mismatch'})",
+                "INVALID": f"Invalid ({row.get('excluded_reason') or 'incomplete context'})",
+                "NO_RESULT": "No result recorded",
+            }.get(status, status or "—")
+
+        out.append({
+            "Property": row.get("property_name"),
+            "Specification": target_text,
+            "Actual": row.get("actual_value"),
+            "Unit": (spec.unit if spec else None) or (result.unit if result else "") or "",
+            "Pass/Fail": pass_fail_text,
+            "Test method": (result.test_method if result else None) or "—",
+            "Condition": (
+                result.condition.name if (result is not None and result.condition)
+                else (spec.condition.name if (spec is not None and spec.condition) else "—")
+            ),
+            "Spec reference": f"GS-{spec.id}" if spec is not None else "—",
+            "Tested": result.tested_at if result else None,
+        })
+    return out
+
+
 def build_batch_release_record_data(session, run_id):
     run = session.get(ProductionRun, run_id)
     if run is None:
@@ -1232,24 +1399,34 @@ def build_batch_release_record_data(session, run_id):
         session.query(PhysicalPropertyResult)
         .filter(PhysicalPropertyResult.production_run_id == run_id).all()
     )
-    quality_results = [
-        {
-            "Property": r.property_name, "Target": r.target_value, "Actual": r.actual_value,
-            "Unit": r.unit or "",
-            "Pass/Fail": compute_pass_fail(r.property_name, r.target_value, r.actual_value) or "—",
-            "Tested": r.tested_at,
-        }
-        for r in results
-    ]
-    verdicts = [compute_pass_fail(r.property_name, r.target_value, r.actual_value) for r in results]
-    if not results:
-        quality_verdict = "No testing recorded"
-    elif "Fail" in verdicts:
-        quality_verdict = "Non-conforming"
-    elif verdicts and all(v == "Pass" for v in verdicts):
-        quality_verdict = "Conforming"
+
+    if _is_rigid_grade(grade):
+        conformance_rows = wp3_conformance.compute_conformance_report(
+            session, grade.id, production_run_id=run_id
+        )
+        results_by_id = {r.id: r for r in results}
+        quality_results = _conformance_rows_for_display(session, results_by_id, conformance_rows)
+        quality_verdict = _conformance_verdict(conformance_rows)
+        verdicts = [r["verdict"] for r in conformance_rows]  # None entries for Excluded/Invalid/No-result rows
     else:
-        quality_verdict = "Incomplete testing"
+        quality_results = [
+            {
+                "Property": r.property_name, "Target": r.target_value, "Actual": r.actual_value,
+                "Unit": r.unit or "",
+                "Pass/Fail": compute_pass_fail(r.property_name, r.target_value, r.actual_value) or "—",
+                "Tested": r.tested_at,
+            }
+            for r in results
+        ]
+        verdicts = [compute_pass_fail(r.property_name, r.target_value, r.actual_value) for r in results]
+        if not results:
+            quality_verdict = "No testing recorded"
+        elif "Fail" in verdicts:
+            quality_verdict = "Non-conforming"
+        elif verdicts and all(v == "Pass" for v in verdicts):
+            quality_verdict = "Conforming"
+        else:
+            quality_verdict = "Incomplete testing"
 
     quality_issues = [
         {
@@ -1504,27 +1681,56 @@ def build_sample_certificate_data(session, sample_id):
         session.query(PhysicalPropertyResult)
         .filter(PhysicalPropertyResult.sample_id == sample.id).all()
     )
-    quality_results = [
-        {
-            "Property": r.property_name, "Target": r.target_value, "Actual": r.actual_value,
-            "Unit": r.unit or "",
-            "Pass/Fail": compute_pass_fail(r.property_name, r.target_value, r.actual_value) or "Not computed",
-            "Method": r.test_method or "—", "Rev.": r.method_revision or "—",
-            "Replicate": r.replicate_no, "Tested": r.tested_at,
-        }
-        for r in sorted(results, key=lambda r: r.property_name)
-    ]
-    verdicts = [compute_pass_fail(r.property_name, r.target_value, r.actual_value) for r in results]
-    pass_count = verdicts.count("Pass")
-    fail_count = verdicts.count("Fail")
-    if not results:
-        overall_verdict = "No testing recorded"
-    elif fail_count:
-        overall_verdict = "Non-conforming"
-    elif verdicts and all(v == "Pass" for v in verdicts):
-        overall_verdict = "Conforming"
+
+    # WP6-S09 fix (2026-08-09, UAT-014 per Charlie's review): same
+    # grade-specification resolution as UAT-011/UAT-012 (see
+    # _is_rigid_grade / _conformance_rows_for_display / _conformance_verdict
+    # above build_batch_release_record_data) rather than the flat
+    # compute_pass_fail(target_value) path, which evaluates to "Not
+    # computed" for every real rigid result (target_value is always NULL -
+    # see wp3_conformance.evaluate_specification's docstring). sample_id is
+    # passed to compute_conformance_report so conformance is scoped to just
+    # this sample's own results, not every sample under the same run/trial.
+    if _is_rigid_grade(grade):
+        source_kwargs = {}
+        if source_type == "Production Run":
+            source_kwargs["production_run_id"] = source.id
+        elif source_type == "Customer Trial":
+            source_kwargs["customer_trial_id"] = source.id
+        elif source_type == "Optimization Trial":
+            source_kwargs["optimization_trial_id"] = source.id
+        conformance_rows = (
+            wp3_conformance.compute_conformance_report(session, grade.id, sample_id=sample.id, **source_kwargs)
+            if source_kwargs else []
+        )
+        results_by_id = {r.id: r for r in results}
+        quality_results = _conformance_rows_for_display(session, results_by_id, conformance_rows)
+        overall_verdict = _conformance_verdict(conformance_rows)
+        verdicts = [r["verdict"] for r in conformance_rows]  # None entries for Excluded/Invalid/No-result rows
+        pass_count = verdicts.count("Pass")
+        fail_count = verdicts.count("Fail")
     else:
-        overall_verdict = "Incomplete testing"
+        quality_results = [
+            {
+                "Property": r.property_name, "Target": r.target_value, "Actual": r.actual_value,
+                "Unit": r.unit or "",
+                "Pass/Fail": compute_pass_fail(r.property_name, r.target_value, r.actual_value) or "Not computed",
+                "Method": r.test_method or "—", "Rev.": r.method_revision or "—",
+                "Replicate": r.replicate_no, "Tested": r.tested_at,
+            }
+            for r in sorted(results, key=lambda r: r.property_name)
+        ]
+        verdicts = [compute_pass_fail(r.property_name, r.target_value, r.actual_value) for r in results]
+        pass_count = verdicts.count("Pass")
+        fail_count = verdicts.count("Fail")
+        if not results:
+            overall_verdict = "No testing recorded"
+        elif fail_count:
+            overall_verdict = "Non-conforming"
+        elif verdicts and all(v == "Pass" for v in verdicts):
+            overall_verdict = "Conforming"
+        else:
+            overall_verdict = "Incomplete testing"
 
     return {
         "sample_id": sample.id,
