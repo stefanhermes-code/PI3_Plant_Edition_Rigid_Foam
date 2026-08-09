@@ -11,7 +11,7 @@ import streamlit as st
 
 import ai_assistant
 from access_control import can_use_page
-from analytics import PHASE_SETTING_LABELS, run_settings_dataframe
+from analytics import PHASE_SETTING_LABELS, eligible_phase_setting_fields, run_settings_dataframe
 from auth import current_user, logout_button, require_login
 from db import QualityObservation, get_session, init_db
 import reports
@@ -120,7 +120,17 @@ if current["recipe_version"] != prior["recipe_version"]:
 if current["machine"] != prior["machine"]:
     changes.append(f"Machine changed: {prior['machine'] or '—'} → {current['machine'] or '—'}")
 
-for field, label in PHASE_SETTING_LABELS.items():
+# Scoped to Phase-1-eligible settings only (see analytics.
+# eligible_phase_setting_fields) - for a Phase 1 rigid grade this excludes
+# conveyor speed, air injection rate, air pressure, tunnel width, and
+# top-flat system, none of which exist as a real, variable setting on a
+# discontinuous factory-molded/press-foamed process. Flagging a "shift" in
+# one of those for a rigid run-vs-prior-run diff would point the reviewer
+# at a setting that was never actually adjustable, per Charlie's WP6-S09
+# closure instructions (UAT-018). The diff below remains an investigation
+# lead for the reviewer's own judgment, not a determination of cause.
+for field in eligible_phase_setting_fields(session, grade.id):
+    label = PHASE_SETTING_LABELS[field]
     prev_val, cur_val = prior.get(field), current.get(field)
     if prev_val is None or cur_val is None:
         continue

@@ -1512,6 +1512,14 @@ class PhysicalPropertyResult(Base):
     location_id = Column(Integer, ForeignKey("locations.id"))
     source_id = Column(Integer, ForeignKey("source_registers.id"))
 
+    # WP6-S09 closure (2026-08-09, per Charlie's technical closure
+    # instructions section 3.2): specimen-level thickness for this specific
+    # test specimen/result. One parent Sample can feed several lab
+    # specimens with different geometry, so dimension belongs here, not
+    # (only) on Sample.thickness_mm - that field is now parent-sample
+    # context only. See wp3_conformance.validate_result_completeness.
+    thickness_mm = Column(Float)
+
     sample = relationship("Sample")
     production_run = relationship("ProductionRun")
     customer_trial = relationship("CustomerTrial")

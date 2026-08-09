@@ -305,6 +305,16 @@ with tab_result_manual:
                         "on. Leave at 1 if you're only testing this property once per sample."
                     ),
                 )
+                thickness_mm = st.number_input(
+                    "Specimen thickness (mm)", min_value=0.0, step=0.1, value=0.0,
+                    help=(
+                        "Thickness of THIS specific test specimen as measured - not the parent "
+                        "sample's general thickness. One sample can feed several lab specimens of "
+                        "different geometry; required for thermal conductivity and compressive "
+                        "strength to be evaluated against a grade specification. Leave at 0 if not "
+                        "measured for this specimen."
+                    ),
+                )
                 tested_at = st.date_input("Tested on", value=dt.date.today())
                 notes = st.text_area("Notes (e.g. specimen geometry, orientation, deflection, temperature)")
                 submitted = st.form_submit_button("Save result")
@@ -329,6 +339,7 @@ with tab_result_manual:
                             test_method=final_method,
                             method_revision=method_revision,
                             replicate_no=int(replicate_no),
+                            thickness_mm=thickness_mm or None,
                             tested_at=tested_at,
                             notes=notes,
                         )
@@ -764,6 +775,15 @@ if selected_result:
                 "the first/only measurement, 2 for the second, and so on."
             ),
         )
+        e_thickness = st.number_input(
+            "Specimen thickness (mm)", min_value=0.0, step=0.1,
+            value=float(selected_result.thickness_mm or 0.0), key=f"edit_result_thickness_{selected_result.id}",
+            help=(
+                "Thickness of THIS specific test specimen as measured - not the parent sample's "
+                "general thickness. Required for thermal conductivity and compressive strength to "
+                "be evaluated against a grade specification."
+            ),
+        )
         e_tested_at = st.date_input(
             "Tested on", value=selected_result.tested_at or dt.date.today(), key=f"edit_result_tested_{selected_result.id}"
         )
@@ -786,6 +806,7 @@ if selected_result:
                 )
                 selected_result.method_revision = e_revision
                 selected_result.replicate_no = int(e_replicate)
+                selected_result.thickness_mm = e_thickness or None
                 selected_result.tested_at = e_tested_at
                 selected_result.notes = e_notes
                 session.commit()

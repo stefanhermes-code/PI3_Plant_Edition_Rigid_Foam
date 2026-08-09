@@ -41,6 +41,7 @@ from sqlalchemy.orm import joinedload
 from db import (
     ComponentStreamReading,
     CustomerTrial,
+    FoamGrade,
     OptimizationTrial,
     PerformanceLog,
     PhysicalPropertyResult,
@@ -250,6 +251,52 @@ PHASE_SETTING_LABELS = {
 # this set exists only so the bucket-range label can read "Yes"/"No"
 # instead of the literal "0-0"/"1-1" a raw min/max format would produce.
 BOOLEAN_SETTING_FIELDS = {"top_flat_system_used"}
+
+# Phase 1 rigid process-setting eligibility ---------------------------------
+#
+# PHASE_SETTING_FIELDS above was inherited wholesale from the flexible/
+# continuous-line foam app's fork baseline (see the ratio_index comment
+# above) and lists settings that only exist on a continuous foaming line:
+# conveyor speed, air injection rate, air pressure, tunnel width, and
+# top-flat system are all specific to a moving-slab/conveyor process. Phase
+# 1 rigid production (per Charlie's WP6-S09 closure instructions, section
+# 3.7 / UAT-017) is discontinuous - factory-molded / press-foamed - so none
+# of those five settings are physically applicable there; only mixer rpm
+# carries over as a real, eligible setting for Phase 1 rigid grades.
+# Showing the other five in a rigid grade's correlation/optimization
+# ranking or Root-Cause Assistant diff would present settings that were
+# never actually varied/variable on that process as if they were real
+# levers - exactly what Charlie flagged as needing to be Phase-1-scoped
+# before it reaches a reviewer (UAT-017/018/019).
+#
+# Legacy flexible grades (FoamGrade.chemistry_id is None - see reports.py's
+# _is_rigid_grade for the same convention, duplicated here rather than
+# imported to avoid a circular import since reports.py already imports from
+# this module) are continuous-line and keep the full field list unchanged.
+PHASE1_RIGID_INELIGIBLE_SETTINGS = {
+    "conveyor_speed",
+    "air_injection_rate",
+    "air_pressure_bar",
+    "sidewall_width_mm",
+    "top_flat_system_used",
+}
+
+
+def eligible_phase_setting_fields(session, foam_grade_id):
+    """PHASE_SETTING_FIELDS, scoped down to what's actually eligible for
+    the given grade(s) - see PHASE1_RIGID_INELIGIBLE_SETTINGS above.
+    `foam_grade_id` accepts a single id or a list (a pooled foam family,
+    see _grade_id_list) - the restriction applies only when every resolved
+    grade is rigid, so a mixed or all-flexible pool is left unrestricted
+    rather than guessed at. No grade resolved (None/empty) also leaves the
+    list unrestricted."""
+    grade_ids = _grade_id_list(foam_grade_id)
+    if not grade_ids:
+        return list(PHASE_SETTING_FIELDS)
+    grades = session.query(FoamGrade).filter(FoamGrade.id.in_(grade_ids)).all()
+    if grades and all(g.chemistry_id is not None for g in grades):
+        return [f for f in PHASE_SETTING_FIELDS if f not in PHASE1_RIGID_INELIGIBLE_SETTINGS]
+    return list(PHASE_SETTING_FIELDS)
 
 
 def format_setting_range(field, series):
@@ -575,7 +622,7 @@ def rank_setting_correlations(session, foam_grade_id, property_name, normalize_p
         session, foam_grade_id, property_name, normalize_pct_of_target=normalize_pct_of_target
     )
     rows = []
-    for field in PHASE_SETTING_FIELDS:
+    for field in eligible_phase_setting_fields(session, foam_grade_id):
         if merged.empty:
             sub = merged
         else:
@@ -618,7 +665,7 @@ def rank_setting_optimization(session, foam_grade_id, property_name, normalize_p
         session, foam_grade_id, property_name, normalize_pct_of_target=normalize_pct_of_target
     )
     rows = []
-    for field in PHASE_SETTING_FIELDS:
+    for field in eligible_phase_setting_fields(session, foam_grade_id):
         label = PHASE_SETTING_LABELS.get(field, field)
         empty_row = {
             "field": field, "label": label, "n": 0,
@@ -1360,14 +1407,25 @@ def control_chart_analysis(series_df, min_points=5):
     }
 
 
-def capability_analysis(series_df, tolerance_pct=0.10, min_points=5):
-    """Process capability (Cpk) against the property's tolerance band - the
-    app's own +/-10% pass/fail convention, reused here as the spec limits
-    rather than inventing a separate one. Cpk answers a different question
-    than the control chart: a process can be perfectly "in control" (no rule
-    violations, stable mean) and still be a Cpk of 0.6 - too close to its
-    own spec limits to have any real margin. Returns None if there isn't a
-    usable, consistent target value or not enough points yet.
+def capability_analysis(series_df, tolerance_pct=0.10, min_points=5, spec=None):
+    """Process capability (Cpk) against the property's real spec limit when
+    one is available, or the app's own +/-10% pass/fail convention as a
+    fallback. Cpk answers a different question than the control chart: a
+    process can be perfectly "in control" (no rule violations, stable mean)
+    and still be a Cpk of 0.6 - too close to its own spec limits to have any
+    real margin. Returns None if there isn't a usable, consistent target
+    value or not enough points yet.
+
+    WP6-S09 closure (2026-08-09, per Charlie's technical closure
+    instructions section 3.7, UAT-016): pass the real GradeSpecification row
+    (or any object exposing target_operator/target_value/lower_limit/
+    upper_limit, e.g. a WP3 GradeSpecification) via `spec` when one exists
+    for this exact property/grade. A one-sided spec ("<=0.024 W/(m.K)", no
+    real lower bound) is evaluated one-sided (Cpu only) instead of being
+    forced into a symmetric target+/-10% band that invents a lower limit
+    Charlie's own controlled data never specified - the old +/-10% fallback
+    below stays in place for properties/pages with no real spec wired
+    through yet (flexible-foam properties, pooled foam-family analysis).
 
     Rule of thumb this function's callers should use for the number:
     Cpk >= 1.33 is generally considered capable, 1.0-1.33 marginal, <1.0 not
@@ -1376,9 +1434,6 @@ def capability_analysis(series_df, tolerance_pct=0.10, min_points=5):
     n = len(series_df)
     if n < min_points:
         return None
-    target = series_df["target_value"].dropna().median()
-    if pd.isna(target) or target == 0:
-        return None
 
     values = series_df["actual_value"].to_numpy(dtype=float)
     mean = float(values.mean())
@@ -1386,6 +1441,54 @@ def capability_analysis(series_df, tolerance_pct=0.10, min_points=5):
     if sigma <= 0:
         return None
 
+    op = (getattr(spec, "target_operator", None) or "").strip() if spec is not None else ""
+    if spec is not None and op in ("<=", ">="):
+        if op == "<=":
+            usl = spec.target_value if spec.target_value is not None else spec.upper_limit
+            lsl = None
+        else:
+            usl = None
+            lsl = spec.target_value if spec.target_value is not None else spec.lower_limit
+        target = usl if op == "<=" else lsl
+        if target is None:
+            return None
+        cpu = (usl - mean) / (3 * sigma) if usl is not None else None
+        cpl = (mean - lsl) / (3 * sigma) if lsl is not None else None
+        cpk = cpu if op == "<=" else cpl
+        return {
+            "n": n,
+            "target": target,
+            "mean": mean,
+            "sigma": sigma,
+            "usl": usl,
+            "lsl": lsl,
+            "cpu": round(cpu, 3) if cpu is not None else None,
+            "cpl": round(cpl, 3) if cpl is not None else None,
+            "cpk": round(cpk, 3),
+            "one_sided": True,
+            "operator": op,
+        }
+    if spec is not None and op == "between":
+        usl, lsl = spec.upper_limit, spec.lower_limit
+        target = spec.target_value if spec.target_value is not None else (
+            (usl + lsl) / 2 if usl is not None and lsl is not None else None
+        )
+        if target is None or usl is None or lsl is None:
+            return None
+        cpu = (usl - mean) / (3 * sigma)
+        cpl = (mean - lsl) / (3 * sigma)
+        cpk = min(cpu, cpl)
+        return {
+            "n": n, "target": target, "mean": mean, "sigma": sigma,
+            "usl": usl, "lsl": lsl, "cpu": round(cpu, 3), "cpl": round(cpl, 3),
+            "cpk": round(cpk, 3), "one_sided": False, "operator": op,
+        }
+
+    # Fallback: no real spec wired through for this property/page - use the
+    # app's own +/-tolerance_pct convention as before (unchanged behavior).
+    target = series_df["target_value"].dropna().median()
+    if pd.isna(target) or target == 0:
+        return None
     usl = target * (1 + tolerance_pct)
     lsl = target * (1 - tolerance_pct)
     cpu = (usl - mean) / (3 * sigma)
@@ -1402,6 +1505,8 @@ def capability_analysis(series_df, tolerance_pct=0.10, min_points=5):
         "cpu": round(cpu, 3),
         "cpl": round(cpl, 3),
         "cpk": round(cpk, 3),
+        "one_sided": False,
+        "operator": None,
     }
 
 

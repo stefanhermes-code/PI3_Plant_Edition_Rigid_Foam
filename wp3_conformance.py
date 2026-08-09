@@ -201,26 +201,44 @@ def resolve_actual_value(spec, result):
     return raw, raw, result.unit, False
 
 
-def _property_dimension_requirements(property_definition):
-    """(requires_thickness, requires_orientation) for one
-    PhysicalPropertyDefinition, derived from that property's own
-    mandatory_context text (Charlie's controlled per-property statement of
-    what must be recorded for it to be interpretable - see db.py's
-    PhysicalPropertyDefinition.mandatory_context, WP5 Wave 2) rather than a
-    hardcoded property list living in this module. Real examples actually
-    on file: PROP-005 Thermal conductivity - "Record mean test temperature,
-    thickness, orientation, test age and conditioning" (needs both);
-    PROP-007 Compressive strength - "Record loading direction and whether
-    maximum occurs before 10 percent strain" (needs orientation, not
-    thickness); PROP-002 Core density - "Remove facings and dense surface
-    skin per approved method" (needs neither). Matching Charlie's own text
-    directly means this stays correct automatically as mandatory_context is
-    corrected/extended, rather than drifting out of sync with a second,
-    hand-maintained list.
+# WP6-S09 closure (2026-08-09, per Charlie's technical closure instructions
+# section 3.2): controlled, explicit per-property dimension rules, keyed by
+# the property's own name (present on every real PhysicalPropertyResult as
+# the auto-filled property_name snapshot, and on every test stand-in) - this
+# is Charlie's domain call, not something to infer from free-text
+# mandatory_context alone. Thermal conductivity and Compressive strength
+# both need specimen-level thickness/geometry plus test direction; Core
+# density and Closed-cell content need neither (orientation stays optional -
+# a recorded valid result remains evaluable with orientation_id empty).
+# Any property NOT in this table falls back to the original text-derived
+# heuristic below, so properties Charlie hasn't explicitly ruled on keep
+# their previous (already-correct) behavior.
+_CONTROLLED_DIMENSION_RULES = {
+    "thermal conductivity": (True, True),
+    "compressive strength": (True, True),
+    "core density": (False, False),
+    "closed-cell content": (False, False),
+    "closed cell content": (False, False),
+}
 
-    Returns (False, False) if property_definition is None (legacy/"Other"
-    result with no linked definition, or a test stand-in that doesn't model
-    one) - nothing to check a requirement against."""
+
+def _property_dimension_requirements(property_definition, property_name=None):
+    """(requires_thickness, requires_orientation) for one property result.
+
+    Checks Charlie's controlled _CONTROLLED_DIMENSION_RULES table first (by
+    property_name, case-insensitive) since that section 3.2 table is his
+    explicit domain ruling and is authoritative over the four properties it
+    names. Falls back to reading the property's own mandatory_context text
+    (WP5 Wave 2 controlled data) for any property not in that table, so
+    behavior for everything else is unchanged from the original WP6-S09
+    action-1 fix.
+
+    Returns (False, False) if neither a name match nor a property_definition
+    with mandatory_context is available - nothing to check a requirement
+    against."""
+    name_key = (property_name or "").strip().lower()
+    if name_key in _CONTROLLED_DIMENSION_RULES:
+        return _CONTROLLED_DIMENSION_RULES[name_key]
     text = (getattr(property_definition, "mandatory_context", None) or "").lower()
     requires_thickness = "thickness" in text
     requires_orientation = "orientation" in text or "direction" in text
@@ -234,38 +252,38 @@ def validate_result_completeness(result, sample=None):
     orientation" both expect INVALID for thermal conductivity, which needs
     both).
 
-    WP6-S09 fix (2026-08-09, per Charlie's WP6 sequence item 1, "make
-    completeness validation property/method specific"): this used to
-    require BOTH orientation_id and Sample.thickness_mm for every property
-    unconditionally, even though the docstring always described the intent
-    as being for "a direction-sensitive, thickness-sensitive property like
-    thermal conductivity" specifically. Against real WP5 Wave 5 data that
-    meant every property - core density, closed-cell content, and so on,
-    none of which need either field - was marked INVALID unless thickness
-    happened to be on file, which for 96 of 97 real results it wasn't (see
-    PI3_Rigid_Foam_Phase_1_WP6_S09_Evidence_Package.docx, DEF-010). Fixed by
-    checking each requirement only when this result's own
-    PhysicalPropertyDefinition.mandatory_context says it's needed (see
-    _property_dimension_requirements above) - purely a narrowing: thermal
-    conductivity (and every other property whose mandatory_context
-    mentions thickness/orientation/direction) is checked exactly as before,
-    every other property's rows are no longer blocked by a requirement
-    that was never really theirs.
+    WP6-S09 fix (2026-08-09, Charlie's original sequence item 1): made this
+    property-specific instead of requiring both fields unconditionally - see
+    _property_dimension_requirements above.
 
-    thickness_mm lives on the linked Sample (see db.py's Sample model), not
-    on PhysicalPropertyResult itself, so pass the Sample row (or None if
-    unavailable) - a result with no thickness on file, for a property that
-    needs it, is exactly this case.
+    WP6-S09 closure refinement (2026-08-09, per Charlie's technical closure
+    instructions section 3.2, "make test completeness property/method
+    specific" + "use the Test Specimen / Test Result level for
+    specimen-specific dimensions"): (1) the per-property rule now comes from
+    Charlie's controlled table (thermal conductivity AND compressive
+    strength both need thickness+direction; core density/closed-cell content
+    need neither), and (2) thickness now reads PRIMARILY from
+    PhysicalPropertyResult.thickness_mm (the specimen/result that actually
+    produced this measurement - one parent Sample can feed several lab
+    specimens with different geometry, so the dimension belongs to the
+    specimen, not the parent). Sample.thickness_mm is kept only as a
+    fallback for pre-existing rows captured before this column existed (the
+    frozen Gate-2 fixture in tests/test_wp3_uat_cases.py sets thickness only
+    on its sample stand-in and must keep working unchanged) - it is treated
+    as parent-sample context only, never as the primary source for new data.
 
     Returns (True, None) if complete, or (False, reason) naming the first
     missing field."""
     property_definition = getattr(result, "property_definition", None)
-    requires_thickness, requires_orientation = _property_dimension_requirements(property_definition)
+    property_name = getattr(result, "property_name", None)
+    requires_thickness, requires_orientation = _property_dimension_requirements(property_definition, property_name)
 
     if requires_orientation and result.orientation_id is None:
         return False, "missing orientation"
     if requires_thickness:
-        thickness = sample.thickness_mm if sample is not None else None
+        thickness = getattr(result, "thickness_mm", None)
+        if thickness is None and sample is not None:
+            thickness = getattr(sample, "thickness_mm", None)
         if thickness is None:
             return False, "missing thickness"
     return True, None

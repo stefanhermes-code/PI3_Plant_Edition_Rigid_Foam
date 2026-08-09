@@ -32,7 +32,7 @@ from analytics import (
     trend_test,
 )
 from auth import current_user, logout_button, require_login
-from db import FoamGrade, QualityObservation, get_session, init_db
+from db import FoamGrade, GradeSpecification, QualityObservation, get_session, init_db
 import reports
 from tenant_scope import apply_scope, company_picker, grade_ids_for_company
 from helpers import (
@@ -278,10 +278,30 @@ else:
 # ---------------------------------------------------------------------------
 st.divider()
 st.subheader("Margin to spec")
-capability = capability_analysis(series)
+
+# WP6-S09 closure (2026-08-09, per Charlie's technical closure instructions
+# section 3.7, UAT-016): use the real GradeSpecification's own operator/
+# limits when exactly one is available for this single grade + property -
+# a one-sided "<=" spec must not be shown as a symmetric target+/-10% band.
+# Only attempted for a single grade (not a pooled foam family, which has no
+# single spec to point at) - pooled-family analysis keeps the existing
+# +/-10% fallback inside capability_analysis.
+real_spec = None
+if not pooling_grades:
+    real_spec = (
+        session.query(GradeSpecification)
+        .filter(
+            GradeSpecification.foam_grade_id == unit["grade_ids"][0],
+            GradeSpecification.property_name == property_name,
+        )
+        .filter(GradeSpecification.target_operator.in_(["<=", ">=", "between"]))
+        .first()
+    )
+
+capability = capability_analysis(series, spec=real_spec)
 if capability is None:
     st.info(
-        "Not enough results, or no consistent target value recorded, to check margin to spec yet."
+        "Not enough results, or no consistent target/spec value recorded, to check margin to spec yet."
     )
 else:
     cpk = capability["cpk"]
@@ -291,19 +311,39 @@ else:
         capability_read = "tight - some results will likely fall outside spec"
     else:
         capability_read = "not enough margin - this process routinely produces results outside spec"
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Overall margin to spec", f"{cpk:.2f}")
-    m2.metric("Margin to upper limit", f"{capability['cpu']:.2f}")
-    m3.metric("Margin to lower limit", f"{capability['cpl']:.2f}")
-    spec_unit = "% of target" if pooling_grades else ""
-    st.caption(
-        f"Spec range is {capability['lsl']:.3g}-{capability['usl']:.3g}{spec_unit} (target "
-        f"{capability['target']:.3g}{spec_unit} +/-10%, this app's own pass/fail convention): "
-        f"**{capability_read}**. As a guide: a margin score of 1.33 or higher means comfortable "
-        "room to spec, 1.0-1.33 is tight (some risk of results drifting outside spec), and below "
-        "1.0 means the process is likely already producing some out-of-spec results even without "
-        "any further drift."
-    )
+
+    if capability.get("one_sided") and capability["operator"] in ("<=", ">="):
+        limit_label = "upper" if capability["operator"] == "<=" else "lower"
+        limit_value = capability["usl"] if capability["operator"] == "<=" else capability["lsl"]
+        m1, m2 = st.columns(2)
+        m1.metric("Margin to spec", f"{cpk:.2f}")
+        m2.metric(f"Margin to {limit_label} limit", f"{cpk:.2f}")
+        st.caption(
+            f"This is a one-sided specification ({capability['operator']} {limit_value:.3g}) - there is "
+            "no real opposite limit, so no lower/upper counterpart is shown or invented. "
+            f"**{capability_read}**. As a guide: a margin score of 1.33 or higher means comfortable "
+            "room to spec, 1.0-1.33 is tight (some risk of results drifting outside spec), and below "
+            "1.0 means the process is likely already producing some out-of-spec results even without "
+            "any further drift."
+        )
+    else:
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Overall margin to spec", f"{cpk:.2f}")
+        m2.metric("Margin to upper limit", f"{capability['cpu']:.2f}")
+        m3.metric("Margin to lower limit", f"{capability['cpl']:.2f}")
+        spec_unit = "% of target" if pooling_grades else ""
+        convention_note = (
+            "this app's own pass/fail convention" if not capability.get("operator")
+            else "the real controlled specification range"
+        )
+        st.caption(
+            f"Spec range is {capability['lsl']:.3g}-{capability['usl']:.3g}{spec_unit} (target "
+            f"{capability['target']:.3g}{spec_unit}, {convention_note}): "
+            f"**{capability_read}**. As a guide: a margin score of 1.33 or higher means comfortable "
+            "room to spec, 1.0-1.33 is tight (some risk of results drifting outside spec), and below "
+            "1.0 means the process is likely already producing some out-of-spec results even without "
+            "any further drift."
+        )
 
 # ---------------------------------------------------------------------------
 # CUSUM - slow sustained drift
@@ -408,6 +448,37 @@ else:
         "confirmed here - the control chart and slow-drift check above are tuned to flag a "
         "problem earlier; these are the final, stricter word on whether it's statistically real."
     )
+
+    # WP6-S09 closure (2026-08-09, per Charlie's technical closure
+    # instructions section 3.7, UAT-016): the slow-drift check above and
+    # this trend test can legitimately disagree on DIRECTION without either
+    # being wrong - CUSUM flags the earliest sustained departure from the
+    # property's target/reference, which is not always the same direction
+    # as the end-to-end straight-line trend if the series crosses through
+    # the target partway along (e.g. starts below target, drifts up through
+    # it, and keeps rising - the early below-target period can trip a
+    # "downward" CUSUM alarm before the later above-target period trips an
+    # "upward" one). Surfacing this explicitly, rather than leaving an
+    # unqualified "downward drift" statement sitting next to a "clearly
+    # increasing" trend headline, is what a reader needs to interpret both
+    # correctly instead of reading them as contradictory.
+    trend_direction_word = {"increasing": "upward", "decreasing": "downward"}.get(trend["direction"])
+    if (
+        cusum is not None
+        and cusum.get("breach_index") is not None
+        and trend_direction_word is not None
+        and cusum["breach_direction"] != trend_direction_word
+    ):
+        st.warning(
+            f"Note: the slow-drift check above flagged a **{cusum['breach_direction']}** breach, while "
+            f"this trend test finds the overall run-to-run movement is **{trend['direction']}** "
+            f"({trend_direction_word}). These are not contradictory: the slow-drift check measures "
+            "the earliest sustained departure from the property's target/reference value, not the "
+            "end-to-end direction - a series that starts on one side of target and drifts through to "
+            "the other side by the end can trip a slow-drift alarm in the direction of that early "
+            "departure before the later, opposite-direction movement becomes the dominant trend. Read "
+            "the chart above alongside both statements rather than treating one as overriding the other."
+        )
 
 # ---------------------------------------------------------------------------
 # What else changed - machine switches and quality issues on the same timeline

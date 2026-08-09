@@ -1508,6 +1508,123 @@ Two new defects logged this batch (DEF-010 already existed; DEF-011 new):
 neither blocks this batch's own sign-off, both flagged for Charlie/WP6-S11
 defect-closure triage, not silently absorbed. Full pytest suite (38 tests)
 passes with no regressions.
+
+v0.14.15 -> v0.14.16 (2026-08-09, WP6-S09 closure batch, per Charlie's
+"PI3_Rigid_Foam_Phase_1_WP6_S09_Closure_Instructions_for_JC" technical
+closure package): implements the JC-owned engineering actions from
+Charlie's section 3 disposition table.
+
+(1) DEF-010 refined per Charlie's exact per-property completeness rules
+(section 3.2): wp3_conformance._property_dimension_requirements() now
+consults a new _CONTROLLED_DIMENSION_RULES override table first (Thermal
+conductivity needs thickness AND direction; Compressive strength needs
+direction AND specimen geometry/context; Core density and Closed-cell
+content need neither), falling back to the existing mandatory_context text
+heuristic only for properties not in that table. Moved the primary
+thickness source from the parent Sample to the specimen/Test-Result level,
+per Charlie's explicit instruction that "one parent Sample can feed
+several laboratory specimens with different geometry" - added
+PhysicalPropertyResult.thickness_mm (new nullable column, migrated to
+Supabase), with pages/5_Physical_Property_Result.py's Add/Edit forms now
+capturing it directly on the result. Sample.thickness_mm is read only as a
+fallback when a result's own thickness_mm is empty, preserving the frozen
+Gate-2 UAT test fixture (tests/test_wp3_uat_cases.py, unchanged, still
+38/38 passing) which only ever set thickness on its sample stand-in. Ran a
+one-time, non-destructive backfill (5 rows) copying already-known
+Sample.thickness_mm values onto their child results where the result's own
+column was still empty - no invented values.
+
+(2) DEF-011 (release-blocking): exported the exact 41 current
+recipe-component rows (recipe_version_id, component_id, raw_material_name,
+PHP, role_in_formulation, existing source/reference key) to a workbook for
+Charlie to return an authoritative controlled raw-material mapping against
+- PI3_Rigid_Foam_Phase_1_WP6_S09_DEF011_Component_Export_for_Charlie.xlsx.
+Confirmed via direct query that the WP3 Gate-2 fixture (recipe_version_id
+1) already has real raw_material_id/supplier links and is correctly
+excluded; the 41 exported rows (recipe_version_ids 2-5, DEMO-RCP-001
+through 004) are all still NULL, as flagged. The controlled-migration
+backfill itself, and re-running UAT-005/011/014's formulation sections
+against it, wait on Charlie's returned mapping - tracked as still open,
+not attempted here.
+
+(3) UAT-010 (section 3.6): reclassified 6 of the 12 controlled failure
+cases' issue/cause taxonomy links directly in Supabase
+(controlled_failure_cases.linked_issue_ids/linked_cause_ids), per Charlie's
+exact physical-vs-validation split: FAIL-002 (wrong thermal test
+temperature) and FAIL-003 (missing sample age) recoded off QI-075/QI-076
+to validation/test-context-failure framing (not a physical quality issue);
+FAIL-005 (compression below minimum) recoded from QI-084 to QI-061 (the
+correct physical code), CAUSE-003 "incorrect A:B ratio" kept as a
+hypothesis; FAIL-007 (ratio division by zero) recoded off QI-020 (reserved
+for a real measured off-ratio result, not a calculation-guard failure) to
+input/calculation-validation framing - confirmed analytics.py's existing
+`round(a_php / b_php, 4) if b_php else None` guard already prevents the
+crash, so no code change was needed there, only the taxonomy link; FAIL-009
+(ambiguous specification) recoded off QI-075 to specification/governance
+framing; FAIL-011 (excessive exotherm) kept on its physical QI-088 code but
+had its cause wording corrected to remove the circular "excessive exotherm
+causing excessive exotherm" phrasing, replaced with real upstream
+formulation/process hypotheses.
+
+(4) UAT-016 (section 3.7): analytics.capability_analysis() gained a `spec`
+parameter - when the property's real GradeSpecification has a one-sided
+target_operator ("<=" or ">="), it now computes a genuine one-sided Cpu/Cpl
+only, with no invented opposite limit; a "between" operator computes a
+real two-sided Cpk from the spec's own limits; only when no real spec
+exists does it fall back to the app's own +/-10%-of-target heuristic band
+(now explicitly labeled as such). pages/16_Trend_Analysis.py looks up the
+grade's real spec for the selected property (single-grade view only, not
+pooled families) and passes it through; the capability display branches on
+`one_sided` and captions clearly state whether the shown limit is a real
+controlled specification or this app's own convention. Separately,
+reconciled the CUSUM-vs-trend-test "contradiction" Charlie flagged (a fitted
+slope of +0.00021/run and Mann-Kendall tau +1.00 both indicating an
+increasing trend, while a CUSUM message stated downward drift) - not a code
+bug (both statistics are mathematically correct answers to different
+questions), so a new reconciliation caption was added explaining that
+slow-drift detection flags the earliest sustained departure from a fixed
+reference/target, not the overall end-to-end direction, which can
+legitimately point the opposite way from the dominant trend by the end of
+the series.
+
+(5) UAT-017/018/019 (section 3.7, Phase 1 rigid process-setting
+eligibility): added analytics.PHASE1_RIGID_INELIGIBLE_SETTINGS (conveyor
+speed, air injection rate, air pressure, tunnel width, top-flat system) and
+analytics.eligible_phase_setting_fields(session, foam_grade_id), which
+scopes PHASE_SETTING_FIELDS down to just mixer rpm whenever every resolved
+grade is rigid (FoamGrade.chemistry_id is not None - the app's existing
+rigid-detection convention, duplicated here rather than imported from
+reports.py to avoid a circular import). Wired into all three real consumers
+of the settings list: rank_setting_correlations and
+rank_setting_optimization (covering pages 17 and 19's rankings and their
+"Process setting" drill-down pickers, which are fed from those rankings'
+own output) and pages/18_Root_Cause_Assistant.py's run-vs-prior-run
+comparable-settings diff loop (previously the only direct consumer of the
+raw PHASE_SETTING_LABELS dict in pages/, found by grepping for it since
+PHASE_SETTING_FIELDS itself had no direct page-level consumers). A Phase 1
+rigid grade's correlation/optimization ranking, drill-down picker, and
+Root-Cause diff can now only ever surface Mixer rpm as a real, eligible
+lever - the five continuous-line-only settings inherited from the
+flexible/continuous foam fork no longer appear for rigid grades, while
+legacy flexible grades (and any pooled family that isn't uniformly rigid)
+keep the full unrestricted list. run_settings_dataframe itself still
+assembles all fields (pure data assembly, not itself a ranking/diff
+surface, so out of scope per Charlie's own framing of the defect).
+
+(6) UAT-013 (section 3.4) remains open, blocked: the OptimizationTrial
+id=1 approval-field correction (setting approved_by to a controlled
+pending-approval state, matching Charlie's instruction) was blocked by the
+Auto Mode safety classifier on the underlying SQL UPDATE and has not been
+retried through any other tool or phrasing, per the classifier's own
+instruction to stop and let the user decide. Flagged to Stefan directly;
+not silently worked around.
+
+(7) UAT-011/012/014 regeneration from this exact commit/build, the
+UAT-015-019 live-page re-capture reflecting today's eligibility fix, the
+WP6 master workbook/defect-log update, and the consolidated 11-item return
+package to Charlie are tracked as this batch's remaining, not-yet-complete
+steps. Full pytest suite (38 tests) passes with no regressions from any of
+the above.
 """
 
-APP_VERSION = "0.14.15"
+APP_VERSION = "0.14.16"
