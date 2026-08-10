@@ -59,6 +59,7 @@ from helpers import (
     delete_with_confirm,
     log_export_click,
     page_setup,
+    production_method_label,
     render_data_table,
     render_function_action_intro,
     render_pareto_chart,
@@ -592,6 +593,7 @@ else:
             {
                 "Source": source_label,
                 "Parent": source_desc,
+                "Production Method": production_method_label(r),
                 "Property": r.property_name,
                 "Target": r.target_value,
                 "Actual": r.actual_value,
@@ -687,7 +689,10 @@ if selected_result:
     st.divider()
     edit_source_label, edit_source_desc = _result_source_desc(selected_result)
     st.subheader(f"Edit quality test result #{selected_result.id}")
-    st.caption(f"{edit_source_label}: {edit_source_desc} — which run/trial this belongs to can't be changed here.")
+    st.caption(
+        f"{edit_source_label}: {edit_source_desc} · Production Method: {production_method_label(selected_result)} "
+        "— which run/trial this belongs to can't be changed here."
+    )
     # Same controlled method/UOM pickers as the Add form above, scoped to
     # this result's own property - previously this edit form used a free
     # text_input for both fields, which lost the structured picker the Add

@@ -284,31 +284,18 @@ def activate_recipe_version(session, foam_grade_id, new_version):
     new_version.is_active = True
 
 
-def top_level_production_methods(session):
+def all_production_methods(session):
     """The controlled, customer-facing Production Method identities a Plant
-    can activate - parent_method_id IS NULL. Legacy granular
-    sub-classifications (e.g. PM-120/130 under the new "Discontinuous
-    factory-molded and press-foamed PUR/PIR" identity) are deliberately
-    excluded here; they remain available as a more specific tag elsewhere
-    (Machine.production_method_id can still point at one directly - see
-    effective_top_level_method below), but a Plant does not activate them
-    individually."""
+    can activate: the 7 flat PM-100..PM-700 codes (Charlie's 2026-08-10
+    technical completion instruction, superseding the earlier
+    parent/child hierarchy design). Production Method is one flat level
+    directly under Plant - there is no top-level/sub-classification split
+    to resolve here."""
     return (
         session.query(ProductionMethod)
-        .filter(ProductionMethod.parent_method_id.is_(None))
         .order_by(ProductionMethod.sort_order, ProductionMethod.name)
         .all()
     )
-
-
-def effective_top_level_method(method):
-    """Which top-level method a (possibly granular/legacy) ProductionMethod
-    row ultimately belongs to. Thin wrapper around the model method so
-    page code has one obvious place to import this from, matching this
-    module's existing style (activate_recipe_version, etc.) of small named
-    helpers rather than inline .parent_method_id checks scattered across
-    pages."""
-    return method.effective_top_level() if method else None
 
 
 def activated_methods_for_plant(session, plant_id):
@@ -325,20 +312,39 @@ def activated_methods_for_plant(session, plant_id):
     )
 
 
-def machines_for_plant_and_method(session, plant_id, top_level_method_id):
-    """Machines at a plant whose own production_method_id resolves
-    (effective_top_level) to the given top-level method - the filter
-    Charlie's spec requires machine setup/selection to apply once a
-    Production Method is chosen (spec section 7.2/7.3). Done in Python
-    over a plant-scoped query rather than a SQL join on a computed
-    expression, since effective_top_level() is a one-hop Python method,
-    not something worth expressing as SQL for the data volumes this app
-    runs at."""
-    machines = session.query(Machine).filter(Machine.plant_id == plant_id).all()
-    return [
-        m for m in machines
-        if m.production_method_id and effective_top_level_method(m.production_method).id == top_level_method_id
-    ]
+def production_method_label(record):
+    """Display label for the Production Method a quality/sample record
+    inherits from its parent Production Run - the run's immutable
+    production_method_id snapshot (see ProductionRun in db.py). Added
+    2026-08-10 per Charlie's technical completion instruction: Pages 5, 6
+    and 9 (Quality Test Result, Quality Issue, Production Samples) each
+    inherit and expose Production Method from the parent run rather than
+    looking it up themselves. Records whose parent is a Customer Trial or
+    Optimization Trial (lab-only workflows, Pages 11/12 - explicitly out
+    of scope for this rollout) show "N/A (lab trial)" instead, since those
+    two sources have no Production Method of their own. record must
+    expose production_run_id/production_run plus (where applicable)
+    customer_trial_id/optimization_trial_id - Sample, PhysicalPropertyResult,
+    and QualityObservation all do."""
+    if record.production_run_id:
+        run = record.production_run
+        return run.production_method.name if (run and run.production_method) else "—"
+    if getattr(record, "customer_trial_id", None) or getattr(record, "optimization_trial_id", None):
+        return "N/A (lab trial)"
+    return "—"
+
+
+def machines_for_plant_and_method(session, plant_id, method_id):
+    """Machines at a plant whose own production_method_id matches the
+    given (flat) Production Method - the filter Charlie's spec requires
+    machine setup/selection to apply once a Production Method is chosen
+    (spec section 7.2/7.3). Flat model: direct equality, no hierarchy
+    resolution needed."""
+    return (
+        session.query(Machine)
+        .filter(Machine.plant_id == plant_id, Machine.production_method_id == method_id)
+        .all()
+    )
 
 
 def next_version_label(current_label, existing_count):

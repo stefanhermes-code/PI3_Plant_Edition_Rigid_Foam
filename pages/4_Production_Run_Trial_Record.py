@@ -90,7 +90,6 @@ from helpers import (
     csv_excel_uploader,
     dedupe_import_rows,
     delete_with_confirm,
-    effective_top_level_method,
     import_within_row_limit,
     page_setup,
     parse_dt,
@@ -405,7 +404,7 @@ with tab_runs:
                         format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
                         key=f"edit_run_machine_{selected_run.id}",
                     )
-                    run_method = effective_top_level_method(machine.production_method) if machine and machine.production_method else None
+                    run_method = machine.production_method if machine else None
                     st.caption(
                         f"Plant: **{grade.product_family.plant.name if grade else '—'}** · "
                         f"Production Method: **{run_method.name if run_method else '—'}** · "
@@ -522,7 +521,7 @@ with tab_runs:
                     [None] + assigned_machines,
                     format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
                 )
-                run_method = effective_top_level_method(machine.production_method) if machine and machine.production_method else None
+                run_method = machine.production_method if machine else None
                 st.caption(
                     f"Plant: **{grade.product_family.plant.name if grade else '—'}** · "
                     f"Production Method: **{run_method.name if run_method else '—'}** · "
@@ -642,21 +641,20 @@ with tab_runs:
                                 seq_by_prefix[prefix] = _max_batch_seq_for_prefix(session, prefix, plant_ids)
                             seq_by_prefix[prefix] += 1
                             batch_val = f"{prefix}-{seq_by_prefix[prefix]:02d}"
-                        # Production Method Hierarchy architecture change
-                        # (2026-08-09): derive the snapshot the same way
-                        # manual entry does - from the imported machine's
-                        # own effective top-level method, not the foam
-                        # grade's, since the machine is the actual source of
-                        # method context (a grade can only be assigned to
-                        # machines under one method per Charlie's
-                        # consistency rule, so either source agrees).
+                        # Production Method architecture change (2026-08-09,
+                        # flat-model redesign 2026-08-10): derive the
+                        # snapshot the same way manual entry does - from the
+                        # imported machine's own production_method, not the
+                        # foam grade's, since the machine is the actual
+                        # source of method context (a grade can only be
+                        # assigned to machines under one method per
+                        # Charlie's consistency rule, so either source
+                        # agrees). Flat model: direct attribute, no
+                        # hierarchy resolution needed.
                         imported_machine = (
                             session.get(Machine, int(machine_val)) if not pd.isna(machine_val) else None
                         )
-                        imported_method = (
-                            effective_top_level_method(imported_machine.production_method)
-                            if imported_machine and imported_machine.production_method else None
-                        )
+                        imported_method = imported_machine.production_method if imported_machine else None
                         session.add(
                             ProductionRun(
                                 plant_id=grade_row.product_family.plant_id,

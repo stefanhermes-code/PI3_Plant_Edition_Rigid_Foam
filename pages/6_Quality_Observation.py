@@ -38,6 +38,7 @@ from helpers import (
     delete_with_confirm,
     log_export_click,
     page_setup,
+    production_method_label,
     render_data_table,
     render_function_action_intro,
     render_pareto_chart,
@@ -484,6 +485,7 @@ else:
                 "Issue": o.observation_type,
                 "Source": source_label,
                 "Parent": source_desc,
+                "Production Method": production_method_label(o),
                 "Severity": o.severity,
                 "Frequency": o.frequency,
                 "Confidence": o.confidence_level,
@@ -576,6 +578,7 @@ else:
     if selected:
         st.divider()
         st.subheader(f"Edit: {selected.observation_type}")
+        st.caption(f"Production Method: {production_method_label(selected)}")
 
         # Source/parent + trial link are rendered OUTSIDE the form, same
         # reasoning as the issue-type picker below: the parent/trial

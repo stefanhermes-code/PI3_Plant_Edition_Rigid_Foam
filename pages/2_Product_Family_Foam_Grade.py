@@ -18,7 +18,6 @@ from helpers import (
     csv_excel_uploader,
     dedupe_import_rows,
     delete_with_confirm,
-    effective_top_level_method,
     machines_for_plant_and_method,
     page_setup,
     render_data_table,
@@ -356,10 +355,7 @@ with tab_grade:
                         format_func=lambda f: f.name, key=f"edit_grade_family_{selected_grade.id}",
                     )
                     e_plant_methods = activated_methods_for_plant(session, e_family.plant_id)
-                    current_grade_method = (
-                        effective_top_level_method(selected_grade.production_method)
-                        if selected_grade.production_method else None
-                    )
+                    current_grade_method = selected_grade.production_method
                     if not e_plant_methods:
                         st.warning(
                             "This product family's plant has no activated Production Methods yet. "

@@ -2084,4 +2084,77 @@ project's practice of full disclosure (see v0.16.1's own hotfix note and
 Deliverable #7's documented rollback-ordering mistake).
 """
 
-APP_VERSION = "0.16.2"
+VERSION_0_17_0_NOTES = """
+v0.16.2 -> v0.17.0 (2026-08-10, flat Production Method redesign - completion
+batch, per Charlie's standing batch instruction): replaces the short-lived
+parent/child Production Method hierarchy (introduced v0.16.0-v0.16.2) with a
+single flat level under Plant, using 7 permanent controlled codes: PM-100
+Discontinuous Factory Foaming, PM-200 Continuous Panel & Board Production,
+PM-300 Field Cavity Foaming, PM-400 Spray Foam Application, PM-500 Free-Rise
+Rigid Block Production, PM-600 Pre-Insulated Pipe & Vessel Foaming, PM-700
+Structural & Composite Rigid Foam Processing. Process variants remain
+method-specific configuration/data beneath the relevant Production Method,
+not a second controlled-vocabulary level - deliberately not implemented in
+this batch (Phase 2 process functionality is not yet built; do not read
+this release as delivering it).
+
+Scope of this batch, on top of the flat-PM schema migration and pages
+1/2/4 rework already landed in a prior same-day batch:
+
+- Pages 5 (Physical Property Result), 6 (Quality Observation), 9 (Samples &
+  Conditioning): inherit and display the parent Production Run's immutable
+  Production Method snapshot via a new shared `helpers.production_method_label()`
+  helper, distinguishing production-run-sourced records ("PM-100...") from
+  lab-trial-sourced records ("N/A (lab trial)").
+- Pages 15-19 (Industrial Intelligence): added a Production Method filter/
+  isolation dimension. A new `analytics.production_methods_used()` helper
+  and a `production_method_id` parameter threaded through
+  `run_settings_dataframe`, `property_results_dataframe`,
+  `merged_run_property_dataframe`, `rank_setting_correlations`,
+  `rank_setting_optimization`, and `rank_component_actual_correlations` mean
+  any grade or foam-family whose runs span more than one Production Method
+  (possible because `foam_grade_machines` is many-to-many - one grade can
+  run on machines under different methods) now shows a filter widget and
+  isolates analytics/correlations to the selected method at the query level,
+  not just on display. Page 18 (Root-Cause Assistant) has no user-facing
+  filter by design - it auto-scopes the "most recent prior run" comparison
+  to the flagged run's own Production Method, so it never compares across a
+  method boundary. Page 15's rigid/WP3-conformance branch and the WP3
+  Conformance Report's grade-level `production_method_id` (a distinct
+  concept - the grade's own manufacturing classification, not a run's
+  actual method - see reports.py) were deliberately left untouched.
+- Page 21 (Report): Batch Release tab now shows the run's own Production
+  Method snapshot; Period Summary tab gained a Production Method filter
+  (shown only when the scoped runs span more than one method) plus a
+  breakdown-by-method table; Sample Certificate's header fields now include
+  Production Method for all three source types (run / customer trial /
+  optimization trial).
+- Added `tests/test_flat_pm_propagation_smoke.py` (7 new tests, a
+  `two_method_fixture` pytest fixture) covering inheritance, filtering, and
+  analytics/report isolation end to end. Full suite: 49 passed.
+- Built a real two-method validation fixture directly in the UAT/reference
+  environment (Supabase project aazkdsqpytjciiqtvnfj, schema rigid_foam,
+  plant_id=2), per Charlie's instruction to use that environment rather than
+  a separate branch (none exists) and to create only the minimum controlled
+  fixture data needed to prove hierarchy, inheritance, filtering, and
+  analytics/report isolation: activated PM-200 for plant_id=2 (PM-100 was
+  already active) and extended the existing foam_grade_id=2 - which already
+  had 13 production runs under PM-100 - with one new Machine, one new
+  ProductionRun (id=14), Sample, PhysicalPropertyResult, and
+  QualityObservation under PM-200. Verified by direct SQL query that this
+  left every existing PM-100 row (machine id=1, all 13 runs, run 1's sample
+  and property result) unchanged, and that no other plant was touched.
+- Live two-method walkthrough of pages 5, 6, 9, 15-19, and 21 against this
+  real fixture (via live Supabase queries plus source-level tracing, since
+  the session's only Supabase credential is a restricted read-only role
+  that cannot drive AppTest against Postgres): all pages correctly
+  distinguish PM-100 vs PM-200 for this grade's two production runs. No
+  defects found.
+
+Deliverables #5, #6, and #8 are being revised to reflect this batch;
+Deliverable #7 is unchanged (no deployment or rollback behavior changed).
+Phase 2 process-functionality integration follows after Charlie's technical
+acceptance of this package and Stefan's Post-G5 closeout approval.
+"""
+
+APP_VERSION = "0.17.0"

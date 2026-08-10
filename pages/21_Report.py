@@ -39,6 +39,7 @@ from db import (
     OptimizationTrial,
     Plant,
     ProductFamily,
+    ProductionMethod,
     ProductionRun,
     Sample,
     get_session,
@@ -136,7 +137,7 @@ with tab_run:
         c3.metric("Plant", data["plant"])
         st.write(
             f"**Run date:** {data['run_date']} · **Batch reference:** {data['batch_reference']} · "
-            f"**Machine:** {data['machine']}"
+            f"**Machine:** {data['machine']} · **Production Method:** {data['production_method']}"
         )
         if data["has_flags"]:
             st.warning("Flagged: " + "; ".join(data["flag_reasons"]))
@@ -199,6 +200,46 @@ with tab_period:
     with p4:
         date_to = st.date_input("To", value=dt.date.today(), key="report_period_to")
 
+    # Production Method filter (added 2026-08-10, per Charlie's flat-PM
+    # technical completion instruction): pooling every run in a plant/date
+    # range can span more than one Production Method once a plant activates
+    # a second one - only shown when the current plant/family/date selection
+    # actually spans more than one, same "nothing to choose between
+    # otherwise" reasoning used on the Industrial Intelligence pages. Left
+    # unfiltered by default: the report always shows the split via
+    # "Breakdown by Production Method" below regardless of this choice.
+    period_run_methods_q = session.query(ProductionRun.production_method_id).filter(
+        ProductionRun.production_method_id.isnot(None)
+    )
+    if scoped_plant_ids is not None:
+        period_run_methods_q = period_run_methods_q.filter(ProductionRun.plant_id.in_(scoped_plant_ids))
+    if plant:
+        period_run_methods_q = period_run_methods_q.filter(ProductionRun.plant_id == plant.id)
+    if family:
+        period_run_methods_q = period_run_methods_q.join(
+            FoamGrade, ProductionRun.foam_grade_id == FoamGrade.id
+        ).filter(FoamGrade.product_family_id == family.id)
+    if date_from:
+        period_run_methods_q = period_run_methods_q.filter(ProductionRun.run_date >= date_from)
+    if date_to:
+        period_run_methods_q = period_run_methods_q.filter(ProductionRun.run_date <= date_to)
+    period_method_ids = {m for (m,) in period_run_methods_q.distinct().all()}
+    period_methods = (
+        session.query(ProductionMethod).filter(ProductionMethod.id.in_(period_method_ids))
+        .order_by(ProductionMethod.sort_order, ProductionMethod.name).all()
+        if period_method_ids else []
+    )
+    if len(period_methods) > 1:
+        period_method_choice = st.selectbox(
+            "Production Method filter", ["All methods"] + [m.name for m in period_methods],
+            key="report_period_method",
+        )
+        period_method_id = next(
+            (m.id for m in period_methods if m.name == period_method_choice), None
+        )
+    else:
+        period_method_id = None
+
     data = reports.build_period_summary_data(
         session,
         plant_id=plant.id if plant else None,
@@ -206,9 +247,12 @@ with tab_period:
         date_from=date_from,
         date_to=date_to,
         allowed_plant_ids=scoped_plant_ids,
+        production_method_id=period_method_id,
     )
 
     st.subheader(f"{data['plant']} · {data['product_family']}")
+    if data.get("production_method") and data["production_method"] != "All methods":
+        st.caption(f"Isolated to Production Method **{data['production_method']}**.")
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Production runs", data["total_runs"])
     k2.metric("Quality test pass rate", f"{data['pass_rate']}%" if data["pass_rate"] is not None else "—")
@@ -221,6 +265,8 @@ with tab_period:
     render_data_table(pd.DataFrame(data["quality_issues"] or [{"—": "No data recorded"}]))
     st.write("**Breakdown by foam grade**")
     render_data_table(pd.DataFrame(data["grade_breakdown"] or [{"—": "No data recorded"}]))
+    st.write("**Breakdown by Production Method**")
+    render_data_table(pd.DataFrame(data.get("method_breakdown") or [{"—": "No data recorded"}]))
 
     period_label = f"{date_from}_to_{date_to}"
     st.download_button(

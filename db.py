@@ -408,17 +408,16 @@ class Plant(Base):
 
 
 # ---------------------------------------------------------------------------
-# 1a2. plant_production_methods - Production Method Hierarchy architecture
-# change (2026-08-09). This is the per-Plant "on/off switch" for Charlie's
-# global, shared production_methods vocabulary: a Plant activates one or
-# more TOP-LEVEL methods (parent_method_id IS NULL on ProductionMethod)
-# here, and Machine setup/selection for that Plant is filtered to only the
+# 1a2. plant_production_methods - Production Method architecture change
+# (2026-08-09, flat model finalized 2026-08-10). This is the per-Plant
+# "on/off switch" for Charlie's global, shared production_methods
+# vocabulary: a Plant activates one or more of the 7 flat methods here,
+# and Machine setup/selection for that Plant is filtered to only the
 # rows activated in this table - not the raw global list. Enforcing
-# "production_method_id references a top-level row" and "machine's plant
-# has that row activated" is done at the application layer (helpers.py),
-# matching this codebase's existing convention of app-level enforcement
-# for cross-table consistency rules rather than a DB CHECK constraint
-# (e.g. RecipeVersion.is_active's exclusivity).
+# "machine's plant has this method activated" is done at the application
+# layer (helpers.py), matching this codebase's existing convention of
+# app-level enforcement for cross-table consistency rules rather than a
+# DB CHECK constraint (e.g. RecipeVersion.is_active's exclusivity).
 # ---------------------------------------------------------------------------
 class PlantProductionMethod(Base):
     __tablename__ = "plant_production_methods"
@@ -675,13 +674,13 @@ class FoamGrade(Base):
     specifications = relationship(
         "GradeSpecification", back_populates="foam_grade", cascade="all, delete-orphan"
     )
-    # Production Method Hierarchy architecture change (2026-08-09): the
-    # many-to-many counterpart of Machine.foam_grades above. production_method_id
-    # (already existed, from WP3) is now the authoritative "applicable
-    # Production Method" for this PU Material - per Charlie's decision,
-    # every Machine assigned here must resolve (via
-    # ProductionMethod.effective_top_level()) to this same top-level
-    # method; enforced in helpers.py, not a DB constraint.
+    # Production Method architecture change (2026-08-09, flat model
+    # finalized 2026-08-10): the many-to-many counterpart of
+    # Machine.foam_grades above. production_method_id (already existed,
+    # from WP3) is the authoritative "applicable Production Method" for
+    # this PU Material - every Machine assigned here must carry this
+    # same flat production_method_id; enforced in helpers.py, not a DB
+    # constraint.
     machines = relationship(
         "Machine", secondary=foam_grade_machines, back_populates="foam_grades"
     )
@@ -984,13 +983,14 @@ class ProductionRun(Base):
     notes = Column(Text)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
-    # Production Method Hierarchy architecture change (2026-08-09): an
-    # IMMUTABLE snapshot, not a live-derived value - deliberately breaking
-    # from this app's usual "compute live, never duplicate" discipline
-    # (e.g. wp3_conformance's pass/fail). Set once at run creation from the
-    # selected Machine's effective top-level method (ProductionMethod.
-    # effective_top_level()) and never auto-updated afterward. Per
-    # Stefan/Charlie's explicit confirmation on JC's impact assessment:
+    # Production Method architecture change (2026-08-09, flat model
+    # finalized 2026-08-10): an IMMUTABLE snapshot, not a live-derived
+    # value - deliberately breaking from this app's usual "compute live,
+    # never duplicate" discipline (e.g. wp3_conformance's pass/fail). Set
+    # once at run creation from the selected Machine's production_method
+    # (flat, no hierarchy resolution needed) and never auto-updated
+    # afterward. Per Stefan/Charlie's explicit confirmation on JC's
+    # impact assessment:
     # this is required so a run's historical method context survives a
     # later correction/reclassification of the Machine master record -
     # if that snapshot behavior were live-derived instead, correcting a
@@ -1986,44 +1986,41 @@ class Chemistry(Base):
 
 
 class ProductionMethod(Base):
-    """Charlie's PM-* vocabulary, e.g. "Discontinuous Panel (DCP)",
-    "Continuous Lamination", "Spray Applied", "Pour-in-Place/RIM". Drives
-    which ProcessSettingDefinition rows apply (method-aware settings, see
-    WP3e below) and which equipment hierarchy makes sense for a given
+    """Charlie's PM-* vocabulary - the controlled, customer-facing
+    Production Method identities (PM-100 through PM-700). Drives which
+    ProcessSettingDefinition rows apply (method-aware settings, see WP3e
+    below) and which equipment hierarchy makes sense for a given
     Machine/ProductionUnit.
 
-    Production Method Hierarchy architecture change (2026-08-09, per
-    Charlie's decision on JC's engineering impact assessment): this table
-    now holds two tiers in one self-referencing list, not a flat list.
-    parent_method_id is NULL for a "top-level operational" row - one of
-    the 4 new customer-facing identities (PM-400/410/420/430) plus the
-    pre-existing PM-300 - which is what a Plant activates
-    (PlantProductionMethod, below) and what Machine.production_method_id
-    must resolve to. A non-NULL parent_method_id marks a pre-existing,
-    more granular legacy classification (PM-120/130/200/210) nested
-    under one of the new top-level rows - per Charlie's explicit
-    instruction, these are RETAINED UNCHANGED for traceability, not
-    renamed or merged into the broader new identity. effective_top_level()
-    below is the one place that resolves "which top-level method does
-    this row ultimately belong to" so every caller uses the same rule."""
+    Flat Production Method model (2026-08-10, per Charlie's technical
+    completion instruction, superseding the 2026-08-09 parent/child
+    hierarchy design): Production Method is one flat level directly
+    under Plant - no parent/child levels. The 2026-08-09 batch had
+    briefly introduced a self-referencing parent_method_id column (4
+    new top-level PM-400/410/420/430 identities with legacy PM-120/130/
+    200/210 nested under them as more granular sub-classifications);
+    Charlie's explicit instruction the next day reversed that design
+    ("This is a flat Production Method level under Plant. Do not create
+    parent/child Production Method levels.") and supplied the
+    permanent 7-code controlled vocabulary below. parent_method_id was
+    dropped from the schema and every row was replaced/remapped - see
+    version.py's changelog entry for this batch for the full old-code
+    to new-code mapping. Process variants (what the old leaf codes
+    captured) now live as method-specific configuration/data beneath
+    the relevant flat Production Method, not as separate controlled
+    IDs. The 7 permanent codes: PM-100 Discontinuous Factory Foaming,
+    PM-200 Continuous Panel & Board Production, PM-300 Field Cavity
+    Foaming, PM-400 Spray Foam Application, PM-500 Free-Rise Rigid
+    Block Production, PM-600 Pre-Insulated Pipe & Vessel Foaming,
+    PM-700 Structural & Composite Rigid Foam Processing."""
 
     __tablename__ = "production_methods"
 
     id = Column(Integer, primary_key=True)
-    controlled_id = Column(String(50), unique=True)  # e.g. "PM-120"
+    controlled_id = Column(String(50), unique=True)  # e.g. "PM-100"
     name = Column(String(200), nullable=False)
     description = Column(Text)
     sort_order = Column(Integer)
-    parent_method_id = Column(Integer, ForeignKey("production_methods.id"))
-
-    parent_method = relationship("ProductionMethod", remote_side=[id])
-
-    def effective_top_level(self):
-        """The top-level (parent_method_id IS NULL) method this row
-        belongs to - itself if it already is top-level, else its parent.
-        Legacy rows are never nested more than one level deep, so a
-        single hop is always sufficient."""
-        return self.parent_method if self.parent_method_id else self
 
 
 class Application(Base):

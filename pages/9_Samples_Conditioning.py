@@ -49,6 +49,7 @@ from helpers import (
     delete_with_confirm,
     log_export_click,
     page_setup,
+    production_method_label,
     render_data_table,
     render_function_action_intro,
     rigid_sample_dimension_fields,
@@ -215,6 +216,7 @@ with tab_edit_delete:
             {
                 "Sample ID": s.id,
                 "Run": f"Run #{s.production_run_id} — {s.production_run.foam_grade.grade_name}" if s.production_run else f"Run #{s.production_run_id}",
+                "Production Method": production_method_label(s),
                 "Zone": s.zone_label,
                 "Sampled": s.sample_ts,
             }

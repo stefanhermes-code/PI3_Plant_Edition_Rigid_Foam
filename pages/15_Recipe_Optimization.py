@@ -23,6 +23,7 @@ import ai_assistant
 from access_control import can_use_page
 from analytics import (
     pass_rate,
+    production_methods_used,
     property_results_dataframe,
     rank_component_actual_correlations,
     recipe_version_cost,
@@ -145,8 +146,35 @@ include_trials = st.checkbox(
         "readings that only exist for a production run."
     ),
 )
-results_df = property_results_dataframe(session, foam_grade_id=grade.id, include_trials=include_trials)
+# Production Method filter (added 2026-08-10, per Charlie's flat-PM
+# technical completion instruction): a foam grade can be produced on more
+# than one machine (see the Foam Grade page's many-to-many machine
+# assignment), and those machines can sit under different Production
+# Methods - so even a single grade's own production runs can span more
+# than one method. Only shown when this grade's runs actually do, same
+# "nothing to choose between otherwise" reasoning used on the other
+# Industrial Intelligence pages. Note: the rigid-foam "Achieved?" branch
+# below (wp3_conformance) is unaffected by this filter - that
+# specification-based conformance path is out of scope for this
+# completion batch and is not to be read as isolated by Production Method
+# yet.
+methods_used = production_methods_used(session, grade.id)
+if len(methods_used) > 1:
+    method_choice = st.selectbox(
+        "Production Method filter", ["All"] + [m.name for m in methods_used],
+        key=f"recipe_opt_method_filter_{grade.id}",
+    )
+    selected_method_id = next((m.id for m in methods_used if m.name == method_choice), None)
+else:
+    selected_method_id = None
+
+results_df = property_results_dataframe(
+    session, foam_grade_id=grade.id, include_trials=include_trials,
+    production_method_id=selected_method_id,
+)
 available_properties = sorted(results_df["property_name"].dropna().unique()) if not results_df.empty else []
+if selected_method_id and method_choice != "All":
+    st.caption(f"Isolated to Production Method **{method_choice}**.")
 
 if results_df.empty:
     st.info("No quality test results recorded yet for this foam grade's production runs.")
@@ -560,7 +588,9 @@ else:
                     f"({avg_target_text}). {outside_text} individual runs fell outside that band."
                 )
 
-        actual_ranked = rank_component_actual_correlations(session, grade.id, corr_property)
+        actual_ranked = rank_component_actual_correlations(
+            session, grade.id, corr_property, production_method_id=selected_method_id,
+        )
         if actual_ranked.empty:
             st.info(
                 f"No raw-material stream has metered readings paired with {corr_property} results "

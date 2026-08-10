@@ -16,6 +16,7 @@ from access_control import can_use_page
 from analytics import (
     PHASE_SETTING_LABELS,
     merged_run_property_dataframe,
+    production_methods_used,
     property_results_dataframe,
     rank_setting_correlations,
 )
@@ -100,13 +101,36 @@ if pooling_grades:
         "correlation."
     )
 
-grade_results_df = property_results_dataframe(session, foam_grade_id=unit["grade_ids"])
+# Production Method filter (added 2026-08-10, per Charlie's flat-PM
+# technical completion instruction): only shown when this grade/family's
+# runs actually span more than one Production Method - the isolation
+# dimension that matters most when pooling a foam family whose grades sit
+# under different Production Methods, so a correlation isn't silently
+# blending two methods' process settings together.
+methods_used = production_methods_used(session, unit["grade_ids"])
+if len(methods_used) > 1:
+    method_choice = st.selectbox(
+        "Production Method filter", ["All"] + [m.name for m in methods_used],
+        key=f"ppc_method_filter_{unit['state_key']}",
+    )
+    selected_method_id = next((m.id for m in methods_used if m.name == method_choice), None)
+else:
+    selected_method_id = None
+
+grade_results_df = property_results_dataframe(
+    session, foam_grade_id=unit["grade_ids"], production_method_id=selected_method_id,
+)
 available_properties = sorted(grade_results_df["property_name"].dropna().unique())
 
 property_name = st.selectbox("Property", available_properties)
 
-ranked = rank_setting_correlations(session, unit["grade_ids"], property_name, normalize_pct_of_target=pooling_grades)
+ranked = rank_setting_correlations(
+    session, unit["grade_ids"], property_name, normalize_pct_of_target=pooling_grades,
+    production_method_id=selected_method_id,
+)
 ranked_with_data = ranked.dropna(subset=["correlation"])
+if selected_method_id and method_choice != "All":
+    st.caption(f"Isolated to Production Method **{method_choice}**.")
 
 if ranked_with_data.empty:
     st.info(
@@ -179,7 +203,10 @@ setting_field = st.selectbox(
     format_func=lambda f: PHASE_SETTING_LABELS.get(f, f),
 )
 
-merged = merged_run_property_dataframe(session, unit["grade_ids"], property_name, normalize_pct_of_target=pooling_grades)
+merged = merged_run_property_dataframe(
+    session, unit["grade_ids"], property_name, normalize_pct_of_target=pooling_grades,
+    production_method_id=selected_method_id,
+)
 merged = merged.dropna(subset=[setting_field, "actual_value"])
 
 property_axis_label = property_name if not pooling_grades else f"{property_name} (% of target)"

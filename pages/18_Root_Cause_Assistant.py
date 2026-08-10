@@ -19,6 +19,7 @@ from tenant_scope import apply_scope, company_picker, run_ids_for_company
 from helpers import (
     log_export_click,
     page_setup,
+    production_method_label,
     render_ask_pi3_section,
     render_function_action_intro,
     render_pi3_docx_download,
@@ -95,8 +96,22 @@ c1.metric("Severity", obs.severity)
 c2.metric("Frequency", obs.frequency)
 if obs.suspected_cause:
     st.caption(f"Logged suspected cause: {obs.suspected_cause}")
+st.caption(f"Production Method: {production_method_label(obs)}")
 
-settings_df = run_settings_dataframe(session, foam_grade_id=grade.id)
+# Production Method isolation (added 2026-08-10, per Charlie's flat-PM
+# technical completion instruction): the "most recent prior run" comparison
+# below must never cross a Production Method boundary - a machine/setting
+# "difference" against a run made under a different Production Method
+# would just reflect the two methods being different equipment classes,
+# not a meaningful process shift. Restricting the candidate pool to the
+# flagged run's own (immutable, snapshot) Production Method is what makes
+# this comparison an apples-to-apples one. Falls back to unfiltered only
+# when the flagged run itself has no Production Method recorded (no
+# machine set at run creation) - see run_settings_dataframe's own
+# production_method_id=None passthrough.
+settings_df = run_settings_dataframe(
+    session, foam_grade_id=grade.id, production_method_id=run.production_method_id,
+)
 settings_df = settings_df.sort_values("run_date")
 
 current_rows = settings_df[settings_df["run_id"] == run.id]
@@ -107,7 +122,10 @@ current = current_rows.iloc[0]
 
 prior_rows = settings_df[settings_df["run_date"] < run.run_date]
 if prior_rows.empty:
-    st.info(f"No earlier production run of {grade.grade_name} to compare against.")
+    method_hint = (
+        f" under Production Method {current['production_method']}" if run.production_method_id else ""
+    )
+    st.info(f"No earlier production run of {grade.grade_name}{method_hint} to compare against.")
     st.stop()
 prior = prior_rows.iloc[-1]
 

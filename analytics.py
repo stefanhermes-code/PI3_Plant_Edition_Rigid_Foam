@@ -45,6 +45,7 @@ from db import (
     OptimizationTrial,
     PerformanceLog,
     PhysicalPropertyResult,
+    ProductionMethod,
     ProductionPhase,
     ProductionRun,
     RawMaterial,
@@ -282,6 +283,26 @@ PHASE1_RIGID_INELIGIBLE_SETTINGS = {
 }
 
 
+def production_methods_used(session, foam_grade_id):
+    """The distinct Production Methods actually behind the selected foam
+    grade(s)' production runs (via each run's immutable production_
+    method_id snapshot), ordered for a filter dropdown - what pages 15-19
+    (Industrial Intelligence) offer as the "isolate to one Production
+    Method" choice added 2026-08-10 per Charlie's flat-PM technical
+    completion instruction. Deliberately built from actual run history,
+    not from every method activated at the plant - a method nobody has
+    actually run yet for this grade would be a dead-end filter choice.
+    `foam_grade_id` accepts a single id or a list (a pooled foam family) -
+    see _grade_id_list."""
+    grade_ids = _grade_id_list(foam_grade_id)
+    q = session.query(ProductionMethod).join(
+        ProductionRun, ProductionRun.production_method_id == ProductionMethod.id
+    )
+    if grade_ids:
+        q = q.filter(ProductionRun.foam_grade_id.in_(grade_ids))
+    return sorted(set(q.all()), key=lambda m: (m.sort_order or 0, m.name))
+
+
 def eligible_phase_setting_fields(session, foam_grade_id):
     """PHASE_SETTING_FIELDS, scoped down to what's actually eligible for
     the given grade(s) - see PHASE1_RIGID_INELIGIBLE_SETTINGS above.
@@ -312,12 +333,21 @@ def format_setting_range(field, series):
 
 
 @st.cache_data(ttl=_DATA_CACHE_TTL, show_spinner=False)
-def run_settings_dataframe(_session, foam_grade_id=None):
+def run_settings_dataframe(_session, foam_grade_id=None, production_method_id=None):
     """One row per production run: identifying info (grade, recipe version,
     machine) plus its Finalized-phase process settings (falls back to the
     Setup phase if no Finalized phase has been recorded yet for that run).
     `foam_grade_id` accepts a single id or a list of ids (a foam family's
     grades pooled together) - see _grade_id_list above.
+
+    `production_method_id` (added 2026-08-10, per Charlie's flat-PM
+    technical completion instruction) narrows to runs whose own immutable
+    production_method_id snapshot (see ProductionRun in db.py) matches -
+    the isolation dimension the Industrial Intelligence pages (15-19) use
+    so a Trend/Correlation/Optimization view for one Production Method
+    never silently pools in another method's runs. None (default) means
+    no method filter, matching every caller's behavior before this
+    parameter existed.
 
     Cached (see _DATA_CACHE_TTL) and eager-loads foam_grade/recipe_version/
     machine plus all of this batch of runs' ProductionPhase rows in one
@@ -335,10 +365,13 @@ def run_settings_dataframe(_session, foam_grade_id=None):
         joinedload(ProductionRun.foam_grade),
         joinedload(ProductionRun.recipe_version),
         joinedload(ProductionRun.machine),
+        joinedload(ProductionRun.production_method),
     )
     grade_ids = _grade_id_list(foam_grade_id)
     if grade_ids:
         q = q.filter(ProductionRun.foam_grade_id.in_(grade_ids))
+    if production_method_id:
+        q = q.filter(ProductionRun.production_method_id == production_method_id)
     runs = q.order_by(ProductionRun.run_date).all()
 
     run_ids = [run.id for run in runs]
@@ -366,6 +399,8 @@ def run_settings_dataframe(_session, foam_grade_id=None):
             "recipe_version": run.recipe_version.version_label if run.recipe_version else None,
             "machine_id": run.machine_id,
             "machine": run.machine.name if run.machine else None,
+            "production_method_id": run.production_method_id,
+            "production_method": run.production_method.name if run.production_method else None,
         }
         for field in PHASE_SETTING_FIELDS:
             if field in BOOLEAN_SETTING_FIELDS:
@@ -386,7 +421,9 @@ def run_settings_dataframe(_session, foam_grade_id=None):
 
 
 @st.cache_data(ttl=_DATA_CACHE_TTL, show_spinner=False)
-def property_results_dataframe(_session, foam_grade_id=None, property_name=None, include_trials=False):
+def property_results_dataframe(
+    _session, foam_grade_id=None, property_name=None, include_trials=False, production_method_id=None
+):
     """One row per physical property result, joined with the run's grade,
     recipe version, and machine - the base table for trend/correlation
     work. `foam_grade_id` accepts a single id or a list of ids (a foam
@@ -415,6 +452,14 @@ def property_results_dataframe(_session, foam_grade_id=None, property_name=None,
     can tell the two apart when it matters (e.g. excluding trial rows from
     anything that assumes a real run_date for time-ordering).
 
+    `production_method_id` (added 2026-08-10, see run_settings_dataframe's
+    docstring) narrows Production-Run-sourced rows to that method's
+    immutable run snapshot. Customer/Optimization Trial rows have no
+    Production Method of their own (lab-only workflows, out of scope for
+    this rollout) and are simply not included when this filter is set -
+    the isolation this parameter provides means a method-scoped view never
+    silently pools in another method's runs OR an unrelated lab trial.
+
     Cached (see _DATA_CACHE_TTL) and eager-loads each result's production
     run plus that run's foam_grade/recipe_version/machine in the same
     query - fixed 2026-08-02, previously touched each of those 3
@@ -435,6 +480,7 @@ def property_results_dataframe(_session, foam_grade_id=None, property_name=None,
             run_load.joinedload(ProductionRun.foam_grade),
             run_load.joinedload(ProductionRun.recipe_version),
             run_load.joinedload(ProductionRun.machine),
+            run_load.joinedload(ProductionRun.production_method),
         )
     )
     grade_ids = _grade_id_list(foam_grade_id)
@@ -442,6 +488,8 @@ def property_results_dataframe(_session, foam_grade_id=None, property_name=None,
         q = q.filter(ProductionRun.foam_grade_id.in_(grade_ids))
     if property_name:
         q = q.filter(PhysicalPropertyResult.property_name == property_name)
+    if production_method_id:
+        q = q.filter(ProductionRun.production_method_id == production_method_id)
     results = q.all()
 
     rows = []
@@ -462,6 +510,8 @@ def property_results_dataframe(_session, foam_grade_id=None, property_name=None,
                 "recipe_version": run.recipe_version.version_label if run.recipe_version else None,
                 "machine_id": run.machine_id,
                 "machine": run.machine.name if run.machine else None,
+                "production_method_id": run.production_method_id,
+                "production_method": run.production_method.name if run.production_method else None,
                 "property_name": r.property_name,
                 "target_value": r.target_value,
                 "actual_value": r.actual_value,
@@ -471,7 +521,12 @@ def property_results_dataframe(_session, foam_grade_id=None, property_name=None,
             }
         )
 
-    if include_trials:
+    # Lab trials (Customer/Optimization) have no Production Method of
+    # their own - excluded outright when a method filter is set, rather
+    # than included with a null method, so the isolation this parameter
+    # provides is real: a method-scoped view never silently pools in an
+    # unrelated lab trial.
+    if include_trials and not production_method_id:
         for source_label, trial_model, fk_col in (
             ("Customer Trial", CustomerTrial, PhysicalPropertyResult.customer_trial_id),
             ("Optimization Trial", OptimizationTrial, PhysicalPropertyResult.optimization_trial_id),
@@ -506,6 +561,8 @@ def property_results_dataframe(_session, foam_grade_id=None, property_name=None,
                         "recipe_version": trial.recipe_version.version_label if trial.recipe_version else None,
                         "machine_id": None,
                         "machine": None,
+                        "production_method_id": None,
+                        "production_method": "N/A (lab trial)",
                         "property_name": r.property_name,
                         "target_value": r.target_value,
                         "actual_value": r.actual_value,
@@ -581,7 +638,9 @@ def normalize_to_pct_of_target(df):
     return out.reset_index(drop=True)
 
 
-def merged_run_property_dataframe(session, foam_grade_id, property_name, normalize_pct_of_target=False):
+def merged_run_property_dataframe(
+    session, foam_grade_id, property_name, normalize_pct_of_target=False, production_method_id=None
+):
     """One row per production run for a given grade/property: process
     settings joined to that run's mean result for the chosen property.
     Used by Machine Settings vs Physical Properties Correlation and
@@ -591,8 +650,10 @@ def merged_run_property_dataframe(session, foam_grade_id, property_name, normali
     normalize_to_pct_of_target) - pass this when foam_grade_id is a foam
     family's list of grade ids, since those grades can have different
     target values for the same property."""
-    settings_df = run_settings_dataframe(session, foam_grade_id=foam_grade_id)
-    results_df = property_results_dataframe(session, foam_grade_id=foam_grade_id, property_name=property_name)
+    settings_df = run_settings_dataframe(session, foam_grade_id=foam_grade_id, production_method_id=production_method_id)
+    results_df = property_results_dataframe(
+        session, foam_grade_id=foam_grade_id, property_name=property_name, production_method_id=production_method_id
+    )
     if settings_df.empty or results_df.empty:
         return pd.DataFrame()
 
@@ -607,7 +668,9 @@ def merged_run_property_dataframe(session, foam_grade_id, property_name, normali
     return merged
 
 
-def rank_setting_correlations(session, foam_grade_id, property_name, normalize_pct_of_target=False):
+def rank_setting_correlations(
+    session, foam_grade_id, property_name, normalize_pct_of_target=False, production_method_id=None
+):
     """For EVERY process setting at once, compute its correlation with the
     chosen property's actual value across this grade's runs, ranked by
     |correlation| descending. This is the difference between "intelligence"
@@ -619,7 +682,8 @@ def rank_setting_correlations(session, foam_grade_id, property_name, normalize_p
     `normalize_pct_of_target` - see merged_run_property_dataframe - pass
     True when pooling a foam family's grades together."""
     merged = merged_run_property_dataframe(
-        session, foam_grade_id, property_name, normalize_pct_of_target=normalize_pct_of_target
+        session, foam_grade_id, property_name,
+        normalize_pct_of_target=normalize_pct_of_target, production_method_id=production_method_id,
     )
     rows = []
     for field in eligible_phase_setting_fields(session, foam_grade_id):
@@ -644,7 +708,9 @@ def rank_setting_correlations(session, foam_grade_id, property_name, normalize_p
     return ranked
 
 
-def rank_setting_optimization(session, foam_grade_id, property_name, normalize_pct_of_target=False):
+def rank_setting_optimization(
+    session, foam_grade_id, property_name, normalize_pct_of_target=False, production_method_id=None
+):
     """For EVERY process setting, bucket its values into Low/Medium/High (or
     Low/High) ranges and measure the gap between the best- and
     worst-performing range's average absolute deviation from target. A
@@ -662,7 +728,8 @@ def rank_setting_optimization(session, foam_grade_id, property_name, normalize_p
     side-by-side for the same foam-family selection - it does not change
     this function's own ranking numbers."""
     merged = merged_run_property_dataframe(
-        session, foam_grade_id, property_name, normalize_pct_of_target=normalize_pct_of_target
+        session, foam_grade_id, property_name,
+        normalize_pct_of_target=normalize_pct_of_target, production_method_id=production_method_id,
     )
     rows = []
     for field in eligible_phase_setting_fields(session, foam_grade_id):
@@ -1090,7 +1157,7 @@ def recipe_version_diff(version_a, version_b):
 
 
 @st.cache_data(ttl=_DATA_CACHE_TTL, show_spinner=False)
-def actual_usage_dataframe(_session, foam_grade_id=None):
+def actual_usage_dataframe(_session, foam_grade_id=None, production_method_id=None):
     """One row per (production run, raw-material stream): that stream's
     actual delivered quantity for the run's Finalized phase, re-expressed as
     an actual-php-equivalent using the run's own Base-polyol stream reading
@@ -1114,6 +1181,8 @@ def actual_usage_dataframe(_session, foam_grade_id=None):
     grade_ids = _grade_id_list(foam_grade_id)
     if grade_ids:
         q = q.filter(ProductionRun.foam_grade_id.in_(grade_ids))
+    if production_method_id:
+        q = q.filter(ProductionRun.production_method_id == production_method_id)
     runs = q.all()
 
     run_ids = [run.id for run in runs]
@@ -1184,7 +1253,7 @@ def actual_usage_dataframe(_session, foam_grade_id=None):
     return df
 
 
-def rank_component_actual_correlations(session, foam_grade_id, property_name, min_runs=3):
+def rank_component_actual_correlations(session, foam_grade_id, property_name, min_runs=3, production_method_id=None):
     """For every raw-material stream with metered readings for this grade,
     correlate its ACTUAL per-run dosage (see actual_usage_dataframe) against
     that same run's actual outcome for the chosen property, ranked by
@@ -1196,11 +1265,13 @@ def rank_component_actual_correlations(session, foam_grade_id, property_name, mi
     correlation. Returns an empty DataFrame if nothing qualifies -
     callers should treat that as "not enough metered/tested runs yet", not
     as "no relationship found"."""
-    usage_df = actual_usage_dataframe(session, foam_grade_id=foam_grade_id)
+    usage_df = actual_usage_dataframe(session, foam_grade_id=foam_grade_id, production_method_id=production_method_id)
     if usage_df.empty:
         return pd.DataFrame()
 
-    results_df = property_results_dataframe(session, foam_grade_id=foam_grade_id, property_name=property_name)
+    results_df = property_results_dataframe(
+        session, foam_grade_id=foam_grade_id, property_name=property_name, production_method_id=production_method_id
+    )
     if results_df.empty:
         return pd.DataFrame()
     per_run_result = results_df.groupby("run_id")["actual_value"].mean()
@@ -1248,7 +1319,10 @@ def rank_component_actual_correlations(session, foam_grade_id, property_name, mi
 _D2_MOVING_RANGE = 1.128  # control-chart constant for a 2-point moving range (individuals chart)
 
 
-def property_run_series(session, foam_grade_id, property_name, normalize_pct_of_target=False, include_trials=False):
+def property_run_series(
+    session, foam_grade_id, property_name, normalize_pct_of_target=False, include_trials=False,
+    production_method_id=None,
+):
     """One row per production run (mean of any replicate results) for a
     foam grade/property, sorted chronologically by test date. This is the
     base series every SPC function below works from - a control chart,
@@ -1275,7 +1349,8 @@ def property_run_series(session, foam_grade_id, property_name, normalize_pct_of_
     trial_id) from being silently dropped by groupby's default NaN
     handling."""
     df = property_results_dataframe(
-        session, foam_grade_id=foam_grade_id, property_name=property_name, include_trials=include_trials
+        session, foam_grade_id=foam_grade_id, property_name=property_name, include_trials=include_trials,
+        production_method_id=production_method_id,
     )
     if df.empty:
         return df

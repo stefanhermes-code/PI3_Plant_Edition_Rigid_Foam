@@ -27,6 +27,7 @@ from analytics import (
     capability_analysis,
     control_chart_analysis,
     cusum_analysis,
+    production_methods_used,
     property_results_dataframe,
     property_run_series,
     trend_test,
@@ -175,7 +176,27 @@ include_trials = st.checkbox(
         "a specific production run."
     ),
 )
-results_df = property_results_dataframe(session, foam_grade_id=unit["grade_ids"], include_trials=include_trials)
+# Production Method filter (added 2026-08-10, per Charlie's flat-PM
+# technical completion instruction): only shown when this grade/family's
+# runs actually span more than one Production Method - same "nothing to
+# choose between otherwise" reasoning as the Machine filter below. This is
+# the isolation dimension that matters most when pooling a foam family
+# whose grades sit under different Production Methods - without it,
+# trending "the family" would silently blend two methods' runs together.
+methods_used = production_methods_used(session, unit["grade_ids"])
+if len(methods_used) > 1:
+    method_choice = st.selectbox(
+        "Production Method filter", ["All"] + [m.name for m in methods_used],
+        key=f"trend_method_filter_{unit['state_key']}",
+    )
+    selected_method_id = next((m.id for m in methods_used if m.name == method_choice), None)
+else:
+    selected_method_id = None
+
+results_df = property_results_dataframe(
+    session, foam_grade_id=unit["grade_ids"], include_trials=include_trials,
+    production_method_id=selected_method_id,
+)
 
 if results_df.empty:
     # Can happen when this grade/family's only quality test results come from
@@ -217,7 +238,8 @@ if pooling_grades:
     )
 
 series = property_run_series(
-    session, unit["grade_ids"], property_name, normalize_pct_of_target=pooling_grades, include_trials=include_trials
+    session, unit["grade_ids"], property_name, normalize_pct_of_target=pooling_grades, include_trials=include_trials,
+    production_method_id=selected_method_id,
 )
 if recipe_filter != "All":
     series = series[series["recipe_version"] == recipe_filter]
@@ -231,7 +253,13 @@ if series.empty:
 
 value_desc = f"{property_name} result" if not pooling_grades else f"{property_name} result (as % of target)"
 event_desc = "production run(s) / lab trial(s)" if include_trials else "production run(s)"
-st.caption(f"{len(series)} {event_desc} with a {value_desc}, {series['tested_at'].min()} to {series['tested_at'].max()}.")
+method_note = (
+    f" · isolated to Production Method **{method_choice}**" if selected_method_id and method_choice != "All" else ""
+)
+st.caption(
+    f"{len(series)} {event_desc} with a {value_desc}, {series['tested_at'].min()} to "
+    f"{series['tested_at'].max()}{method_note}."
+)
 
 # ---------------------------------------------------------------------------
 # Control chart

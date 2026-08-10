@@ -229,6 +229,7 @@ from db import (
     PhysicalPropertyResult,
     ProductFamily,
     ProductionEvent,
+    ProductionMethod,
     ProductionPhase,
     ProductionRun,
     QualityObservation,
@@ -484,14 +485,27 @@ def product_family_label(session, product_family_id):
 # 1. Plant / Period Summary Report
 # ---------------------------------------------------------------------------
 
-def build_period_summary_data(session, plant_id=None, product_family_id=None, date_from=None, date_to=None, allowed_plant_ids=None):
+def build_period_summary_data(
+    session, plant_id=None, product_family_id=None, date_from=None, date_to=None,
+    allowed_plant_ids=None, production_method_id=None,
+):
     """allowed_plant_ids is the tenant-scope guardrail (see tenant_scope.py):
     None = unfiltered (platform owner viewing "All companies"), otherwise the
     list of plant ids the calling company is allowed to see - applied
     unconditionally, on top of whatever single-plant choice plant_id
     represents. Without this, a non-owner user who leaves the on-screen
     "Plant" selector at its default "All plants" would get a report across
-    every plant in the database, not just their own company's."""
+    every plant in the database, not just their own company's.
+
+    production_method_id (added 2026-08-10, per Charlie's flat-PM technical
+    completion instruction): an optional isolation filter against each run's
+    own immutable Production Method snapshot (ProductionRun.production_
+    method_id - see db.py) - this report pools every run in a plant/date
+    range, which can span more than one Production Method once a plant
+    activates a second one, so pass-rate/quality-issue totals could
+    otherwise silently blend two methods' history together. None = every
+    method pooled (the report still surfaces the split via
+    method_breakdown below, so the pooling is visible either way)."""
     runs_q = session.query(ProductionRun)
     if allowed_plant_ids is not None:
         runs_q = runs_q.filter(ProductionRun.plant_id.in_(allowed_plant_ids))
@@ -505,6 +519,8 @@ def build_period_summary_data(session, plant_id=None, product_family_id=None, da
         runs_q = runs_q.filter(ProductionRun.run_date >= date_from)
     if date_to:
         runs_q = runs_q.filter(ProductionRun.run_date <= date_to)
+    if production_method_id:
+        runs_q = runs_q.filter(ProductionRun.production_method_id == production_method_id)
     runs = runs_q.order_by(ProductionRun.run_date).all()
     run_ids = [r.id for r in runs]
 
@@ -592,6 +608,7 @@ def build_period_summary_data(session, plant_id=None, product_family_id=None, da
             "Foam grade": r.foam_grade.grade_name if r.foam_grade else "—",
             "Recipe version": r.recipe_version.version_label if r.recipe_version else "—",
             "Machine": r.machine.name if r.machine else "—",
+            "Production Method": r.production_method.name if r.production_method else "—",
             "Batch reference": r.batch_reference or "—",
         }
         for r in runs
@@ -612,9 +629,26 @@ def build_period_summary_data(session, plant_id=None, product_family_id=None, da
         grade_counts[gname] = grade_counts.get(gname, 0) + 1
     grade_breakdown = [{"Foam grade": k, "Production runs": v} for k, v in sorted(grade_counts.items())]
 
+    # Production Method breakdown (added 2026-08-10): shown regardless of
+    # whether production_method_id isolates the report to one method - when
+    # unfiltered, this is what makes an "All methods pooled" report legible
+    # rather than silently blending PM-100 and PM-200 runs into one number.
+    method_counts = {}
+    for r in runs:
+        mname = r.production_method.name if r.production_method else "—"
+        method_counts[mname] = method_counts.get(mname, 0) + 1
+    method_breakdown = [
+        {"Production Method": k, "Production runs": v} for k, v in sorted(method_counts.items())
+    ]
+    production_method_label_text = "All methods"
+    if production_method_id:
+        pm = session.get(ProductionMethod, production_method_id)
+        production_method_label_text = pm.name if pm else "All methods"
+
     return {
         "plant": plant_label(session, plant_id),
         "product_family": product_family_label(session, product_family_id),
+        "production_method": production_method_label_text,
         "date_from": date_from,
         "date_to": date_to,
         "dataset_label": dataset_label,
@@ -636,6 +670,7 @@ def build_period_summary_data(session, plant_id=None, product_family_id=None, da
         "runs": run_rows,
         "quality_issues": issue_rows,
         "grade_breakdown": grade_breakdown,
+        "method_breakdown": method_breakdown,
     }
 
 
@@ -660,6 +695,8 @@ def render_period_summary_pdf(data):
 def render_period_summary_docx(data):
     doc = Document()
     subtitle = f"{data['plant']} · {data['product_family']} · {data['date_from'] or 'earliest'} to {data['date_to'] or 'latest'}"
+    if data.get("production_method") and data["production_method"] != "All methods":
+        subtitle = f"{subtitle} · Production Method: {data['production_method']}"
     if data.get("dataset_label"):
         subtitle = f"{subtitle} · {data['dataset_label']}"
     _docx_report_header(doc, "Plant / Period Summary Report", subtitle)
@@ -705,6 +742,7 @@ def render_period_summary_docx(data):
     _docx_section(doc, "Production runs in range", data["runs"])
     _docx_section(doc, f"{issue_label} in range", data["quality_issues"])
     _docx_section(doc, "Breakdown by foam grade", data["grade_breakdown"])
+    _docx_section(doc, "Breakdown by Production Method", data.get("method_breakdown") or [])
     return _docx_bytes(doc)
 
 
@@ -1511,6 +1549,12 @@ def build_batch_release_record_data(session, run_id):
         "product_family": family.name if family else "—",
         "foam_grade": grade.grade_name if grade else "—",
         "machine": run.machine.name if run.machine else "—",
+        # Immutable snapshot taken at run creation (db.py ProductionRun.
+        # production_method_id) - per Charlie's flat-PM technical completion
+        # instruction ("run-specific reports use the stored Production
+        # Method snapshot"), never the machine's or grade's CURRENT method,
+        # so a re-tagged machine never rewrites history for a past run.
+        "production_method": run.production_method.name if run.production_method else "—",
         "run_date": run.run_date,
         "batch_reference": run.batch_reference or "—",
         "block_reference": run.block_reference or "—",
@@ -1589,6 +1633,7 @@ def render_batch_release_record_docx(data):
     _docx_kv_table(doc, [
         ("Plant", data["plant"]), ("Product family", data["product_family"]),
         ("Foam grade", data["foam_grade"]), ("Machine", data["machine"]),
+        ("Production method", data["production_method"]),
         ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
         ("Block reference", data["block_reference"]), ("Operator/team", data["operator"]),
         ("Quality verdict", data["quality_verdict"]),
@@ -1661,12 +1706,18 @@ def build_sample_certificate_data(session, sample_id):
     plant = source.plant if source else None
     recipe = source.recipe_version if source else None
 
+    # Production Method (added 2026-08-10, per Charlie's flat-PM technical
+    # completion instruction): only the Production Run source has one -
+    # inherited from that run's own immutable snapshot, never the machine's
+    # CURRENT method - the two lab-trial sources are explicitly "N/A (lab
+    # trial)", same convention as pages 5/6/9's production_method_label().
     if source_type == "Production Run":
         header_fields = [
             ("Source", f"Production Run #{source.id}"),
             ("Run date", source.run_date), ("Batch reference", source.batch_reference or "—"),
             ("Block reference", source.block_reference or "—"),
             ("Machine", source.machine.name if source.machine else "—"),
+            ("Production Method", source.production_method.name if source.production_method else "—"),
             ("Operator/team", source.operator_or_team_reference or "—"),
         ]
     elif source_type == "Customer Trial":
@@ -1675,6 +1726,7 @@ def build_sample_certificate_data(session, sample_id):
             ("Customer", source.customer_name), ("Trial date", source.trial_date),
             ("Status", source.status), ("Responsible", source.responsible_person or "—"),
             ("Batch reference", source.batch_reference or "—"),
+            ("Production Method", "N/A (lab trial)"),
         ]
     elif source_type == "Optimization Trial":
         header_fields = [
@@ -1683,6 +1735,7 @@ def build_sample_certificate_data(session, sample_id):
             ("Trial date", source.trial_date), ("Status", source.status),
             ("Responsible", source.responsible_person or "—"),
             ("Batch reference", source.batch_reference or "—"),
+            ("Production Method", "N/A (lab trial)"),
         ]
     else:
         header_fields = [("Source", "—")]

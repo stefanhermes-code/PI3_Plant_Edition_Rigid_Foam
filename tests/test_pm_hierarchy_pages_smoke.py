@@ -1,7 +1,9 @@
-"""Production Method Hierarchy architecture change (2026-08-09, per Charlie's
-spec "PI3_Rigid_Foam_Edition_Architecture_Change_Production_Method_Hierarchy_
-for_JC.docx" and Stefan's 5 resolved open decisions) smoke test for the three
-pages touched by this batch:
+"""Production Method architecture change (2026-08-09, per Charlie's spec
+"PI3_Rigid_Foam_Edition_Architecture_Change_Production_Method_Hierarchy_
+for_JC.docx" and Stefan's 5 resolved open decisions; flat-model redesign
+2026-08-10, per Charlie's technical completion instruction replacing the
+parent/child hierarchy with 7 flat PM-100..PM-700 codes) smoke test for the
+three pages touched by this batch:
 
   - pages/1_Plant_Installation_Overview.py: Machine setup's Production
     Method picker, filtered to the plant's activated methods.
@@ -21,10 +23,10 @@ st.session_state["plant_selected_id"]/"grade_selected_id"/"pr_selected_run_id"
 directly gets wiped on the very next run, since clickable_table's own
 "idx is None -> pop the selection" branch always fires when no row-click
 event exists yet - a testing-harness limitation, not a page defect; the
-Add-record flows exercise the exact same PM-hierarchy filtering logic
-(activated_methods_for_plant / machines_for_plant_and_method /
-effective_top_level_method) since the widgets narrowing each other live
-outside st.form on all three pages, same as the Edit forms).
+Add-record flows exercise the exact same Production Method filtering logic
+(activated_methods_for_plant / machines_for_plant_and_method) since the
+widgets narrowing each other live outside st.form on all three pages, same
+as the Edit forms).
 
 Usage: python -m pytest tests/test_pm_hierarchy_pages_smoke.py
 """
