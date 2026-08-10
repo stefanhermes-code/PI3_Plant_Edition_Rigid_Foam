@@ -2155,6 +2155,74 @@ Deliverables #5, #6, and #8 are being revised to reflect this batch;
 Deliverable #7 is unchanged (no deployment or rollback behavior changed).
 Phase 2 process-functionality integration follows after Charlie's technical
 acceptance of this package and Stefan's Post-G5 closeout approval.
+
+v0.17.0 -> v0.18.0 (2026-08-10, Architecture Correction - FoamGrade.
+production_method_id): Charlie's final Post-G5 closeout review identified a
+competing-source-of-truth problem: FoamGrade carried its own single
+production_method_id FK (added during WP3, before Machine <-> FoamGrade
+became many-to-many) alongside the fact that a grade's real Production
+Method(s) are now knowable from its assigned Machines (foam_grade_machines),
+per the stated Plant -> Production Method -> Production Unit -> Product Grade
+hierarchy and ProductionRun's own immutable snapshot. Charlie required one of
+three resolutions - non-authoritative purpose, derive, or deprecate - before
+CR-01/02/03 could proceed.
+
+Decision: deprecate. There is no remaining use case for a single grade-level
+method classification once a grade's actual methods are derivable directly
+from grade.machines, and inventing a new distinct meaning for the column
+would only add an unneeded second concept. The column stays in the schema
+(nullable, no migration forced, read-compatible with historical data) but
+nothing writes to it going forward and nothing should read it as
+authoritative.
+
+- Added helpers.grade_production_methods(grade) / grade_production_method_
+  label(grade) - derives the distinct set of ProductionMethod rows from
+  grade.machines, replacing the deprecated field as the source of truth.
+- Added helpers.machines_for_plant_across_activated_methods(session,
+  plant_id) - every Machine at a plant across all of the plant's activated
+  methods, not pre-filtered to one method.
+- pages/2_Product_Family_Foam_Grade.py: Add/Edit Foam Grade forms no longer
+  gate the machine multiselect behind a single "Production Method *"
+  selectbox; both now offer every activated-method machine up front, each
+  labeled with its own method. This also fixes a real, currently-shipping
+  defect the old design caused: the Edit form's Save button replaced
+  (grade.machines = list(selection)) rather than merged the grade's machine
+  set after re-filtering to one freshly-chosen method, so any machine
+  belonging to a different, previously-assigned method would be silently
+  dropped on save - a defect that had not yet struck real data (the
+  two-method UAT fixture was built via direct SQL, not this form) but would
+  have triggered on the first Edit-and-Save of a cross-method grade. The
+  grade list's "Production Method" column now shows the derived,
+  comma-joined label instead of the deprecated field.
+- reports.py's build_wp3_conformance_report_data() now reads
+  run.production_method.name (the specific run's own immutable snapshot)
+  instead of grade.production_method.name, removing the one place a stale
+  grade-level value could show the wrong method for a given run.
+- db.py: FoamGrade.production_method_id and its relationship are documented
+  as deprecated in place; column and relationship not removed/renamed.
+- Full codebase sweep confirmed only these two call sites ever read/wrote the
+  field as authoritative - no Supabase view, analytics.py function,
+  cascades.py rule, or demo_data.py seeding referenced it - so the fix's
+  blast radius is fully contained.
+- Added two regression tests to tests/test_flat_pm_propagation_smoke.py
+  (test_grade_production_methods_derives_from_machines_not_deprecated_field,
+  test_wp3_conformance_report_uses_runs_own_snapshot_not_grades_stale_field),
+  both run against the existing two_method_fixture (whose grade's
+  production_method_id already disagrees with its real multi-method machine
+  assignment - a ready-made regression bed). Updated
+  tests/test_pm_hierarchy_pages_smoke.py's Add-Foam-Grade-form test
+  (renamed test_foam_grade_form_offers_machines_across_activated_methods) to
+  assert the new expected behavior. Full suite: 51 passed, 0 failed (up from
+  49), 4 pre-existing benign warnings.
+- Documented in PI3_Rigid_Foam_Edition_Architecture_Correction_FoamGrade_
+  Production_Method.docx (Development Docs/Phase 1), per Charlie's
+  instruction to choose and document the clean engineering solution.
+
+This was a precondition Charlie set for final Post-G5 closeout of the flat
+Production Method redesign. No browser walkthrough performed for this fix,
+per Charlie's explicit instruction to defer the next walkthrough until CR-01,
+CR-02, and CR-03 are all complete. CR-01 (UI navigation and rigid-foam
+terminology alignment) proceeds next, per Charlie's specified sequence.
 """
 
-APP_VERSION = "0.17.0"
+APP_VERSION = "0.18.0"

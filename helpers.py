@@ -347,6 +347,81 @@ def machines_for_plant_and_method(session, plant_id, method_id):
     )
 
 
+def machines_for_plant_across_activated_methods(session, plant_id):
+    """All Machines at a plant whose own production_method_id is one of
+    the plant's activated methods - i.e. every Machine a Product Grade
+    could legitimately be assigned to, without pre-filtering to a single
+    method first.
+
+    Added 2026-08-10 as part of Charlie's architecture correction
+    (deprecating FoamGrade.production_method_id): the Add/Edit Foam Grade
+    form previously forced a single "Production Method *" choice before
+    offering any machines, via machines_for_plant_and_method(). That
+    single-method gate is exactly the design this many-to-many
+    relationship is supposed to allow past - a grade whose machines span
+    two methods could never be fully assigned or edited through that form
+    without one method's machines being silently dropped on save (edit
+    re-filtered the machine multiselect to only the newly-chosen method,
+    then wrote `grade.machines = list(selection)`, replacing the whole
+    set). This helper removes the need for that gate: it returns every
+    assignable Machine up front, each carrying its own production_method
+    relationship so the caller can label options by method (see page 2's
+    format_func), and a grade's actual Production Method(s) are simply
+    whichever methods its selected machines carry - see
+    grade_production_methods() below."""
+    return (
+        session.query(Machine)
+        .join(PlantProductionMethod, PlantProductionMethod.production_method_id == Machine.production_method_id)
+        .filter(
+            Machine.plant_id == plant_id,
+            PlantProductionMethod.plant_id == plant_id,
+            PlantProductionMethod.active.is_(True),
+        )
+        .order_by(Machine.name)
+        .all()
+    )
+
+
+def grade_production_methods(grade):
+    """The set of Production Methods a Product Grade actually participates
+    in, DERIVED from its assigned Machines (the foam_grade_machines many-
+    to-many) - never from FoamGrade.production_method_id.
+
+    Added 2026-08-10 per Charlie's architecture correction: the operational
+    hierarchy is Plant -> Production Method -> Production Unit -> Product
+    Grade, with the Production Run's own immutable snapshot as the
+    authoritative method for a specific run. FoamGrade.production_method_id
+    (a WP3-era column, predating the Machine <-> FoamGrade many-to-many)
+    was a second, independently-set "applicable Production Method" field
+    that a grade's actual machine assignments could silently disagree
+    with - a competing source of truth. It is now deprecated: nothing
+    writes to it going forward, and nothing should read it as
+    authoritative. This helper is the replacement - a Product Grade's
+    Production Method context is whatever its assigned Machines' own
+    production_method_id values say, which can legitimately be more than
+    one (Charlie's explicit "the same PU Material may be produced on
+    several machines" decision). Returns distinct ProductionMethod rows,
+    sorted, or an empty list if the grade has no machines assigned yet.
+    See PI3_Rigid_Foam_Edition_Architecture_Correction_FoamGrade_Production_Method.docx
+    for the full assessment and decision record."""
+    seen = {}
+    for machine in grade.machines:
+        if machine.production_method_id and machine.production_method:
+            seen[machine.production_method_id] = machine.production_method
+    return sorted(seen.values(), key=lambda m: (m.sort_order, m.name))
+
+
+def grade_production_method_label(grade):
+    """Display label for grade_production_methods() - "—" for none, the
+    single method's name for one, a comma-joined list for more than one
+    (the exact scenario the flat-PM redesign's foam_grade_machines
+    many-to-many is meant to allow)."""
+    methods = grade_production_methods(grade)
+    if not methods:
+        return "—"
+    return ", ".join(m.name for m in methods)
+
+
 def next_version_label(current_label, existing_count):
     """Auto-generated label for the next recipe version: if the current
     label ends in a number (e.g. "28-MH-05"), increments that number

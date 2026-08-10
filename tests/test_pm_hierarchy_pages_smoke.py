@@ -113,18 +113,27 @@ def test_add_machine_form_offers_plants_activated_method(seeded_pm_hierarchy):
     )
 
 
-def test_foam_grade_form_offers_method_and_narrows_machines(seeded_pm_hierarchy):
+def test_foam_grade_form_offers_machines_across_activated_methods(seeded_pm_hierarchy):
+    """Updated 2026-08-10 for Charlie's architecture correction: the Add
+    Foam Grade form no longer gates the machine picker behind a separate
+    "Production Method *" selectbox (removed - see
+    helpers.grade_production_method_label() /
+    machines_for_plant_across_activated_methods()). It now offers every
+    machine across every one of the plant's activated methods up front,
+    each labeled with its own method, so a grade whose machines span more
+    than one method can be fully assigned in one save."""
     ids = seeded_pm_hierarchy
     at = _run(PAGE2)
     assert not at.exception, f"Unhandled exception loading Product Family & Foam Grade: {at.exception}"
 
-    method_sb = next((sb for sb in at.selectbox if sb.key == "add_grade_method"), None)
-    assert method_sb is not None, "Add foam grade form's Production Method picker not found"
-    assert ids["method_name"] in method_sb.options
+    assert not any(sb.key == "add_grade_method" for sb in at.selectbox), (
+        "Add foam grade form should no longer have a separate Production "
+        "Method picker gating the machine multiselect"
+    )
 
     machines_ms = next((ms for ms in at.multiselect if ms.label == "Machines this PU Material can be produced on"), None)
     assert machines_ms is not None, "Machine-assignment multiselect not found"
-    assert ids["machine_name"] in machines_ms.options, (
+    assert any(ids["machine_name"] in str(opt) for opt in machines_ms.options), (
         f"Machine tagged to the activated method should be offered - got {machines_ms.options}"
     )
 

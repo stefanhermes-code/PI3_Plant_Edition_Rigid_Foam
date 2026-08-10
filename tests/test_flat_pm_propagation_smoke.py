@@ -281,5 +281,58 @@ def test_batch_release_record_shows_runs_own_method_snapshot(two_method_fixture)
     )
 
 
+# ---------------------------------------------------------------------------
+# Architecture correction (2026-08-10, Charlie's competing-source-of-truth
+# finding): FoamGrade.production_method_id deprecated in favor of deriving a
+# grade's Production Method(s) from its assigned Machines. The
+# two_method_fixture grade above is a perfect regression bed for this: it
+# sets grade.production_method_id = method_a (the old, now-deprecated
+# single-method field) while grade.machines spans BOTH method_a and
+# method_b - exactly the disagreement Charlie flagged as possible.
+# ---------------------------------------------------------------------------
+
+def test_grade_production_methods_derives_from_machines_not_deprecated_field(two_method_fixture):
+    ids = two_method_fixture
+    session = db.get_session()
+    grade = session.get(db.FoamGrade, ids["grade_id"])
+    # The deprecated field still holds its old value (never migrated away) -
+    # this assertion documents that fact, it does not endorse reading it.
+    assert grade.production_method_id == ids["method_a_id"]
+
+    from helpers import grade_production_method_label, grade_production_methods
+    methods = grade_production_methods(grade)
+    method_names = {m.name for m in methods}
+    assert method_names == {ids["method_a_name"], ids["method_b_name"]}, (
+        "Expected grade_production_methods() to derive BOTH methods from "
+        f"grade.machines, got {method_names}"
+    )
+    label = grade_production_method_label(grade)
+    assert ids["method_a_name"] in label and ids["method_b_name"] in label, (
+        f"Expected the derived label to name both methods, got {label!r}"
+    )
+    session.close()
+
+
+def test_wp3_conformance_report_uses_runs_own_snapshot_not_grades_stale_field(two_method_fixture):
+    """The exact competing-source-of-truth scenario: grade.production_method_id
+    says Method A, but this report is being generated for Run B, which ran
+    under Method B. Before the fix, build_wp3_conformance_report_data() read
+    grade.production_method.name and would have wrongly shown "Method A" on
+    a Run B report. After the fix, it reads run.production_method.name and
+    correctly shows Method B."""
+    ids = two_method_fixture
+    session = db.get_session()
+    import reports
+    data = reports.build_wp3_conformance_report_data(session, ids["grade_id"], ids["run_b_id"])
+    assert data is not None
+    assert data["production_method"] == ids["method_b_name"], (
+        f"Expected Run B's own snapshot ({ids['method_b_name']!r}), got {data['production_method']!r} - "
+        "this would indicate the report regressed to reading the deprecated "
+        "grade-level field instead of the run's own immutable snapshot"
+    )
+    assert data["production_method"] != ids["method_a_name"]
+    session.close()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

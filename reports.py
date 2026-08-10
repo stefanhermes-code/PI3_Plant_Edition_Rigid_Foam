@@ -4433,7 +4433,15 @@ def build_wp3_conformance_report_data(session, foam_grade_id, production_run_id)
         "batch_reference": run.batch_reference or "—",
         "machine": run.machine.name if run.machine else "—",
         "chemistry": grade.chemistry.name if grade.chemistry else "—",
-        "production_method": grade.production_method.name if grade.production_method else "—",
+        # Uses the RUN's own immutable Production Method snapshot, not
+        # grade.production_method_id (deprecated 2026-08-10 - see db.py's
+        # FoamGrade model and helpers.grade_production_methods). This
+        # report is generated for one specific run; the run's own
+        # snapshot is the only value that can never disagree with which
+        # machine/method actually produced it, whereas the grade-level
+        # field could silently diverge once a grade's machines span more
+        # than one Production Method.
+        "production_method": run.production_method.name if run.production_method else "—",
         "application": grade.application.name if grade.application else "—",
         "construction": grade.construction.name if grade.construction else "—",
         "grade_status": grade.status or "—",

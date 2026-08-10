@@ -656,6 +656,30 @@ class FoamGrade(Base):
     # everywhere else; duplicating that as a second column here would just
     # create a second place it could go stale.
     chemistry_id = Column(Integer, ForeignKey("chemistries.id"))
+    # production_method_id: DEPRECATED as of 2026-08-10 (Charlie's
+    # architecture correction, Post-G5 flat-PM completion batch). This was
+    # WP3's own single "applicable Production Method" field for a grade,
+    # set independently of which Machines the grade is actually assigned
+    # to - a design that predates the Machine <-> FoamGrade many-to-many
+    # (foam_grade_machines, added 2026-08-09) and directly conflicts with
+    # it: a grade's machines can legitimately span more than one flat
+    # Production Method (Charlie's explicit "the same PU Material may be
+    # produced on several machines" decision), which this single FK
+    # cannot represent, and nothing stops it from silently disagreeing
+    # with the grade's real machine assignments once they diverge. The
+    # operational hierarchy is Plant -> Production Method -> Production
+    # Unit -> Product Grade, with the Production Run's own immutable
+    # snapshot (ProductionRun.production_method_id) as the sole
+    # authoritative "Production Method" for a specific run - a grade-level
+    # field claiming to be independently authoritative was a second,
+    # competing source of truth. Column kept (nullable, no migration
+    # forced) for backward read compatibility only; nothing in this
+    # codebase writes to it as of this batch, and nothing should treat it
+    # as authoritative - use helpers.grade_production_methods(grade) /
+    # grade_production_method_label(grade), which derive the grade's real
+    # Production Method(s) from its assigned Machines, instead. See
+    # PI3_Rigid_Foam_Edition_Architecture_Correction_FoamGrade_Production_Method.docx
+    # for the full assessment and decision record.
     production_method_id = Column(Integer, ForeignKey("production_methods.id"))
     application_id = Column(Integer, ForeignKey("applications.id"))
     construction_id = Column(Integer, ForeignKey("product_constructions.id"))
@@ -668,7 +692,7 @@ class FoamGrade(Base):
         "FoamGradeTargetProperty", back_populates="foam_grade", cascade="all, delete-orphan"
     )
     chemistry = relationship("Chemistry")
-    production_method = relationship("ProductionMethod")
+    production_method = relationship("ProductionMethod")  # deprecated - see production_method_id above
     application = relationship("Application")
     construction = relationship("ProductConstruction")
     specifications = relationship(
@@ -676,11 +700,12 @@ class FoamGrade(Base):
     )
     # Production Method architecture change (2026-08-09, flat model
     # finalized 2026-08-10): the many-to-many counterpart of
-    # Machine.foam_grades above. production_method_id (already existed,
-    # from WP3) is the authoritative "applicable Production Method" for
-    # this PU Material - every Machine assigned here must carry this
-    # same flat production_method_id; enforced in helpers.py, not a DB
-    # constraint.
+    # Machine.foam_grades above. This - NOT production_method_id above -
+    # is the authoritative source of which Production Method(s) apply to
+    # this PU Material: whichever flat production_method_id values its
+    # assigned Machines themselves carry (see
+    # helpers.grade_production_methods). A grade may legitimately have
+    # machines under more than one method.
     machines = relationship(
         "Machine", secondary=foam_grade_machines, back_populates="foam_grades"
     )
