@@ -15,6 +15,7 @@ import time
 
 import sqlalchemy.exc as sa_exc
 import streamlit as st
+from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 
 import analytics
@@ -25,10 +26,12 @@ from db import (
     Company,
     CustomerTrial,
     FoamGrade,
+    Machine,
     OptimizationTrial,
     PhysicalPropertyResult,
     Plant,
     ProductFamily,
+    ProductionMethod,
     ProductionPhase,
     ProductionRun,
     QualityObservation,
@@ -38,7 +41,14 @@ from db import (
     get_session,
     init_db,
 )
-from helpers import page_setup, render_function_action_intro
+from helpers import (
+    activated_methods_for_plant,
+    all_production_methods,
+    machines_for_plant_and_method,
+    machines_for_plant_across_activated_methods,
+    page_setup,
+    render_function_action_intro,
+)
 from quality_standards import compute_pass_fail
 from version import APP_VERSION
 
@@ -81,13 +91,46 @@ st.markdown(
 
 
 def render_overview():
-    """Screen 1: Product Dashboard (default landing page)."""
+    """Screen 1: Plant Intelligence Dashboard (default landing page).
+
+    Rebuilt 2026-08-10 for CR-02 (Overview Dashboard Production Method
+    Alignment, per Charlie's
+    PI3_Rigid_Foam_Phase_1_CR02_Overview_Dashboard_Production_Method_
+    Alignment_for_UAT.docx): the primary filter row now follows the
+    approved operating hierarchy - Plant -> Production Method ->
+    Production Unit / Cell -> Product Grade -> Date Range (CR-02 section
+    3) - each cascading into the next exactly like the Production
+    Equipment / Product Grade forms already do elsewhere in the app
+    (helpers.activated_methods_for_plant / machines_for_plant_and_method
+    / machines_for_plant_across_activated_methods). Product Family is
+    demoted to an optional "Advanced filter" (CR-02: "a commercial/product
+    classification... shall not replace Production Method, Production
+    Unit/Cell or Product Grade in the primary operating filter sequence")
+    that only narrows the Product Grade dropdown's options, never a
+    separate KPI scope.
+
+    KPI aggregation rules (CR-02 section 6): the old "Meters produced /
+    Kg produced" cards assumed a Flexible Foam/continuous-slabstock
+    production model and are removed outright. In their place, a single
+    "Output Quantity and Unit" card only renders a number when exactly
+    one Production Method is selected AND that method's own runs in the
+    date range actually have the conveyor-speed/tunnel-geometry data
+    analytics.compute_runtime_output() needs (continuous, tunnel-based
+    production - in practice, today, only PM-200 Continuous Panel & Board
+    runs that recorded it). No output total is ever computed or shown
+    across "All Production Methods", or silently defaulted to 0/blank for
+    a method that doesn't have this data - the card explains why instead,
+    since summing across differently-measured methods is exactly the
+    "meaningless mixed-unit total" CR-02 section 8 prohibits. Every other
+    KPI ("cross-method comparable" per section 6 - runs, tests, issues,
+    samples, trials, active grades) is now scoped consistently to the
+    same Plant/Method/Unit/Grade filters instead of being unscoped
+    app-wide totals as before.
+    """
     page_setup("Overview")
     init_db()
     require_login()
     logout_button()
-
-    user = current_user()
 
     header_logo, header_text = st.columns([1, 6])
     with header_logo:
@@ -95,27 +138,40 @@ def render_overview():
     with header_text:
         st.title("PI3 — Rigid Foam Intelligence")
         st.caption(
-            "Product Dashboard | Rigid foam expert system | "
+            "Plant Intelligence Dashboard | PI3 Plant Edition, Rigid Foam | "
             "HTC Global Co. Ltd"
         )
     render_function_action_intro(
         function_text=(
-            "This is the landing dashboard: a snapshot of how much is in the system and how it's "
-            "trending, grouped into Volume, Quality & Performance, and Trials & Samples - across "
-            "whichever plant, product family, and product grade you filter to. Meters/kg produced are "
-            "scoped to the date range below (defaults to year-to-date); every other KPI is an "
-            "all-time total."
+            "This dashboard provides a snapshot of production activity, quality, performance, and "
+            "trials across the selected Plant, Production Method, Production Unit, Product Grade, "
+            "and date range. Production and performance indicators follow the selected Production "
+            "Method and its applicable units and process logic."
         ),
         action_text=(
-            "Filter by plant, product family, product grade, and date range to scope the KPIs to what "
-            "you're reviewing. Use the sidebar to navigate into any specific record or workflow."
+            "Select the Plant and Production Method first, then narrow the view by Production Unit, "
+            "Product Grade, and date range. Use the navigation to open the underlying production, "
+            "quality, sample, reporting, and Industrial Intelligence records."
         ),
     )
 
     session = get_session()
 
-    # --- Top filters ------------------------------------------------------
-    col1, col2, col3, col4 = st.columns(4)
+    # --- Advanced filter (optional) - CR-02 section 3: Product Family is
+    # a commercial classification, not part of the primary operating
+    # hierarchy. It only narrows which grades the Product Grade dropdown
+    # below offers; it never scopes a KPI on its own. ---------------------
+    with st.expander("Advanced filter (optional)"):
+        family_filter = st.selectbox(
+            "Product Family", [None] + session.query(ProductFamily).all(),
+            format_func=lambda f: "All product families" if f is None else f.name,
+            help="Commercial classification only - narrows Product Grade below, does not scope KPIs on its own.",
+        )
+
+    # --- Primary filter row: Plant -> Production Method -> Production
+    # Unit / Cell -> Product Grade -> Date Range (CR-02's approved order).
+    # Each selection cascades into the next. -----------------------------
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     plants = session.query(Plant).all()
     with col1:
@@ -123,126 +179,195 @@ def render_overview():
             "Plant", [None] + plants, format_func=lambda p: "All plants" if p is None else p.name
         )
 
-    families_query = session.query(ProductFamily)
-    if plant_filter:
-        families_query = families_query.filter(ProductFamily.plant_id == plant_filter.id)
-    families = families_query.all()
+    method_options = (
+        activated_methods_for_plant(session, plant_filter.id) if plant_filter
+        else all_production_methods(session)
+    )
     with col2:
-        family_filter = st.selectbox(
-            "Product family", [None] + families, format_func=lambda f: "All families" if f is None else f.name
+        method_filter = st.selectbox(
+            "Production Method", [None] + method_options,
+            format_func=lambda m: "All Production Methods" if m is None else m.name,
         )
 
+    if plant_filter and method_filter:
+        machine_options = machines_for_plant_and_method(session, plant_filter.id, method_filter.id)
+    elif plant_filter:
+        machine_options = machines_for_plant_across_activated_methods(session, plant_filter.id)
+    elif method_filter:
+        machine_options = session.query(Machine).filter(Machine.production_method_id == method_filter.id).all()
+    else:
+        machine_options = session.query(Machine).all()
+    with col3:
+        machine_filter = st.selectbox(
+            "Production Unit / Cell", [None] + machine_options,
+            format_func=lambda m: "All units" if m is None else m.name,
+        )
+
+    # Plant scoping is applied whenever a Plant is picked (via the grade's
+    # ProductFamily.plant_id), independently of Method/Unit, since
+    # ProductionMethod is a global controlled vocabulary shared across
+    # plants - filtering grades by method alone would otherwise leak in
+    # another plant's machines that happen to share the same method.
     grades_query = session.query(FoamGrade)
+    if plant_filter:
+        grades_query = grades_query.join(ProductFamily, FoamGrade.product_family_id == ProductFamily.id).filter(
+            ProductFamily.plant_id == plant_filter.id
+        )
+    if machine_filter:
+        grades_query = grades_query.filter(FoamGrade.machines.any(Machine.id == machine_filter.id))
+    elif method_filter:
+        grades_query = grades_query.filter(FoamGrade.machines.any(Machine.production_method_id == method_filter.id))
     if family_filter:
         grades_query = grades_query.filter(FoamGrade.product_family_id == family_filter.id)
     grades = grades_query.all()
-    with col3:
+    with col4:
         grade_filter = st.selectbox(
-            "Product grade", [None] + grades, format_func=lambda g: "All grades" if g is None else g.grade_name
+            "Product Grade", [None] + grades, format_func=lambda g: "All grades" if g is None else g.grade_name
         )
 
-    with col4:
+    with col5:
         date_range = st.date_input(
             "Date range",
             value=(dt.date(dt.date.today().year, 1, 1), dt.date.today()),
-            help="Defaults to year-to-date. Scopes the Meters produced / Kg produced KPIs below.",
+            help="Defaults to year-to-date. Scopes the Output Quantity and Unit KPI below.",
         )
+    # st.date_input's 2-tuple can momentarily be a 1-tuple while the user
+    # has only picked a start date - guarded here rather than crashing.
+    range_start, range_end = (date_range if len(date_range) == 2 else (None, None))
 
     st.divider()
 
-    # --- KPI data --------------------------------------------------------
-    # All-time totals (unaffected by the date range above, same as before
-    # 2026-08-05's meters/kg addition).
-    all_runs = session.query(ProductionRun).all()
-    recurring_observations = (
-        session.query(QualityObservation).filter(QualityObservation.frequency == "Recurring").all()
+    # --- Scoped Production Runs - the one query every KPI below reuses,
+    # using the run's own plant_id/production_method_id/machine_id/
+    # foam_grade_id columns directly (no joins needed). -------------------
+    run_query = session.query(ProductionRun)
+    if plant_filter:
+        run_query = run_query.filter(ProductionRun.plant_id == plant_filter.id)
+    if method_filter:
+        run_query = run_query.filter(ProductionRun.production_method_id == method_filter.id)
+    if machine_filter:
+        run_query = run_query.filter(ProductionRun.machine_id == machine_filter.id)
+    if grade_filter:
+        run_query = run_query.filter(ProductionRun.foam_grade_id == grade_filter.id)
+    scoped_runs = run_query.options(joinedload(ProductionRun.foam_grade)).all()
+    scoped_run_ids = [r.id for r in scoped_runs]
+
+    # Customer/Optimization Trials (lab-only workflows - db.SAMPLE_SOURCE_
+    # TYPES) have no Production Method or Production Unit of their own
+    # (helpers.production_method_label() shows "N/A (lab trial)" for
+    # exactly this reason) - they're scoped by Plant/Grade only, using
+    # their own plant_id/foam_grade_id columns directly.
+    def _trial_query(model):
+        q = session.query(model)
+        if plant_filter:
+            q = q.filter(model.plant_id == plant_filter.id)
+        if grade_filter:
+            q = q.filter(model.foam_grade_id == grade_filter.id)
+        return q
+
+    customer_trials_q = _trial_query(CustomerTrial)
+    optimization_trials_q = _trial_query(OptimizationTrial)
+    customer_trials_count = customer_trials_q.count()
+    optimization_trials_count = optimization_trials_q.count()
+    active_trials = (
+        customer_trials_q.filter(CustomerTrial.status != "Closed").count()
+        + optimization_trials_q.filter(OptimizationTrial.status != "Closed").count()
     )
-    all_results = session.query(PhysicalPropertyResult).all()
+
+    # Quality tests/issues/samples fold in trial-sourced records too
+    # (CR-02 section 6 lists these as "cross-method comparable") - but
+    # only when no Production Method/Unit is selected, since a lab trial
+    # can't be attributed to either and folding it into a method-specific
+    # or unit-specific view would misrepresent that method's own figures.
+    include_trials = method_filter is None and machine_filter is None
+    customer_trial_ids = [t.id for t in customer_trials_q.all()] if include_trials else []
+    optimization_trial_ids = [t.id for t in optimization_trials_q.all()] if include_trials else []
+
+    def _scoped_count(model):
+        return session.query(model).filter(
+            or_(
+                model.production_run_id.in_(scoped_run_ids),
+                model.customer_trial_id.in_(customer_trial_ids),
+                model.optimization_trial_id.in_(optimization_trial_ids),
+            )
+        )
+
+    quality_results_q = _scoped_count(PhysicalPropertyResult)
+    quality_issues_q = _scoped_count(QualityObservation)
+    quality_tests_count = quality_results_q.count()
+    quality_issues_count = quality_issues_q.count()
+    recurring_issues_count = quality_issues_q.filter(QualityObservation.frequency == "Recurring").count()
     # Recomputed live via compute_pass_fail() rather than trusted from each
     # result's stored pass_fail column - see the same note in
     # analytics.property_results_dataframe. Keeps this KPI in sync with the
     # current tolerance rules immediately, with no separate recompute step.
     computed_verdicts = [
-        compute_pass_fail(r.property_name, r.target_value, r.actual_value) for r in all_results
+        compute_pass_fail(r.property_name, r.target_value, r.actual_value) for r in quality_results_q.all()
     ]
     known_verdicts = [v for v in computed_verdicts if v is not None]
     pass_count = known_verdicts.count("Pass")
     pass_rate = f"{round(100 * pass_count / len(known_verdicts))}%" if known_verdicts else "—"
-    # Open trials across both independent lab-trial flows (see
-    # db.py's CustomerTrial / OptimizationTrial) - the old TrialRecord
-    # concept (a formal-experiment flag on a production run) was removed
-    # 2026-08-04: zero real rows across 244 production runs, fully
-    # superseded by these two.
-    open_customer_trials = session.query(CustomerTrial).filter(CustomerTrial.status != "Closed").count()
-    open_optimization_trials = (
-        session.query(OptimizationTrial).filter(OptimizationTrial.status != "Closed").count()
-    )
-    active_trials = open_customer_trials + open_optimization_trials
-    recipes_count = session.query(RecipeVersion).count()
-    quality_tests_count = len(all_results)
-    quality_issues_count = session.query(QualityObservation).count()
-    # The app's 3 sample sources (see db.SAMPLE_SOURCE_TYPES) - "Production
-    # samples" covers the same production-run-linked samples the run count
-    # above doesn't otherwise surface a total for.
-    production_samples_count = (
-        session.query(Sample).filter(Sample.production_run_id.isnot(None)).count()
-    )
-    customer_trials_count = session.query(CustomerTrial).count()
-    optimization_trials_count = session.query(OptimizationTrial).count()
 
-    # Meters produced / Kg produced (added 2026-08-05 per user request) -
-    # the only 2 KPIs on this page scoped to the date-range filter above,
-    # since they're a rate/volume-over-time question ("how much did we make
-    # this year") rather than a system-size total. Reuses
-    # analytics.compute_runtime_output() - the exact same length/volume/
-    # weight math the Runtime Data tab's own calculated-output display
-    # uses - summed across every run in range, so the two never drift
-    # apart into two different answers for the same question.
-    #
-    # st.date_input's 2-tuple can momentarily be a 1-tuple while the user
-    # has only picked a start date - guarded here rather than crashing.
-    range_start, range_end = (date_range if len(date_range) == 2 else (None, None))
-    meters_produced_total = None
-    kg_produced_total = None
-    if range_start and range_end:
-        runs_in_range = (
-            session.query(ProductionRun)
-            .options(joinedload(ProductionRun.foam_grade))
-            .filter(ProductionRun.run_date >= range_start, ProductionRun.run_date <= range_end)
-            .all()
-        )
-        run_ids = [r.id for r in runs_in_range]
+    samples_count = _scoped_count(Sample).count()
+
+    scoped_grade_ids = [grade_filter.id] if grade_filter else [g.id for g in grades]
+    recipes_count = (
+        session.query(RecipeVersion).filter(RecipeVersion.foam_grade_id.in_(scoped_grade_ids)).count()
+        if scoped_grade_ids else 0
+    )
+    active_grades_count = len({r.foam_grade_id for r in scoped_runs})
+
+    # Output Quantity and Unit (CR-02 section 6/7, replacing the old
+    # Flexible-Foam "Meters/kg produced"): only computed for a single
+    # selected Production Method whose runs in range actually carry
+    # conveyor-speed/tunnel-geometry data - see analytics.
+    # compute_runtime_output(). Reuses that exact same function the
+    # Actual Run and Cycle Data tab's own calculated-output display
+    # uses, so the two never drift apart into two different answers for
+    # the same question. Deliberately never summed across methods or
+    # shown as a mixed-unit total (CR-02 section 8's explicit prohibition).
+    output_value, output_uom, output_note = None, None, None
+    if method_filter is None:
+        output_note = "Select a single Production Method to see its method-appropriate output."
+    elif not (range_start and range_end):
+        output_note = "Pick a complete date range to compute output for this period."
+    else:
+        runs_in_range = [r for r in scoped_runs if r.run_date and range_start <= r.run_date <= range_end]
+        run_ids_in_range = [r.id for r in runs_in_range]
         phases_by_run = {}
-        if run_ids:
+        if run_ids_in_range:
             phases_by_run = {
                 p.production_run_id: p
                 for p in session.query(ProductionPhase).filter(
-                    ProductionPhase.production_run_id.in_(run_ids),
+                    ProductionPhase.production_run_id.in_(run_ids_in_range),
                     ProductionPhase.phase_name == "Finalized",
                 ).all()
             }
-        meters_produced_total = 0.0
-        kg_produced_total = 0.0
+        length_total = 0.0
         for run in runs_in_range:
             output = analytics.compute_runtime_output(phases_by_run.get(run.id), run.foam_grade)
             if output["length_m"]:
-                meters_produced_total += output["length_m"]
-            if output["weight_kg"]:
-                kg_produced_total += output["weight_kg"]
+                length_total += output["length_m"]
+        if length_total:
+            output_value, output_uom = length_total, "m"
+        else:
+            output_note = (
+                f"No conveyor-speed/tunnel-geometry data recorded for {method_filter.name} runs in this "
+                "period - output quantity is not yet computable for this Production Method."
+            )
 
-    # --- KPI cards, grouped for visual separation (2026-08-05) -----------
+    # --- KPI cards, grouped for visual separation ------------------------
     st.subheader("Volume")
     v1, v2, v3, v4 = st.columns(4)
     v1.metric("Recipes", recipes_count)
-    v2.metric("Production runs", len(all_runs))
-    v3.metric(
-        "Meters produced (in period)",
-        f"{meters_produced_total:,.0f} m" if meters_produced_total is not None else "—",
-    )
+    v2.metric("Production runs", len(scoped_runs))
+    v3.metric("Active product grades", active_grades_count)
     v4.metric(
-        "Kg produced (in period)",
-        f"{kg_produced_total:,.0f} kg" if kg_produced_total is not None else "—",
+        "Output Quantity and Unit",
+        f"{output_value:,.0f} {output_uom}" if output_value is not None else "—",
     )
+    if output_note:
+        st.caption(output_note)
 
     st.divider()
 
@@ -250,14 +375,14 @@ def render_overview():
     q1, q2, q3, q4 = st.columns(4)
     q1.metric("Quality tests", quality_tests_count)
     q2.metric("Quality issues", quality_issues_count)
-    q3.metric("Recurring quality issues", len(recurring_observations))
+    q3.metric("Recurring quality issues", recurring_issues_count)
     q4.metric("Quality test pass rate", pass_rate)
 
     st.divider()
 
     st.subheader("Trials & Samples")
     t1, t2, t3, t4 = st.columns(4)
-    t1.metric("Production samples", production_samples_count)
+    t1.metric("Samples", samples_count)
     t2.metric("Customer trials", customer_trials_count)
     t3.metric("Optimization trials", optimization_trials_count)
     t4.metric("Open customer/optimization trials", active_trials)

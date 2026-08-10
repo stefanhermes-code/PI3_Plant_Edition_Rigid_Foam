@@ -2315,4 +2315,124 @@ only unless stated otherwise.
    per Charlie's specified sequence.
 """
 
-APP_VERSION = "0.19.0"
+CHANGELOG_v0_19_0_TO_v0_20_0 = """
+v0.19.0 -> v0.20.0 (2026-08-10, CR-02 - Overview Dashboard Production Method
+Alignment)
+
+Implements CR-02 of Charlie's three pre-approved, strictly-sequenced Change
+Requests (CR-01 -> CR-02 -> CR-03 -> Stefan UAT). Per Charlie's overriding
+instruction, NO browser walkthrough was performed for this CR individually -
+only one consolidated walkthrough happens, after CR-03, before Stefan's UAT
+(task #740). CR-02's own source document independently calls for JC to
+perform a live Overview walkthrough with at least two activated Production
+Methods as part of its acceptance evidence; that requirement is deliberately
+deferred to task #740, same disclosed deviation pattern as CR-01's closeout.
+
+1. Filter cascade rebuilt (app_rigid_foam.py, render_overview()): the old
+   flat Plant/Foam Family/Foam Grade/date-range filter row is replaced with
+   the approved hierarchy - Plant -> Production Method -> Production Unit /
+   Cell -> Product Grade -> Date range. Product Family is demoted to an
+   "Advanced filter (optional)" expander above the main row: it narrows the
+   Product Grade dropdown but never scopes any KPI on its own, per CR-02's
+   explicit rule that Family is a commercial classification, not a
+   production-scoping dimension.
+   - Production Method options are the plant's own activated methods
+     (helpers.activated_methods_for_plant) once a Plant is selected, or
+     every controlled-vocabulary method (helpers.all_production_methods)
+     when no Plant is selected yet.
+   - Production Unit / Cell and Product Grade both narrow cumulatively as
+     Plant/Method/Family are set, reusing the existing
+     machines_for_plant_and_method/machines_for_plant_across_activated_
+     methods helpers rather than duplicating that logic.
+   - Design correction made before this ever ran (caught during planning,
+     not in testing): the first-draft cascade used an exclusive
+     machine -> method -> plant elif chain for narrowing Production Unit/
+     Product Grade options. Since ProductionMethod is a shared,
+     plant-agnostic controlled-vocabulary row (no plant_id column of its
+     own), that chain would have let a Method-only selection (no Plant
+     selected) leak in machines/grades belonging to an entirely different
+     plant that happens to activate the same method. Fixed by applying the
+     Plant filter unconditionally first whenever set, then layering
+     Method/Unit narrowing on top as additional cumulative filters, never
+     as a substitute for the Plant filter. Pinned by a dedicated regression
+     test (see Tests below) so this can't silently regress.
+
+2. KPI redesign, three sections (Volume / Quality & Performance / Trials &
+   Samples), all driven off the same scoped ProductionRun query
+   (ProductionRun.production_method_id - the run's own immutable snapshot,
+   set once at creation - is the direct scoping column; no joins needed):
+   - Volume: Recipes, Production runs, Active product grades, and a new
+     gated "Output Quantity and Unit" KPI (replaces the old flat "Meters/kg
+     produced" figures CR-02 explicitly calls out for removal, since that
+     computation - analytics.compute_runtime_output(), a continuous/tunnel-
+     specific conveyor-speed x duration x width x height x density formula -
+     does not generalize to all 7 Production Methods and would be
+     meaningless summed across methods with incompatible units).
+     Deliberate design choice: rather than build a full per-method
+     output-computation framework (a much larger undertaking, out of CR-02's
+     stated scope), the existing tunnel-style calculation is reused but
+     strictly gated - it only ever displays when exactly one Production
+     Method is selected AND a complete date range is picked AND that
+     method's runs in range actually produced computable length data;
+     otherwise an explanatory caption is shown instead of a blank, zero, or
+     (worse) a wrongly-summed mixed-unit number. This satisfies CR-02's
+     explicit "never show a meaningless mixed-unit total" rule without
+     inventing new per-method schema.
+   - Quality & Performance: Quality tests, Quality issues, Recurring
+     quality issues, Quality test pass rate - all computed from the same
+     scoped run-id set (plus lab-trial records, see below), matching CR-02's
+     "cross-method comparable" vs. "method-specific" aggregation-class
+     rules (these four are cross-method comparable and may show under "All
+     Production Methods"; they correctly isolate to one method's own runs
+     when a single Method is selected).
+   - Trials & Samples: Samples, Customer trials, Optimization trials, Open
+     customer/optimization trials.
+   - Lab trials (CustomerTrial/OptimizationTrial) have no Production
+     Method/Unit attribution in the schema at all (scoped only by
+     plant_id/foam_grade_id). Design decision: trial-count cards (Customer
+     trials, Optimization trials, Open trials) always scope by plant+grade
+     only, unaffected by the Method/Unit filters; but trial-sourced
+     Quality-test/issue/Sample records are folded into the cross-source
+     Quality & Performance / Samples totals ONLY when no specific Method or
+     Unit is selected (include_trials = method_filter is None and
+     machine_filter is None) - narrowing to a specific Production Method
+     or Unit necessarily excludes method-agnostic lab data from that
+     narrowed total, since attributing it to one specific method would be
+     a fabrication the schema doesn't support.
+   - Header caption and Function/Action intro text rewritten to CR-02
+     Section 5's exact approved wording (mentions Production Method/Unit
+     explicitly as scoping dimensions).
+
+2. Removed the redundant "kg produced" figure entirely (CR-02's own
+   rationale: it was a second, less-used unit for the same underlying
+   tunnel-output computation as "Output Quantity and Unit," not
+   independent information) rather than gating two parallel KPIs behind
+   the same eligibility check.
+
+3. Tests: new tests/test_cr02_overview_pm_alignment.py (6 targeted cases,
+   per CR-02 Section 9.4's explicit call for "targeted automated tests for
+   Production Method filter cascading and cross-method KPI isolation") -
+   Plant selection narrows Method then Unit then Grade; switching Method
+   swaps Unit/Grade option sets; KPIs isolate to a single Method's own run
+   (quality issues/samples correctly read 0 when seeded only on the OTHER
+   method's run, not leaked); KPIs correctly combine across both methods
+   under "All Production Methods"; and two dedicated cross-plant-leak
+   regression tests pinning the design correction in item 1 above (a
+   Method-only selection with no Plant set must never surface another
+   plant's machines; Plant's own activated-method scoping must never be
+   bypassable via the Method dropdown). All 6 pass. Full existing suite
+   re-run after the rewrite: 59 passed (53 pre-existing + 6 new), 0 failed,
+   same 2 pre-existing benign numpy RuntimeWarnings as before this batch -
+   zero regressions from the render_overview() rewrite.
+
+4. Deviation from CR-02's own evidence-package template (same disclosed
+   pattern as CR-01): CR-02's document calls for "JC performs a live
+   Overview walkthrough with at least two activated Production Methods" as
+   part of its own closeout evidence. Per Charlie's standing instruction for
+   this whole batch, that walkthrough is deliberately deferred to task #740,
+   the single consolidated walkthrough after CR-03 and before Stefan's UAT.
+   CR-03 (Recipe consolidation and Pending Review status) proceeds next,
+   per Charlie's specified sequence.
+"""
+
+APP_VERSION = "0.20.0"
