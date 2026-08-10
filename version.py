@@ -2730,4 +2730,62 @@ done as of this version. Steps 7 (Validate) and 8 (Close) remain.
    UAT/release decision).
 """
 
-APP_VERSION = "0.23.0"
+VERSION_0_24_0_NOTES = """
+2026-08-10 (later same day, CR-04 Step 7 - Validate, completing Charlie's
+"Database Reset and Clean UAT Baseline" instruction's own execution
+sequence): closed out every remaining Step 7 sub-requirement -
+"regression + integrity + multi-method fixture + consolidated browser
+walkthrough".
+
+1. Consolidated browser walkthrough (engineering stand-in): new
+   tests/test_cr04_step7_consolidated_walkthrough.py - an AppTest-based
+   sweep across all 11 pages a user actually touches for the minimum
+   Phase 1 baseline (Overview, Plants, Production Methods, Production
+   Equipment, Product Family & Foam Grade, Recipes, Production Run, Raw
+   Materials, Samples & Conditioning, Quality Test Result, Report),
+   seeded with a fixture mirroring the exact chain now live in Supabase
+   (Company -> Plant -> PM-100 is_released=True -> Production Unit ->
+   Machine -> Product Family -> Foam Grade -> 2 raw materials -> Recipe
+   Pending Review + components -> Grade Specification (thermal
+   conductivity) -> Production Run -> Sample -> Physical Property Result,
+   a pass). All 11 pages load with zero exceptions. This does NOT
+   replace an actual browser check against the deployed Streamlit Cloud
+   app - that remains Stefan's own final visual check before UAT (task
+   #740), documented explicitly in the test file's own docstring.
+
+2. Multi-method fixture in controlled test scope: confirmed (not newly
+   built) - tests/test_pm_hierarchy_pages_smoke.py's seeded_pm_hierarchy
+   fixture and tests/test_cr04_pm_release_gating.py's seeded_two_methods_
+   non_platform_owner fixture both already exercise two distinct
+   Production Methods (one released/PM-100-equivalent, one not) in
+   controlled test scope, satisfying this sub-requirement without new
+   engineering.
+
+3. Supabase integrity checks: ran a dedicated orphan-FK and row-count
+   sanity pass directly against the live reset+reseeded rigid_foam
+   schema - 24 checks spanning every FK in the minimum Phase 1 baseline
+   chain (plants->companies, plant_production_methods->plants/methods,
+   production_units/machines->plants, machines->production_units/
+   methods, product_families->plants, foam_grades->families,
+   foam_grade_machines->grades/machines, recipe_versions->grades/
+   methods, recipe_components->recipes/materials, grade_specifications
+   ->grades, production_runs->plants/grades/machines/recipes/methods,
+   samples->runs, physical_property_results->runs/samples). Every check
+   returned zero orphans; row counts across plants/production_runs/
+   samples/physical_property_results/recipe_versions/foam_grades are
+   all exactly 1 (the single seeded baseline row per table, as expected
+   post-RESET), and exactly 1 production_methods row has is_released=
+   true (PM-100), confirming the release-gating data matches the Phase 1
+   baseline decision.
+
+4. Full regression: 83 passed (72 prior + 11 new consolidated-walkthrough
+   cases), 0 failed, same benign pre-existing numpy RuntimeWarnings as
+   every prior batch - zero regressions from this batch or any prior
+   CR-04 step.
+
+CR-04 Step 7 is now complete. Step 8 (Close - closeout package to
+Charlie, then Stefan's final live-browser check and UAT/release
+decision) is next.
+"""
+
+APP_VERSION = "0.24.0"
