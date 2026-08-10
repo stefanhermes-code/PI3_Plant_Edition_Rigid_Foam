@@ -1,26 +1,30 @@
-"""Screen 2: Plant & Foam Equipment Overview"""
+"""Screen 2: Plants
+
+CR-01 (UI Navigation and Rigid-Foam Terminology for UAT), implemented
+2026-08-10: this page used to be "Plant & Foam Equipment Overview" and
+carried both Plant CRUD and Machine/foaming-line CRUD in one script. Per
+CR-01's approved sidebar structure, Plant stays a pure location/identity
+concept under its own "Plant Setup" section (this page, retitled "Plants"),
+while equipment now resolves inside the selected Production Method's own
+context - moved to the new "Production Methods" section as
+pages/31_Production_Equipment.py. Production Method activation for a plant
+(the checkbox list that used to live here) moved to the new
+pages/30_Production_Methods.py for the same reason: it's a Production
+Method concern, not a Plant-identity one, and the new page is where a user
+now goes to manage/select a plant's active methods.
+
+page_key stays "plant_overview" (unchanged) - no permission-matrix migration
+needed for this rename; RolePagePermission rows keyed to the old key remain
+valid for the same page under its new title.
+"""
 
 import streamlit as st
 
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
 from cascades import delete_plant_cascade, plant_dependency_counts, unlink_machine_dependents
-from db import (
-    MACHINE_OEMS,
-    MAXFOAM_MODELS,
-    OTHER_LAADER_BERG_MODEL,
-    Company,
-    Machine,
-    Plant,
-    PlantProductionMethod,
-    ProductionMethod,
-    ProductionRun,
-    get_session,
-    init_db,
-)
+from db import Company, Machine, Plant, get_session, init_db
 from helpers import (
-    activated_methods_for_plant,
-    all_production_methods,
     clickable_table,
     delete_with_confirm,
     page_setup,
@@ -29,27 +33,29 @@ from helpers import (
 )
 from tenant_scope import clear_scope_cache, company_picker
 
-page_setup("Plant & Foam Equipment Overview")
+page_setup("Plants")
 init_db()
 require_login()
 logout_button()
 
-st.title("Plant & Foam Equipment Overview")
+st.title("Plants")
 render_function_action_intro(
     function_text=(
-        "This is where you set up and maintain the plants and foaming lines that every recipe, "
-        "production run, and quality result in the system is ultimately traced back to. It "
-        "records each plant's name, code, and location, and each machine's OEM, model, and "
-        "active status, and shows at a glance how many product families and machines sit under "
-        "each plant."
+        "This is where you set up and maintain the plants that every Production Method, product "
+        "family, recipe, production run, and quality result in the system is ultimately traced "
+        "back to. It records each plant's name, code, and location, and shows at a glance how many "
+        "product families and Production Units/Cells sit under each plant. Activating Production "
+        "Methods for a plant and setting up its Production Equipment now live on the Production "
+        "Methods and Production Equipment pages (Production Methods section) - this page is "
+        "location/identity only."
     ),
     action_text=(
-        "Add a plant before adding anything else under it, since product families, recipes, and "
-        "production runs all key off it eventually. Then add each foaming line/machine at that "
-        "plant with its OEM and model so it can be selected when a production run is logged. "
-        "Click a row in either table to edit or delete it - deleting a plant permanently removes "
-        "everything recorded under it (the count is shown before you confirm), while deleting a "
-        "machine only unlinks it from any production runs that reference it."
+        "Add a plant before adding anything else under it, since Production Methods, product "
+        "families, recipes, and production runs all key off it eventually. Once a plant exists, go "
+        "to Production Methods to activate the methods it runs, then Production Equipment to add "
+        "its Production Units/Cells. Click a row in the table below to edit or delete a plant - "
+        "deleting one permanently removes everything recorded under it (the count is shown before "
+        "you confirm)."
     ),
 )
 session = get_session()
@@ -136,7 +142,7 @@ else:
             "Code": plant.plant_code or "—",
             "Location": plant.location or "—",
             "Product families": len(plant.product_families),
-            "Machines": session.query(Machine).filter(Machine.plant_id == plant.id).count(),
+            "Production Units/Cells": session.query(Machine).filter(Machine.plant_id == plant.id).count(),
             "Notes": plant.notes or "",
         }
         for plant in plants
@@ -182,39 +188,11 @@ else:
                         st.success("Plant updated.")
                         st.rerun()
 
-            st.markdown("**Production Methods activated at this plant**")
             st.caption(
-                "Enable the production methods this plant actually runs. Machines and PU Materials "
-                "at this plant can only be assigned a method that's enabled here."
+                "Manage this plant's activated Production Methods on the **Production Methods** "
+                "page, and its Production Units/Cells on the **Production Equipment** page "
+                "(both under the Production Methods nav section)."
             )
-            all_methods = all_production_methods(session)
-            activated_ids = {m.id for m in activated_methods_for_plant(session, selected_plant.id)}
-            existing_rows_by_method = {
-                r.production_method_id: r
-                for r in session.query(PlantProductionMethod)
-                .filter(PlantProductionMethod.plant_id == selected_plant.id)
-                .all()
-            }
-            for method in all_methods:
-                checked = st.checkbox(
-                    f"{method.name} ({method.controlled_id})",
-                    value=method.id in activated_ids,
-                    key=f"pm_activate_{selected_plant.id}_{method.id}",
-                    disabled=not page_usable,
-                )
-                existing_row = existing_rows_by_method.get(method.id)
-                if checked and not existing_row:
-                    session.add(PlantProductionMethod(plant_id=selected_plant.id, production_method_id=method.id, active=True))
-                    session.commit()
-                    st.rerun()
-                elif checked and existing_row and not existing_row.active:
-                    existing_row.active = True
-                    session.commit()
-                    st.rerun()
-                elif not checked and existing_row and existing_row.active:
-                    existing_row.active = False
-                    session.commit()
-                    st.rerun()
 
             counts = plant_dependency_counts(session, selected_plant.id)
             total_related = sum(counts.values())
@@ -238,218 +216,3 @@ else:
         if st.button("Clear selection", key="clear_plant_selection"):
             st.session_state.pop("plant_selected_id", None)
             st.rerun()
-
-def _machine_model_picker(oem, current_model, key_prefix):
-    """Model input for the Add/Edit machine forms below. Called *before*
-    opening the surrounding st.form (same reason as the Expert Notes
-    "Link to" picker: widgets inside a form don't trigger a rerun until
-    submit, so if OEM lived inside the form, switching it wouldn't swap
-    this field until after Save) - when OEM is Laader Berg this offers a
-    controlled dropdown of the known Maxfoam generations (so
-    expected_fallplate_section_count on the Production Run page reliably
-    matches instead of depending on free text), with a free-text fallback
-    for any generation not in that list; every other OEM stays plain free
-    text as before."""
-    if oem == "Laader Berg":
-        default_index = MAXFOAM_MODELS.index(current_model) if current_model in MAXFOAM_MODELS else 0
-        choice = st.selectbox("Model", MAXFOAM_MODELS, index=default_index, key=f"{key_prefix}_model_choice")
-        if choice == OTHER_LAADER_BERG_MODEL:
-            other_default = current_model if current_model and current_model not in MAXFOAM_MODELS else ""
-            return st.text_input("Model (specify)", value=other_default, key=f"{key_prefix}_model_other")
-        return choice
-    return st.text_input("Model", value=current_model or "", key=f"{key_prefix}_model_text")
-
-
-st.divider()
-st.subheader("Machines / foaming lines")
-st.caption(
-    "Process parameters (conveyor speed, tunnel width, laydown mode, etc.) connect to the "
-    "specific equipment that produced them. A production run picks one of these."
-)
-
-if not plants:
-    st.info("Add a plant first before adding machines.")
-else:
-    with st.expander("Add machine / foaming line", expanded=False):
-        if not page_usable:
-            st.caption("View-only access - adding a machine is restricted for your role.")
-        else:
-            # Plant, Production Method, OEM and Model all live outside the
-            # st.form below - each one's choice narrows the next (Plant ->
-            # which methods are activated for it; OEM -> which Model list
-            # applies), and widgets inside a form don't rerun until
-            # submit, so none of that narrowing could happen live if they
-            # lived inside it. Production Method is a single flat pick -
-            # no sub-classification level (2026-08-10 flat-PM redesign).
-            plant_for_machine = st.selectbox("Plant *", plants, format_func=lambda p: p.name, key="add_machine_plant")
-            plant_methods = activated_methods_for_plant(session, plant_for_machine.id)
-            if not plant_methods:
-                st.warning(
-                    "This plant has no activated Production Methods yet. Enable one under "
-                    "'Production Methods activated at this plant' above before adding a machine."
-                )
-                method_choice = None
-            else:
-                method_choice = st.selectbox(
-                    "Production Method *", plant_methods, format_func=lambda m: m.name, key="add_machine_method"
-                )
-            oem = st.selectbox("OEM / manufacturer", MACHINE_OEMS, key="add_machine_oem")
-            model = _machine_model_picker(oem, "", "add_machine")
-            with st.form("add_machine"):
-                name = st.text_input("Machine / line name * (e.g. Line 1, Maxfoam A)")
-                machine_code = st.text_input("Machine code")
-                st.caption(
-                    f"Plant: **{plant_for_machine.name}** · Production Method: "
-                    f"**{method_choice.name if method_choice else '—'}** · "
-                    f"OEM: **{oem}** · Model: **{model or '—'}** (change above, outside this form)"
-                )
-                active = st.checkbox("Active", value=True)
-                notes = st.text_area("Notes")
-                submitted = st.form_submit_button("Save machine", disabled=method_choice is None)
-                if submitted:
-                    if not name:
-                        st.error("Machine / line name is required.")
-                    elif method_choice is None:
-                        st.error("Activate a Production Method for this plant first.")
-                    else:
-                        session.add(
-                            Machine(
-                                plant_id=plant_for_machine.id,
-                                name=name,
-                                machine_code=machine_code,
-                                oem=oem,
-                                model=model,
-                                active=active,
-                                notes=notes,
-                                production_method_id=method_choice.id,
-                            )
-                        )
-                        session.commit()
-                        st.success(f"Machine '{name}' added.")
-                        st.rerun()
-
-    # Scoped to the same plant set as the "Plants" table above (`plants`,
-    # already filtered by company_filter) - previously unfiltered here,
-    # which meant every company's machines were visible to every other
-    # company once a second company existed. Fixed 2026-08-04 (Duroflex
-    # pilot readiness audit).
-    machines = (
-        session.query(Machine)
-        .filter(Machine.plant_id.in_([p.id for p in plants]))
-        .order_by(Machine.plant_id, Machine.name)
-        .all()
-    )
-    if not machines:
-        st.info("No machines recorded yet.")
-    else:
-        machine_rows = [
-            {
-                "Plant": m.plant.name,
-                "Production Method": m.production_method.name if m.production_method else "—",
-                "Machine": m.name,
-                "Code": m.machine_code or "—",
-                "OEM": m.oem or "—",
-                "Model": m.model or "—",
-                "Active": m.active,
-                "Notes": m.notes or "",
-            }
-            for m in machines
-        ]
-        st.caption("Click a row to edit (and optionally delete) that machine.")
-        idx = clickable_table(machine_rows, key="machines_table")
-        if idx is not None and idx < len(machines):
-            st.session_state["machine_selected_id"] = machines[idx].id
-        else:
-            st.session_state.pop("machine_selected_id", None)
-
-        selected_machine_id = st.session_state.get("machine_selected_id")
-        selected_machine = next((m for m in machines if m.id == selected_machine_id), None)
-
-        if selected_machine:
-            st.markdown(f"**Edit machine: {selected_machine.name}**")
-            if not page_usable:
-                st.caption("View-only access - editing and deleting is restricted for your role.")
-            else:
-                # e_oem/e_model live outside the form, same reason as the
-                # Add-machine picker above - switching OEM needs to swap
-                # the Model widget immediately, which a form can't do
-                # until submit.
-                e_plant = st.selectbox(
-                    "Plant *", plants,
-                    index=next((i for i, p in enumerate(plants) if p.id == selected_machine.plant_id), 0),
-                    format_func=lambda p: p.name, key=f"edit_machine_plant_{selected_machine.id}",
-                )
-                e_plant_methods = activated_methods_for_plant(session, e_plant.id)
-                current_method = selected_machine.production_method
-                if not e_plant_methods:
-                    st.warning(
-                        "This plant has no activated Production Methods yet. Enable one under "
-                        "'Production Methods activated at this plant' above."
-                    )
-                    e_method_choice = None
-                else:
-                    e_method_choice = st.selectbox(
-                        "Production Method *", e_plant_methods, format_func=lambda m: m.name,
-                        index=next((i for i, m in enumerate(e_plant_methods) if current_method and m.id == current_method.id), 0),
-                        key=f"edit_machine_method_{selected_machine.id}",
-                    )
-                e_oem = st.selectbox(
-                    "OEM / manufacturer", MACHINE_OEMS,
-                    index=MACHINE_OEMS.index(selected_machine.oem) if selected_machine.oem in MACHINE_OEMS else 0,
-                    key=f"edit_machine_oem_{selected_machine.id}",
-                )
-                e_model = _machine_model_picker(e_oem, selected_machine.model, f"edit_machine_{selected_machine.id}")
-                with st.form(f"edit_machine_{selected_machine.id}"):
-                    e_name = st.text_input("Machine / line name *", value=selected_machine.name, key=f"edit_machine_name_{selected_machine.id}")
-                    e_code = st.text_input(
-                        "Machine code", value=selected_machine.machine_code or "", key=f"edit_machine_code_{selected_machine.id}"
-                    )
-                    st.caption(
-                        f"Plant: **{e_plant.name}** · Production Method: "
-                        f"**{e_method_choice.name if e_method_choice else '—'}** · "
-                        f"OEM: **{e_oem}** · Model: **{e_model or '—'}** (change above, outside this form)"
-                    )
-                    e_active = st.checkbox("Active", value=selected_machine.active, key=f"edit_machine_active_{selected_machine.id}")
-                    e_notes = st.text_area("Notes", value=selected_machine.notes or "", key=f"edit_machine_notes_{selected_machine.id}")
-                    if st.form_submit_button("Save changes", disabled=e_method_choice is None):
-                        if not e_name.strip():
-                            st.error("Machine / line name is required.")
-                        elif e_method_choice is None:
-                            st.error("Activate a Production Method for this plant first.")
-                        else:
-                            selected_machine.plant_id = e_plant.id
-                            selected_machine.name = e_name.strip()
-                            selected_machine.machine_code = e_code
-                            selected_machine.oem = e_oem
-                            selected_machine.model = e_model
-                            selected_machine.active = e_active
-                            selected_machine.notes = e_notes
-                            selected_machine.production_method_id = e_method_choice.id
-                            session.commit()
-                            st.success("Machine updated.")
-                            st.rerun()
-
-                linked_runs = session.query(ProductionRun).filter(ProductionRun.machine_id == selected_machine.id).count()
-                if linked_runs:
-                    warning = (
-                        f"{linked_runs} production run(s) reference this machine. Deleting it will unlink them "
-                        "(the runs stay, the machine reference is cleared), not delete those runs."
-                    )
-                else:
-                    warning = "No production runs reference this machine — deleting it is safe."
-
-                def _do_delete_machine(_session=session, _id=selected_machine.id):
-                    unlink_machine_dependents(_session, _id)
-                    _session.query(Machine).filter(Machine.id == _id).delete(synchronize_session=False)
-                    _session.commit()
-                    st.session_state.pop("machine_selected_id", None)
-
-                delete_with_confirm(
-                    f"'{selected_machine.name}'", _do_delete_machine, key_prefix=f"machine_{selected_machine.id}",
-                    extra_warning=warning,
-                )
-
-            if st.button("Clear selection", key="clear_machine_selection"):
-                st.session_state.pop("machine_selected_id", None)
-                st.rerun()
-

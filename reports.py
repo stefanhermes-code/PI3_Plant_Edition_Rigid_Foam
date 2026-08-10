@@ -13,7 +13,7 @@ test) and a Word (.docx) renderer (PDF/Excel renderers were removed
 
 - build_period_summary_data() / render_period_summary_docx()
   One plant/product family/date range: KPIs, pass rate, recurring issues,
-  the run list, and a breakdown by foam grade.
+  the run list, and a breakdown by product grade.
 - build_trial_report_data() / render_trial_report_docx()
   One closed Customer Trial or Optimization Trial (see db.CustomerTrial /
   db.OptimizationTrial - the two independent lab-trial flows, added
@@ -46,7 +46,7 @@ and PI3's own Word download on relevant pages already covers narrative):
 - build_where_used_report_data() / render_where_used_report_pdf()
   / render_where_used_report_excel()
   One raw material: every recipe version (active and retired) that uses
-  it with its php/role, the target properties of every foam grade
+  it with its php/role, the target properties of every product grade
   affected, and any Customer/Optimization Trial precedent tied to a
   recipe version containing it - "if I replace this material, what's
   affected and what trials already exist to lean on."
@@ -61,7 +61,7 @@ Report page (pages/21_Report.py), not the Production Run page itself: per
 user direction, a report whose subject is a single simple choice (pick
 one run from a dropdown) belongs on the Report page alongside the other
 selector-driven reports; a report whose subject needs a comprehensive
-multi-field selection first (date range, foam grade, etc. - see the
+multi-field selection first (date range, product grade, etc. - see the
 Quality Test Result report below) belongs on its own page instead, next
 to where that selection naturally happens.
 
@@ -605,7 +605,7 @@ def build_period_summary_data(
     run_rows = [
         {
             "Run ID": r.id, "Date": r.run_date,
-            "Foam grade": r.foam_grade.grade_name if r.foam_grade else "—",
+            "Product grade": r.foam_grade.grade_name if r.foam_grade else "—",
             "Recipe version": r.recipe_version.version_label if r.recipe_version else "—",
             "Machine": r.machine.name if r.machine else "—",
             "Production Method": r.production_method.name if r.production_method else "—",
@@ -627,7 +627,7 @@ def build_period_summary_data(
     for r in runs:
         gname = r.foam_grade.grade_name if r.foam_grade else "—"
         grade_counts[gname] = grade_counts.get(gname, 0) + 1
-    grade_breakdown = [{"Foam grade": k, "Production runs": v} for k, v in sorted(grade_counts.items())]
+    grade_breakdown = [{"Product grade": k, "Production runs": v} for k, v in sorted(grade_counts.items())]
 
     # Production Method breakdown (added 2026-08-10): shown regardless of
     # whether production_method_id isolates the report to one method - when
@@ -688,7 +688,7 @@ def render_period_summary_pdf(data):
         ], col_widths=(45 * mm, 40 * mm, 45 * mm, 40 * mm)))
         _section(story, "Production runs in range", data["runs"])
         _section(story, "Quality issues in range", data["quality_issues"])
-        _section(story, "Breakdown by foam grade", data["grade_breakdown"])
+        _section(story, "Breakdown by product grade", data["grade_breakdown"])
     return _pdf_bytes(build)
 
 
@@ -741,7 +741,7 @@ def render_period_summary_docx(data):
         )
     _docx_section(doc, "Production runs in range", data["runs"])
     _docx_section(doc, f"{issue_label} in range", data["quality_issues"])
-    _docx_section(doc, "Breakdown by foam grade", data["grade_breakdown"])
+    _docx_section(doc, "Breakdown by product grade", data["grade_breakdown"])
     _docx_section(doc, "Breakdown by Production Method", data.get("method_breakdown") or [])
     return _docx_bytes(doc)
 
@@ -838,7 +838,7 @@ def render_trial_report_pdf(data):
         )
         story.append(_key_value_table([
             ("Status", data["status"]), ("Responsible", data["responsible_person"]),
-            ("Foam grade", data["foam_grade"]), ("Plant", data["plant"]),
+            ("Product grade", data["foam_grade"]), ("Plant", data["plant"]),
             ("Trial date", data["trial_date"]), ("Batch reference", data["batch_reference"]),
             ("Reviewed by", data["reviewed_by"]), ("Approved by", data["approved_by"]),
             ("Date closed", data["date_closed"]), ("", ""),
@@ -863,7 +863,7 @@ def render_trial_report_docx(data):
     )
     _docx_kv_table(doc, [
         ("Status", data["status"]), ("Responsible", data["responsible_person"]),
-        ("Foam grade", data["foam_grade"]), ("Plant", data["plant"]),
+        ("Product grade", data["foam_grade"]), ("Plant", data["plant"]),
         ("Trial date", data["trial_date"]), ("Batch reference", data["batch_reference"]),
         ("Reviewed by", data["reviewed_by"]), ("Approved by", data["approved_by"]),
         ("Date closed", data["date_closed"]),
@@ -891,7 +891,7 @@ def render_trial_report_docx(data):
 # this recipe version (the three mutually-exclusive parents - see
 # db.SAMPLE_SOURCE_TYPES), filtered to the caller's date range, then
 # aggregated per property (average actual, pass rate, sample count)
-# against that foam grade's target - never a flat row-by-row dump, per
+# against that product grade's target - never a flat row-by-row dump, per
 # the Reports redesign ruling that raw data belongs in each page's own
 # CSV export, not in a report.
 # ---------------------------------------------------------------------------
@@ -1159,7 +1159,7 @@ def build_where_used_report_data(session, raw_material_id):
         if family:
             family_names.add(family.name)
         usage_rows.append({
-            "Foam grade": grade.grade_name if grade else "—",
+            "Product grade": grade.grade_name if grade else "—",
             "Product family": family.name if family else "—",
             "Recipe version": v.version_label if v else "—",
             "Status": "Active" if v and v.is_active else "Retired",
@@ -1173,7 +1173,7 @@ def build_where_used_report_data(session, raw_material_id):
     for g in sorted(grades, key=lambda g: g.grade_name):
         for t in _recipe_version_target_properties(g):
             target_rows.append({
-                "Foam grade": g.grade_name, "Property": t["property_name"],
+                "Product grade": g.grade_name, "Property": t["property_name"],
                 "Target": t["target_value"], "Unit": t["unit"],
             })
 
@@ -1188,7 +1188,7 @@ def build_where_used_report_data(session, raw_material_id):
         for t in customer_trials:
             trial_rows.append({
                 "Trial type": "Customer Trial", "Trial ID": t.id,
-                "Foam grade": t.foam_grade.grade_name if t.foam_grade else "—",
+                "Product grade": t.foam_grade.grade_name if t.foam_grade else "—",
                 "Status": t.status, "Trial date": t.trial_date, "Outcome": t.outcome or "—",
             })
         optimization_trials = (
@@ -1200,7 +1200,7 @@ def build_where_used_report_data(session, raw_material_id):
         for t in optimization_trials:
             trial_rows.append({
                 "Trial type": "Optimization Trial", "Trial ID": t.id,
-                "Foam grade": t.foam_grade.grade_name if t.foam_grade else "—",
+                "Product grade": t.foam_grade.grade_name if t.foam_grade else "—",
                 "Status": t.status, "Trial date": t.trial_date, "Outcome": t.conclusion or "—",
             })
 
@@ -1228,12 +1228,12 @@ def render_where_used_report_pdf(data):
         )
         story.append(_key_value_table([
             ("Recipe versions using this material", data["recipe_version_count"]),
-            ("Foam grades affected", data["foam_grade_count"]),
+            ("Product grades affected", data["foam_grade_count"]),
             ("Product families affected", data["product_family_count"]),
             ("", ""),
         ]))
         _section(story, "Recipes using this material", data["usage_rows"])
-        _section(story, "Target properties of affected foam grades", data["target_rows"])
+        _section(story, "Target properties of affected product grades", data["target_rows"])
         _section(story, "Trial precedent (Customer / Optimization Trials on these recipes)", data["trial_rows"])
     return _pdf_bytes(build)
 
@@ -1247,11 +1247,11 @@ def render_where_used_report_docx(data):
     )
     _docx_kv_table(doc, [
         ("Recipe versions using this material", data["recipe_version_count"]),
-        ("Foam grades affected", data["foam_grade_count"]),
+        ("Product grades affected", data["foam_grade_count"]),
         ("Product families affected", data["product_family_count"]),
     ])
     _docx_section(doc, "Recipes using this material", data["usage_rows"])
-    _docx_section(doc, "Target properties of affected foam grades", data["target_rows"])
+    _docx_section(doc, "Target properties of affected product grades", data["target_rows"])
     _docx_section(doc, "Trial precedent (Customer / Optimization Trials on these recipes)", data["trial_rows"])
     return _docx_bytes(doc)
 
@@ -1587,7 +1587,7 @@ def render_batch_release_record_pdf(data):
         )
         story.append(_key_value_table([
             ("Plant", data["plant"]), ("Product family", data["product_family"]),
-            ("Foam grade", data["foam_grade"]), ("Machine", data["machine"]),
+            ("Product grade", data["foam_grade"]), ("Machine", data["machine"]),
             ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
             ("Block reference", data["block_reference"]), ("Operator/team", data["operator"]),
             ("Quality verdict", data["quality_verdict"]), ("", ""),
@@ -1612,9 +1612,9 @@ def render_batch_release_record_pdf(data):
             story.append(Spacer(1, 10))
             story.append(Paragraph("Flagged — supporting context from other tabs", STYLES["Heading2"]))
             story.append(_p("Flagged because: " + "; ".join(data["flag_reasons"])))
-            _section(story, "Process setting changes (Setup → Finalized)", data["setup_deviations"])
-            _section(story, "Fall-plate position changes (Setup → Finalized)", data["fallplate_deviations"])
-            _section(story, "Component stream readings (Finalized phase)", data["stream_readings"])
+            _section(story, "Process setting changes (Planned Settings → Actual Run and Cycle Data)", data["setup_deviations"])
+            _section(story, "Tool geometry and fill configuration changes (Planned Settings → Actual Run and Cycle Data)", data["fallplate_deviations"])
+            _section(story, "Material metering and actual usage (Actual Run and Cycle Data phase)", data["stream_readings"])
             if data["stream_calibration_flags"]:
                 story.append(_p(
                     "⚠ Non-valid calibration status recorded for: " + ", ".join(data["stream_calibration_flags"])
@@ -1632,7 +1632,7 @@ def render_batch_release_record_docx(data):
     )
     _docx_kv_table(doc, [
         ("Plant", data["plant"]), ("Product family", data["product_family"]),
-        ("Foam grade", data["foam_grade"]), ("Machine", data["machine"]),
+        ("Product grade", data["foam_grade"]), ("Machine", data["machine"]),
         ("Production method", data["production_method"]),
         ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
         ("Block reference", data["block_reference"]), ("Operator/team", data["operator"]),
@@ -1654,9 +1654,9 @@ def render_batch_release_record_docx(data):
     if data["has_flags"]:
         _docx_heading(doc, "Flagged — supporting context from other tabs", size=15, space_before=14)
         doc.add_paragraph("Flagged because: " + "; ".join(data["flag_reasons"]))
-        _docx_section(doc, "Process setting changes (Setup → Finalized)", data["setup_deviations"])
-        _docx_section(doc, "Fall-plate position changes (Setup → Finalized)", data["fallplate_deviations"])
-        _docx_section(doc, "Component stream readings (Finalized phase)", data["stream_readings"])
+        _docx_section(doc, "Process setting changes (Planned Settings → Actual Run and Cycle Data)", data["setup_deviations"])
+        _docx_section(doc, "Tool geometry and fill configuration changes (Planned Settings → Actual Run and Cycle Data)", data["fallplate_deviations"])
+        _docx_section(doc, "Material metering and actual usage (Actual Run and Cycle Data phase)", data["stream_readings"])
         if data["stream_calibration_flags"]:
             doc.add_paragraph(
                 "⚠ Non-valid calibration status recorded for: " + ", ".join(data["stream_calibration_flags"])
@@ -1833,16 +1833,16 @@ def render_sample_certificate_pdf(data):
     def build(story):
         _title_block(
             story, f"Sample Certificate of Analysis — Sample #{data['sample_id']}",
-            f"{data['plant']} · {data['foam_grade']} · Zone: {data['zone_label']} · "
+            f"{data['plant']} · {data['foam_grade']} · Sample Location Reference: {data['zone_label']} · "
             f"Verdict: {data['overall_verdict']}",
         )
         story.append(Paragraph("Sample source", STYLES["Heading3"]))
-        story.append(_key_value_table(data["header_fields"] + [("Foam grade", data["foam_grade"]), ("Plant", data["plant"])]))
+        story.append(_key_value_table(data["header_fields"] + [("Product grade", data["foam_grade"]), ("Plant", data["plant"])]))
 
         story.append(Spacer(1, 8))
         story.append(Paragraph("Sample", STYLES["Heading3"]))
         story.append(_key_value_table([
-            ("Sample ID", data["sample_id"]), ("Zone", data["zone_label"]),
+            ("Sample ID", data["sample_id"]), ("Sample Location Reference", data["zone_label"]),
             ("Sampled", data["sample_ts"]), ("", ""),
         ]))
         if data["sample_notes"]:
@@ -1871,15 +1871,15 @@ def render_sample_certificate_docx(data):
     doc = Document()
     _docx_report_header(
         doc, f"Sample Certificate of Analysis — Sample #{data['sample_id']}",
-        f"{data['plant']} · {data['foam_grade']} · Zone: {data['zone_label']} · "
+        f"{data['plant']} · {data['foam_grade']} · Sample Location Reference: {data['zone_label']} · "
         f"Verdict: {data['overall_verdict']}",
     )
     _docx_heading(doc, "Sample source", size=12, color=_HTC_GREY, space_before=6)
-    _docx_kv_table(doc, data["header_fields"] + [("Foam grade", data["foam_grade"]), ("Plant", data["plant"])])
+    _docx_kv_table(doc, data["header_fields"] + [("Product grade", data["foam_grade"]), ("Plant", data["plant"])])
 
     _docx_heading(doc, "Sample", size=12, color=_HTC_GREY, space_before=10)
     _docx_kv_table(doc, [
-        ("Sample ID", data["sample_id"]), ("Zone", data["zone_label"]), ("Sampled", data["sample_ts"]),
+        ("Sample ID", data["sample_id"]), ("Sample Location Reference", data["zone_label"]), ("Sampled", data["sample_ts"]),
     ])
     if data["sample_notes"]:
         doc.add_paragraph(f"Notes: {data['sample_notes']}")
@@ -1902,7 +1902,8 @@ def render_sample_certificate_docx(data):
 
 
 # ---------------------------------------------------------------------------
-# 6. Quality Test Result Report (Physical Property Result page)
+# 6. Test Results Report (Physical Property Result page) (CR-01, 2026-08-10:
+# renamed from "Quality Test Result Report" - label-only rename)
 #
 # Placement (per user direction 2026-08-04): this report's subject is a
 # comprehensive multi-field selection (Pass/Fail, Property, Foam scope) the
@@ -1917,7 +1918,7 @@ def render_sample_certificate_docx(data):
 # ---------------------------------------------------------------------------
 
 def _qtr_source_and_grade(result):
-    """(source label, human-readable parent description, foam grade name)
+    """(source label, human-readable parent description, product grade name)
     for a PhysicalPropertyResult, resolving whichever of the three
     mutually exclusive parents (production run / customer trial /
     optimization trial - see db.SAMPLE_SOURCE_TYPES) it belongs to.
@@ -1992,7 +1993,7 @@ def build_quality_test_report_data(session, result_ids, scope):
         bucket = grade_counts.setdefault(d["grade_name"], {"Pass": 0, "Fail": 0, "Not computed": 0})
         bucket[d["verdict"]] += 1
     grade_breakdown = [
-        {"Foam grade": g, "Pass count": c["Pass"], "Fail count": c["Fail"]}
+        {"Product grade": g, "Pass count": c["Pass"], "Fail count": c["Fail"]}
         for g, c in sorted(grade_counts.items())
     ]
     # Only meaningful as a chart when the selection actually spans more
@@ -2010,7 +2011,7 @@ def build_quality_test_report_data(session, result_ids, scope):
                 if d["result"].actual_value is not None and d["result"].target_value is not None
                 else None
             ),
-            "Foam grade": d["grade_name"], "Tested": d["result"].tested_at,
+            "Product grade": d["grade_name"], "Tested": d["result"].tested_at,
         }
         for d in sorted(detail, key=lambda d: (d["result"].property_name, d["source_desc"]))
         if d["verdict"] == "Fail"
@@ -2035,7 +2036,7 @@ def render_quality_test_report_pdf(data):
 
     def build(story):
         _title_block(
-            story, "Quality Test Result Report",
+            story, "Test Results Report",
             f"Pass/Fail: {scope['pass_fail_label']} · Property: {scope['property_label']} · "
             f"Foam scope: {scope['foam_scope_label']}",
         )
@@ -2062,9 +2063,9 @@ def render_quality_test_report_pdf(data):
         if data["show_grade_breakdown"]:
             grade_rows = data["grade_breakdown"]
             _bar_chart(
-                story, "Failures by foam grade",
-                [row["Foam grade"] for row in grade_rows], [row["Fail count"] for row in grade_rows],
-                note="Shown because this selection spans more than one foam grade.",
+                story, "Failures by product grade",
+                [row["Product grade"] for row in grade_rows], [row["Fail count"] for row in grade_rows],
+                note="Shown because this selection spans more than one product grade.",
             )
 
         _section(story, "Failing results (target vs. actual)", data["failing_results"])
@@ -2075,7 +2076,7 @@ def render_quality_test_report_docx(data):
     scope = data["scope"]
     doc = Document()
     _docx_report_header(
-        doc, "Quality Test Result Report",
+        doc, "Test Results Report",
         f"Pass/Fail: {scope['pass_fail_label']} · Property: {scope['property_label']} · "
         f"Foam scope: {scope['foam_scope_label']}",
     )
@@ -2102,9 +2103,9 @@ def render_quality_test_report_docx(data):
     if data["show_grade_breakdown"]:
         grade_rows = data["grade_breakdown"]
         _docx_bar_chart(
-            doc, "Failures by foam grade",
-            [row["Foam grade"] for row in grade_rows], [row["Fail count"] for row in grade_rows],
-            note="Shown because this selection spans more than one foam grade.",
+            doc, "Failures by product grade",
+            [row["Product grade"] for row in grade_rows], [row["Fail count"] for row in grade_rows],
+            note="Shown because this selection spans more than one product grade.",
         )
 
     _docx_section(doc, "Failing results (target vs. actual)", data["failing_results"])
@@ -2112,10 +2113,11 @@ def render_quality_test_report_docx(data):
 
 
 # ---------------------------------------------------------------------------
-# 6. Quality Issue Report (Quality Observation page)
+# 6. Quality Issues Report (Quality Observation page) (CR-01, 2026-08-10:
+# pluralized from "Quality Issue Report" - label-only rename)
 #
 # Placement/mechanism (per user direction 2026-08-04): same logic as the
-# Quality Test Result report - this report's subject is a comprehensive
+# Test Results report - this report's subject is a comprehensive
 # multi-field selection (Severity, Foam scope, and the breakdown's
 # group-by choice) built up on pages/6_Quality_Observation.py itself, not
 # a single dropdown choice, so it lives there rather than on the Report
@@ -2124,7 +2126,7 @@ def render_quality_test_report_docx(data):
 # ---------------------------------------------------------------------------
 
 def _qi_source_and_grade(obs):
-    """(source label, human-readable parent description, foam grade name)
+    """(source label, human-readable parent description, product grade name)
     for a QualityObservation, resolving whichever of the three mutually
     exclusive parents it belongs to. Mirrors pages/6_Quality_Observation.
     py's own _obs_source_desc()/_obs_foam_grade_id() - kept as a local
@@ -2204,7 +2206,7 @@ def build_quality_issue_report_data(session, observation_ids, scope):
             priority_issues.append({
                 "Source": source_desc, "Issue": o.observation_type,
                 "Severity": o.severity or "—", "Frequency": o.frequency or "—",
-                "Confidence": o.confidence_level or "—", "Foam grade": grade_name,
+                "Confidence": o.confidence_level or "—", "Product grade": grade_name,
                 "Suspected cause": o.suspected_cause or "—", "Observed": o.observed_at,
             })
     priority_issues.sort(key=lambda r: (0 if r["Severity"] == "High" else 1, 0 if r["Frequency"] == "Recurring" else 1))
@@ -2228,7 +2230,7 @@ def render_quality_issue_report_pdf(data):
 
     def build(story):
         _title_block(
-            story, "Quality Issue Report",
+            story, "Quality Issues Report",
             f"Severity: {scope['severity_label']} · Foam scope: {scope['foam_scope_label']} · "
             f"Grouped by: {scope['group_by_label']}",
         )
@@ -2260,9 +2262,9 @@ def render_quality_issue_report_pdf(data):
         # _wrapped_section, not _section: this table mixes a long free-
         # text column (Suspected cause) with several rows, which
         # overflowed the page under _section's no-wrap plain-string
-        # cells. Confidence/Foam grade/Observed are dropped here to keep
+        # cells. Confidence/Product grade/Observed are dropped here to keep
         # the remaining columns legible at print width - Source already
-        # carries the foam grade and date.
+        # carries the product grade and date.
         _wrapped_section(
             story, "Priority issues (High severity and/or Recurring)",
             data["priority_issues"], ["Source", "Issue", "Severity", "Frequency", "Suspected cause"],
@@ -2276,7 +2278,7 @@ def render_quality_issue_report_docx(data):
     group_col = data["group_by_col"]
     doc = Document()
     _docx_report_header(
-        doc, "Quality Issue Report",
+        doc, "Quality Issues Report",
         f"Severity: {scope['severity_label']} · Foam scope: {scope['foam_scope_label']} · "
         f"Grouped by: {scope['group_by_label']}",
     )
@@ -2349,7 +2351,7 @@ def build_sample_report_data(session, source_type, sample_ids, scope):
         zone = s.zone_label or "Unspecified"
         zone_counts[zone] = zone_counts.get(zone, 0) + 1
     zone_breakdown = [
-        {"Zone": k, "Sample count": v}
+        {"Sample Location Reference": k, "Sample count": v}
         for k, v in sorted(zone_counts.items(), key=lambda kv: -kv[1])
     ]
 
@@ -2404,8 +2406,8 @@ def render_sample_report_pdf(data):
 
         zone_rows = data["zone_breakdown"]
         _bar_chart(
-            story, "Samples by zone",
-            [row["Zone"] for row in zone_rows], [row["Sample count"] for row in zone_rows],
+            story, "Samples by Sample Location Reference",
+            [row["Sample Location Reference"] for row in zone_rows], [row["Sample count"] for row in zone_rows],
         )
 
         _bar_chart(
@@ -2431,7 +2433,7 @@ def render_sample_report_docx(data):
     ])
 
     zone_rows = data["zone_breakdown"]
-    _docx_bar_chart(doc, "Samples by zone", [row["Zone"] for row in zone_rows], [row["Sample count"] for row in zone_rows])
+    _docx_bar_chart(doc, "Samples by Sample Location Reference", [row["Sample Location Reference"] for row in zone_rows], [row["Sample count"] for row in zone_rows])
 
     _docx_bar_chart(
         doc, "Linked quality result outcomes",
@@ -2744,7 +2746,7 @@ def render_pi3_qa_report_docx(data):
     _docx_kv_table(doc, [
         ("Generated", data["asked_at"].strftime("%Y-%m-%d %H:%M UTC")),
         ("Plant", data.get("plant_name") or "—"),
-        ("Foam grade", data.get("foam_grade_name") or "—"),
+        ("Product grade", data.get("foam_grade_name") or "—"),
         ("Asked by", data.get("asked_by") or "—"),
         ("Page context", data.get("page_context") or "—"),
     ])
@@ -3123,7 +3125,7 @@ def _docx_bytes(doc):
 # does the current recipe meet target, and where it doesn't, which raw
 # material's actual dosage is the strongest lead. Lives on
 # pages/15_Recipe_Optimization.py itself (a comprehensive multi-field
-# selection - foam grade, include-trials toggle, correlation property - not
+# selection - product grade, include-trials toggle, correlation property - not
 # a single dropdown choice), same placement logic as the Quality Test Result
 # Report. build_recipe_optimization_report_data() never re-derives the
 # page's own selection - it takes the exact grade, current recipe version,
@@ -3132,7 +3134,7 @@ def _docx_bytes(doc):
 #
 # WP4 (2026-08-07, Converged Joint Implementation Plan section 7.5) added
 # build_rigid_recipe_optimization_report_data() alongside this for a
-# rigid-foam grade's spec-based achievement table (wp3_conformance.
+# rigid-product grade's spec-based achievement table (wp3_conformance.
 # compute_grade_achievement_summary) instead of the flexible industry-
 # tolerance model - see that function's own docstring. It deliberately
 # REUSES render_recipe_optimization_report_pdf/docx below rather than
@@ -3271,7 +3273,7 @@ def build_rigid_recipe_optimization_report_data(
     PDF/DOCX-specific rigid branch needed there. Only the *data assembly* is
     rigid-specific.
 
-    grade: FoamGrade (chemistry_id populated - a rigid-foam grade).
+    grade: FoamGrade (chemistry_id populated - a rigid-product grade).
     current_version: RecipeVersion (the active one). current_cost: dict
     from analytics.recipe_version_cost(). achievement_summary: the list of
     dicts already computed by the page - wp3_conformance.
@@ -3434,7 +3436,7 @@ def render_recipe_optimization_report_pdf(data):
         )
         story.append(Paragraph("Context", STYLES["Heading2"]))
         story.append(_key_value_table([
-            ("Foam grade", data["grade_name"]), ("Plant", data["plant_name"]),
+            ("Product grade", data["grade_name"]), ("Plant", data["plant_name"]),
             ("Recipe version", data["version_label"]), ("Status", data["version_status"]),
             ("Ingredients", data["component_count"]),
             ("Cost per kg (USD)", f"{data['cost_per_kg']:.2f}" if data["cost_per_kg"] is not None else "—"),
@@ -3481,7 +3483,7 @@ def render_recipe_optimization_report_docx(data):
     )
     _docx_heading(doc, "Context", size=15)
     _docx_kv_table(doc, [
-        ("Foam grade", data["grade_name"]), ("Plant", data["plant_name"]),
+        ("Product grade", data["grade_name"]), ("Plant", data["plant_name"]),
         ("Recipe version", data["version_label"]), ("Status", data["version_status"]),
         ("Ingredients", data["component_count"]),
         ("Cost per kg (USD)", f"{data['cost_per_kg']:.2f}" if data["cost_per_kg"] is not None else "—"),
@@ -3525,7 +3527,7 @@ def render_recipe_optimization_report_docx(data):
 #
 # Added 2026-08-04, same batch and placement logic as the Recipe
 # Optimization Report above - lives on pages/16_Trend_Analysis.py itself
-# (foam grade/family, property, recipe/machine filters: a comprehensive
+# (product grade/family, property, recipe/machine filters: a comprehensive
 # multi-field selection, not a single dropdown choice). This is the page's
 # own deterministic SPC results (control chart, capability, CUSUM, trend
 # test - all computed by analytics.py), never the PI3 interpretation
@@ -3548,7 +3550,7 @@ def build_trend_analysis_report_data(
     computed. change_rows: the machine-change + quality-issue timeline the
     page already assembled."""
     subject_desc = (
-        f"foam grade {unit['label']}" if unit["mode"] == "grade"
+        f"product grade {unit['label']}" if unit["mode"] == "grade"
         else f"foam family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
     )
 
@@ -3803,7 +3805,7 @@ def build_correlation_report_data(session, unit, property_name, ranked, pooling_
     already computed for property_name (columns label/n/correlation/
     field)."""
     subject_desc = (
-        f"foam grade {unit['label']}" if unit["mode"] == "grade"
+        f"product grade {unit['label']}" if unit["mode"] == "grade"
         else f"foam family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
     )
 
@@ -3978,7 +3980,7 @@ def render_root_cause_report_pdf(data):
         story.append(_key_value_table([
             ("Quality issue", data["observation_type"]), ("Severity", data["severity"]),
             ("Frequency", data["frequency"]), ("Run", f"#{data['run_id']} ({data['run_date']})"),
-            ("Foam grade", data["grade_name"]),
+            ("Product grade", data["grade_name"]),
             ("Compared against", f"run #{data['prior_run_id']} ({data['prior_run_date']})"),
             ("Logged suspected cause", data["suspected_cause"] or "—"), ("", ""),
         ]))
@@ -4008,7 +4010,7 @@ def render_root_cause_report_docx(data):
     _docx_kv_table(doc, [
         ("Quality issue", data["observation_type"]), ("Severity", data["severity"]),
         ("Frequency", data["frequency"]), ("Run", f"#{data['run_id']} ({data['run_date']})"),
-        ("Foam grade", data["grade_name"]),
+        ("Product grade", data["grade_name"]),
         ("Compared against", f"run #{data['prior_run_id']} ({data['prior_run_date']})"),
         ("Logged suspected cause", data["suspected_cause"] or "—"),
     ])
@@ -4030,7 +4032,9 @@ def render_root_cause_report_docx(data):
 
 
 # ---------------------------------------------------------------------------
-# 14. Machine Settings Optimization Report (Context / Analysis / Conclusions)
+# 14. Process Parameter Optimization Report (Context / Analysis / Conclusions)
+# (CR-01, 2026-08-10: report title renamed from "Machine Settings
+# Optimization Report" - function name/backend unchanged, label-only rename)
 #
 # Added 2026-08-04, same batch and placement logic as the Process-Property
 # Correlation Report above (structurally the closest sibling - both rank
@@ -4048,7 +4052,7 @@ def build_machine_settings_report_data(session, unit, property_name, ranked, poo
     already computed for property_name (columns label/n/best_range/
     best_range_setting/best_range_avg_dev_pct/spread_pct/field)."""
     subject_desc = (
-        f"foam grade {unit['label']}" if unit["mode"] == "grade"
+        f"product grade {unit['label']}" if unit["mode"] == "grade"
         else f"foam family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
     )
 
@@ -4105,7 +4109,7 @@ def build_machine_settings_report_data(session, unit, property_name, ranked, poo
 def render_machine_settings_report_pdf(data):
     def build(story):
         _title_block(
-            story, "Machine Settings Optimization Report",
+            story, "Process Parameter Optimization Report",
             f"{data['property_name']} · {data['subject_desc']}",
         )
         story.append(Paragraph("Context", STYLES["Heading2"]))
@@ -4132,7 +4136,7 @@ def render_machine_settings_report_pdf(data):
 def render_machine_settings_report_docx(data):
     doc = Document()
     _docx_report_header(
-        doc, "Machine Settings Optimization Report", f"{data['property_name']} · {data['subject_desc']}",
+        doc, "Process Parameter Optimization Report", f"{data['property_name']} · {data['subject_desc']}",
     )
     _docx_heading(doc, "Context", size=15)
     _docx_kv_table(doc, [
@@ -4185,7 +4189,7 @@ def build_expert_notes_report_data(session, notes, scope_label):
     link_type_counts = {}
     in_pi3_count = 0
     link_type_labels = {
-        "production_run": "Production Run", "foam_grade": "Foam Grade", "product_family": "Foam Family",
+        "production_run": "Production Run", "foam_grade": "Product Grade", "product_family": "Foam Family",
     }
     for n in notes:
         conf = n.confidence_level or "—"
@@ -4468,7 +4472,7 @@ def render_wp3_conformance_report_docx(data):
     _docx_heading(doc, "Run", size=12, color=_HTC_GREY, space_before=10)
     _docx_kv_table(doc, [
         ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
-        ("Machine", data["machine"]), ("Foam grade", data["grade_name"]),
+        ("Machine", data["machine"]), ("Product grade", data["grade_name"]),
     ])
 
     _docx_section(doc, "Conformance results", data["conformance_rows"])

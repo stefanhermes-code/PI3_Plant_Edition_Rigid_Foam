@@ -352,7 +352,7 @@ def _grade_ids_for_family(session, product_family_id):
 
 def product_family_dependency_counts(session, product_family_id):
     grade_ids = _grade_ids_for_family(session, product_family_id)
-    counts = {"foam grade(s)": len(grade_ids)}
+    counts = {"product grade(s)": len(grade_ids)}
     for grade_id in grade_ids:
         _merge_counts(counts, foam_grade_dependency_counts(session, grade_id))
     return counts

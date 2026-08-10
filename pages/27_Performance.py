@@ -189,9 +189,9 @@ st.caption(
 PI3_CALL_SITE_LABELS = {
     "recipe_optimization": "Recipe Optimization",
     "trend_analysis": "Trend Analysis",
-    "process_property_correlation": "Machine Settings vs Physical Properties Correlation",
+    "process_property_correlation": "Process Parameters vs Product Properties Correlation",
     "root_cause_assistant": "Root-Cause Assistant",
-    "machine_settings_optimization": "Machine Settings Optimization",
+    "machine_settings_optimization": "Process Parameter Optimization",
     "ask_plant_question": "Free-form “Ask PI3”",
     # Fallback for interactions logged before 2026-08-05, when every
     # fixed-prompt section shared this one generic label - see
@@ -259,8 +259,8 @@ log_df = pd.DataFrame(
 if log_df.empty:
     st.info(
         f"No data-loading data logged yet for '{window_label}'. This only fills in as the "
-        "Industrial Intelligence pages (Recipe Optimization, Trend Analysis, Machine Settings vs "
-        "Physical Properties Correlation, Root-Cause Assistant, Machine Settings Optimization) are "
+        "Industrial Intelligence pages (Recipe Optimization, Trend Analysis, Process Parameters vs "
+        "Product Properties Correlation, Root-Cause Assistant, Process Parameter Optimization) are "
         "actually used and hit a cache miss - visit one of those pages, then come back here."
     )
 else:

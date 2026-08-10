@@ -102,12 +102,12 @@ def render_overview():
         function_text=(
             "This is the landing dashboard: a snapshot of how much is in the system and how it's "
             "trending, grouped into Volume, Quality & Performance, and Trials & Samples - across "
-            "whichever plant, product family, and foam grade you filter to. Meters/kg produced are "
+            "whichever plant, product family, and product grade you filter to. Meters/kg produced are "
             "scoped to the date range below (defaults to year-to-date); every other KPI is an "
             "all-time total."
         ),
         action_text=(
-            "Filter by plant, product family, foam grade, and date range to scope the KPIs to what "
+            "Filter by plant, product family, product grade, and date range to scope the KPIs to what "
             "you're reviewing. Use the sidebar to navigate into any specific record or workflow."
         ),
     )
@@ -138,7 +138,7 @@ def render_overview():
     grades = grades_query.all()
     with col3:
         grade_filter = st.selectbox(
-            "Foam grade", [None] + grades, format_func=lambda g: "All grades" if g is None else g.grade_name
+            "Product grade", [None] + grades, format_func=lambda g: "All grades" if g is None else g.grade_name
         )
 
     with col4:
@@ -263,18 +263,36 @@ def render_overview():
     t4.metric("Open customer/optimization trials", active_trials)
 
 overview_page = st.Page(render_overview, title="Overview", icon="🏠", default=True)
-report_page = st.Page("pages/21_Report.py", title="Report", icon="🖨️")
+report_page = st.Page("pages/21_Report.py", title="Reports", icon="🖨️")
 
-setup_pages = [
-    ("plant_overview", st.Page("pages/1_Plant_Installation_Overview.py", title="Plant & Foam Equipment Overview", icon="🏭")),
-    ("product_family_foam_grade", st.Page("pages/2_Product_Family_Foam_Grade.py", title="Product Family & Foam Grade", icon="🧬")),
+# CR-01 (UI Navigation and Rigid-Foam Terminology for UAT), implemented
+# 2026-08-10: sidebar restructured to Charlie's approved target structure -
+# Production Method is now a first-class nav section (plant_setup_pages
+# holds only Plants; production_method_pages holds the new Production
+# Methods + Production Equipment pages plus Product Families & Product
+# Grades, since equipment and grades both resolve inside a Production
+# Method's context per CR-01). Formulations (Raw Materials, Recipes,
+# Reference Formulations) stays its own section, reused as-is - CR-01
+# treats these as shared/context-independent. See pages/1, 30, and 31's own
+# docstrings for the page-level split rationale.
+plant_setup_pages = [
+    ("plant_overview", st.Page("pages/1_Plant_Installation_Overview.py", title="Plants", icon="📍")),
+]
+
+production_method_pages = [
+    ("production_methods", st.Page("pages/30_Production_Methods.py", title="Production Methods", icon="🧭")),
+    ("plant_overview", st.Page("pages/31_Production_Equipment.py", title="Production Equipment", icon="🏭")),
+    ("product_family_foam_grade", st.Page("pages/2_Product_Family_Foam_Grade.py", title="Product Families & Product Grades", icon="🧬")),
+]
+
+formulation_pages = [
     ("raw_materials", st.Page("pages/14_Raw_Materials.py", title="Raw Materials", icon="🧴")),
     ("recipes", st.Page("pages/3_Recipe_Version_Record.py", title="Recipes", icon="📋")),
     ("reference_formulations", st.Page("pages/29_Reference_Formulations.py", title="Reference Formulations", icon="📚")),
 ]
 
 production_pages = [
-    ("production_run", st.Page("pages/4_Production_Run_Trial_Record.py", title="Production Run", icon="⚙️")),
+    ("production_run", st.Page("pages/4_Production_Run_Trial_Record.py", title="Production Runs", icon="⚙️")),
 ]
 
 experiment_pages = [
@@ -288,15 +306,25 @@ experiment_pages = [
 # section as the production floor that made the batch). Ordered after
 # Samples & Trials since a result/issue is always recorded against a
 # sample, and a sample can come from any of the 3 pages in that section.
+# Titles updated 2026-08-10 per CR-01's mandatory terminology table
+# ("Quality Test Result" -> "Test Results", "Quality Issue" -> "Quality
+# Issues" - plural menu wording; page content may still say the singular
+# term where it refers to one specific record).
 quality_pages = [
-    ("quality_test_result", st.Page("pages/5_Physical_Property_Result.py", title="Quality Test Result", icon="📏")),
-    ("quality_issue", st.Page("pages/6_Quality_Observation.py", title="Quality Issue", icon="🔍")),
+    ("quality_test_result", st.Page("pages/5_Physical_Property_Result.py", title="Test Results", icon="📏")),
+    ("quality_issue", st.Page("pages/6_Quality_Observation.py", title="Quality Issues", icon="🔍")),
 ]
 
 # The value of PI3 Plant Edition is the join that already exists in the
 # schema: recipe, machine settings, and physical property / quality
 # results all keyed to the same production run. These pages are that join
 # put to work - named after what they actually do, not branded as "AI".
+# Titles updated 2026-08-10 per CR-01's mandatory terminology table
+# ("Machine Settings vs Physical Properties" -> "Process Parameters vs
+# Product Properties", "Machine Settings Optimization" -> "Process
+# Parameter Optimization"). CR-01 explicitly retains this whole section
+# as-is otherwise ("retain existing pages with PM context/filtering as
+# already built") - no restructuring here beyond the title changes.
 industrial_intelligence_pages = [
     ("recipe_optimization", st.Page("pages/15_Recipe_Optimization.py", title="Recipe Optimization", icon="🧪")),
     ("trend_analysis", st.Page("pages/16_Trend_Analysis.py", title="Trend Analysis", icon="📈")),
@@ -304,12 +332,12 @@ industrial_intelligence_pages = [
         "machine_settings_correlation",
         st.Page(
             "pages/17_Process_Property_Correlation.py",
-            title="Machine Settings vs Physical Properties Correlation",
+            title="Process Parameters vs Product Properties Correlation",
             icon="🔗",
         ),
     ),
     ("root_cause_assistant", st.Page("pages/18_Root_Cause_Assistant.py", title="Root-Cause Assistant", icon="🩺")),
-    ("machine_settings_optimization", st.Page("pages/19_Machine_Settings_Optimization.py", title="Machine Settings Optimization", icon="⚙️")),
+    ("machine_settings_optimization", st.Page("pages/19_Machine_Settings_Optimization.py", title="Process Parameter Optimization", icon="⚙️")),
     ("expert_notes", st.Page("pages/20_Expert_Notes.py", title="Expert Notes", icon="🧠")),
 ]
 
@@ -327,8 +355,19 @@ platform_admin_pages = [
     ("pilot_analysis_admin", st.Page("pages/28_Pilot_Analysis.py", title="Company Analysis", icon="🔬")),
 ]
 
+# CR-01 target sidebar structure (2026-08-10): Overview (Overview, Reports
+# - handled separately below as top_pages, not a nav_sections entry) / Plant
+# Setup (Plants) / Production Methods (Production Methods, Production
+# Equipment, Product Families & Product Grades) / Formulations (Raw
+# Materials, Recipes, Reference Formulations) / Production (Production
+# Runs) / Samples & Trials / Quality (Test Results, Quality Issues) /
+# Industrial Intelligence (unchanged). Company Admin / Application Admin
+# stay as-is - out of CR-01's scope (rigid-foam terminology/navigation for
+# the operational app), not customer-facing production-method concepts.
 nav_sections_with_keys = {
-    "Setup": setup_pages,
+    "Plant Setup": plant_setup_pages,
+    "Production Methods": production_method_pages,
+    "Formulations": formulation_pages,
     "Production": production_pages,
     "Samples & Trials": experiment_pages,
     "Quality": quality_pages,
@@ -393,6 +432,12 @@ with st.sidebar:
         st.caption(f"v{APP_VERSION}")
     st.divider()
 
+    # CR-01 (2026-08-10): give the Overview/Reports group the same visible
+    # "Overview" section caption every other group gets, matching CR-01's
+    # approved sidebar structure table exactly (top_pages itself stays a
+    # separate list from nav_sections, since Overview is never gated the
+    # way every other section's pages are).
+    st.caption("Overview")
     for page in top_pages:
         st.page_link(page)
     for section_name, pages in nav_sections.items():

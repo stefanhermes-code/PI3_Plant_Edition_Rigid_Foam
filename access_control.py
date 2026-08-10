@@ -140,25 +140,44 @@ ADMIN_ROLE_NAMES = frozenset({"company admin", "platform admin"})
 # page_key -> title (title kept here only for the permission-matrix editor;
 # app_rigid_foam.py's own st.Page(..., title=...) calls remain the source of truth for
 # what's actually shown in the sidebar).
+#
+# CR-01 (UI Navigation and Rigid-Foam Terminology for UAT), implemented
+# 2026-08-10: titles below updated to the rigid-foam vocabulary CR-01
+# mandates (Foam Grade -> Product Grade, Quality Test Result -> Test
+# Results, Quality Issue -> Quality Issues, Machine Settings vs Physical
+# Properties -> Process Parameters vs Product Properties, Machine Settings
+# Optimization -> Process Parameter Optimization, Production Run ->
+# Production Runs). page_key strings themselves are UNCHANGED (except the
+# two brand-new ones below) so no RolePagePermission migration was needed -
+# a role's existing deny-list rows keyed to "plant_overview",
+# "quality_test_result", etc. still apply to the same page under its new
+# title. Two new page_keys were added for the pages split out of the old
+# "plant_overview" page: "production_methods" (new Production Methods page)
+# reuses no prior permission history (brand new page); Production
+# Equipment intentionally stays under the existing "plant_overview" key
+# rather than getting its own, since it's the same underlying
+# CRUD/permission surface the old combined page already had - splitting the
+# UI didn't need to split the permission grid too.
 PAGE_CATALOG = {
-    "plant_overview": "Plant & Foam Equipment Overview",
-    "product_family_foam_grade": "Product Family & Foam Grade",
+    "plant_overview": "Plants",
+    "production_methods": "Production Methods",
+    "product_family_foam_grade": "Product Families & Product Grades",
     "raw_materials": "Raw Materials",
     "recipes": "Recipes",
     "reference_formulations": "Reference Formulations",
-    "production_run": "Production Run",
-    "quality_test_result": "Quality Test Result",
-    "quality_issue": "Quality Issue",
+    "production_run": "Production Runs",
+    "quality_test_result": "Test Results",
+    "quality_issue": "Quality Issues",
     "samples_conditioning": "Production Samples",
     "customer_trials": "Customer Trials & Samples",
     "optimization_trials": "Optimization Trials & Samples",
     "recipe_optimization": "Recipe Optimization",
     "trend_analysis": "Trend Analysis",
-    "machine_settings_correlation": "Machine Settings vs Physical Properties Correlation",
+    "machine_settings_correlation": "Process Parameters vs Product Properties Correlation",
     "root_cause_assistant": "Root-Cause Assistant",
-    "machine_settings_optimization": "Machine Settings Optimization",
+    "machine_settings_optimization": "Process Parameter Optimization",
     "expert_notes": "Expert Notes",
-    "report": "Report",
+    "report": "Reports",
     "pi3_ai_connectivity": "PI3 Connectivity",
     "companies_admin": "Companies",
     "subscription_types_admin": "Subscription Types",

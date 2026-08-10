@@ -1,4 +1,4 @@
-"""Screen 3: Product Family and Foam Grade Profile"""
+"""Screen 3: Product Family and Product Grade Profile"""
 
 import pandas as pd
 import streamlit as st
@@ -37,29 +37,29 @@ GRADE_OPTIONAL_COLUMNS = ["target_density", "target_hardness", "notes"]
 # a grade carrying two different numbers for the same property.
 DENSITY_HARDNESS_PROPERTY_NAMES = {"density", "40% ifd / hardness"}
 
-page_setup("Product Family & Foam Grade")
+page_setup("Product Family & Product Grade")
 init_db()
 require_login()
 logout_button()
 
-st.title("Product Family & Foam Grade Profile")
+st.title("Product Family & Product Grade Profile")
 render_function_action_intro(
     function_text=(
         "This page organizes your product catalog on two levels: product families (a market "
         "segment or application grouping under a plant, e.g. mattress comfort layer) and the "
-        "individual foam grades within each family, each carrying its own target density and "
+        "individual product grades within each family, each carrying its own target density and "
         "target hardness (40% ILD), plus any other target physical properties worth specifying "
         "(resilience, tensile strength, ...) even before the actual value is known. Every recipe "
         "version, production run, and quality result recorded downstream is tied to one of these "
-        "foam grades, so this is where a new grade starts its life in the system."
+        "product grades, so this is where a new grade starts its life in the system."
     ),
     action_text=(
-        "Add a product family under the right plant first, then add each foam grade under it one "
+        "Add a product family under the right plant first, then add each product grade under it one "
         "at a time, or bring in a batch through the CSV/Excel import tab if you're loading many "
         "grades at once. Set target density and hardness on each grade so the Industrial "
         "Intelligence pages have a target to compare actual results against, then use the 'other "
         "target properties' list on the edit screen for anything beyond those two. Click a row in "
-        "either table to edit or delete it - deleting a product family or foam grade cascades to "
+        "either table to edit or delete it - deleting a product family or product grade cascades to "
         "everything recorded under it, with the count shown before you confirm."
     ),
 )
@@ -80,7 +80,7 @@ if not plants:
     st.warning("Add a plant first (Plant & Foam Equipment Overview) before creating product families.")
     st.stop()
 
-tab_family, tab_grade = st.tabs(["Product families", "Foam grades"])
+tab_family, tab_grade = st.tabs(["Product families", "Product grades"])
 
 with tab_family:
     with st.expander("Add product family"):
@@ -123,7 +123,7 @@ with tab_family:
                 "Plant": fam.plant.name,
                 "Application": fam.application or "",
                 "Customer segment": fam.customer_segment or "",
-                "Foam grades": len(fam.foam_grades),
+                "Product grades": len(fam.foam_grades),
             }
             for fam in families
         ]
@@ -204,12 +204,12 @@ with tab_grade:
     if not families:
         st.warning("Add a product family first.")
     else:
-        tab_grade_manual, tab_grade_import = st.tabs(["Add foam grade", "CSV / Excel import"])
+        tab_grade_manual, tab_grade_import = st.tabs(["Add product grade", "CSV / Excel import"])
 
         with tab_grade_manual:
-            with st.expander("Add foam grade", expanded=False):
+            with st.expander("Add product grade", expanded=False):
                 if not page_usable:
-                    st.caption("View-only access - adding a foam grade is restricted for your role.")
+                    st.caption("View-only access - adding a product grade is restricted for your role.")
                 else:
                     # Family (and therefore Plant) and the Machine-assignment
                     # multiselect live outside the st.form below, same as
@@ -241,7 +241,7 @@ with tab_grade:
                         target_density = st.number_input("Target density (kg/m3)", min_value=0.0, step=0.5)
                         target_hardness = st.number_input("Target hardness (N, 40% ILD)", min_value=0.0, step=1.0)
                         notes = st.text_area("Notes")
-                        submitted = st.form_submit_button("Save foam grade")
+                        submitted = st.form_submit_button("Save product grade")
                         if submitted:
                             if not grade_name:
                                 st.error("Grade name is required.")
@@ -257,13 +257,13 @@ with tab_grade:
                                 session.add(new_grade)
                                 session.commit()
                                 clear_scope_cache()
-                                st.success(f"Foam grade '{grade_name}' added. Add any other target physical "
+                                st.success(f"Product grade '{grade_name}' added. Add any other target physical "
                                            "properties from the table below.")
                                 st.rerun()
 
         with tab_grade_import:
             if not page_usable:
-                st.caption("View-only access - importing foam grades is restricted for your role.")
+                st.caption("View-only access - importing product grades is restricted for your role.")
             else:
                 show_pending_banner("grade_import_msg")
                 df, filename = csv_excel_uploader(GRADE_REQUIRED_COLUMNS, GRADE_OPTIONAL_COLUMNS, key="grade_upload")
@@ -305,7 +305,7 @@ with tab_grade:
                             )
                         session.commit()
                         clear_scope_cache()
-                        msg = f"Imported {len(new_rows)} foam grade(s) from {filename}."
+                        msg = f"Imported {len(new_rows)} product grade(s) from {filename}."
                         if dup_rows:
                             msg += f" Skipped {len(dup_rows)} row(s) already recorded for their product family (likely a repeat click)."
                         set_pending_banner("grade_import_msg", msg)
@@ -314,7 +314,7 @@ with tab_grade:
         st.divider()
         grades = apply_scope(session.query(FoamGrade), FoamGrade.product_family_id, family_ids).all()
         if not grades:
-            st.info("No foam grades recorded yet.")
+            st.info("No product grades recorded yet.")
         else:
             grade_rows = [
                 {
@@ -331,7 +331,7 @@ with tab_grade:
                 }
                 for grade in grades
             ]
-            st.caption("Click a row to edit (and optionally delete) that foam grade.")
+            st.caption("Click a row to edit (and optionally delete) that product grade.")
             idx = clickable_table(grade_rows, key="grades_table")
             if idx is not None and idx < len(grades):
                 st.session_state["grade_selected_id"] = grades[idx].id
@@ -342,7 +342,7 @@ with tab_grade:
             selected_grade = next((g for g in grades if g.id == selected_grade_id), None)
 
             if selected_grade:
-                st.markdown(f"**Edit foam grade: {selected_grade.grade_name}**")
+                st.markdown(f"**Edit product grade: {selected_grade.grade_name}**")
                 if not page_usable:
                     st.caption("View-only access - editing and deleting is restricted for your role.")
                 else:
@@ -407,7 +407,7 @@ with tab_grade:
                                 # deprecated, see db.py's FoamGrade model.
                                 selected_grade.machines = list(e_assigned_machines)
                                 session.commit()
-                                st.success("Foam grade updated.")
+                                st.success("Product grade updated.")
                                 st.rerun()
 
                     st.markdown("**Other target physical properties**")
@@ -472,9 +472,9 @@ with tab_grade:
                     total_related = sum(counts.values())
                     if total_related:
                         detail = ", ".join(f"{n} {k}" for k, n in counts.items() if n)
-                        warning = f"Deleting this foam grade will also permanently delete {total_related} related record(s): {detail}."
+                        warning = f"Deleting this product grade will also permanently delete {total_related} related record(s): {detail}."
                     else:
-                        warning = "This foam grade has no related records — deleting it is safe."
+                        warning = "This product grade has no related records — deleting it is safe."
 
                     def _do_delete_grade(_session=session, _id=selected_grade.id):
                         delete_foam_grade_cascade(_session, _id)

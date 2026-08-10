@@ -15,7 +15,7 @@ was eliminated entirely in the same batch, per explicit user direction
 ("drop the conditioning, it is irrelevant") - not just removed from this
 page's UI, but the ConditioningSegment model and its conditioning_segments
 table are gone from the app and the database. A lab result's traceability
-now stops at which sample/zone it came from; conditioning history is no
+now stops at which sample/sample-location it came from; conditioning history is no
 longer tracked.
 
 Kept as the samples_conditioning page-access-control key (unchanged) so
@@ -76,7 +76,7 @@ render_function_action_intro(
         "(Customer Trials & Samples / Optimization Trials & Samples), alongside the trial itself."
     ),
     action_text=(
-        "Pick the production run this sample came from, then record its block zone and creation "
+        "Pick the production run this sample came from, then record its sample location reference and creation "
         "time. Use the CSV/Excel import tab to bulk-load a batch of samples at once instead of "
         "entering them one by one."
     ),
@@ -119,7 +119,7 @@ with tab_create:
         )
         run_is_rigid = _is_rigid_grade(run.foam_grade)
         with st.form("add_sample"):
-            zone_label = st.selectbox("Zone *", ZONE_LABELS)
+            zone_label = st.selectbox("Sample Location Reference *", ZONE_LABELS)
             sample_ts = combine_date_time("Sample creation time", "sample_ts")
             notes = st.text_area("Notes")
             dimension_fields = rigid_sample_dimension_fields(session, "add_sample", run_is_rigid)
@@ -198,7 +198,7 @@ with tab_import:
             session.commit()
             msg = f"Imported {len(new_rows)} sample(s) from {sample_filename}."
             if dup_rows:
-                msg += f" Skipped {len(dup_rows)} row(s) already recorded for their run + zone (likely a repeat click)."
+                msg += f" Skipped {len(dup_rows)} row(s) already recorded for their run + sample location reference (likely a repeat click)."
             set_pending_banner("sample_import_msg", msg)
             st.rerun()
 
@@ -217,7 +217,7 @@ with tab_edit_delete:
                 "Sample ID": s.id,
                 "Run": f"Run #{s.production_run_id} — {s.production_run.foam_grade.grade_name}" if s.production_run else f"Run #{s.production_run_id}",
                 "Production Method": production_method_label(s),
-                "Zone": s.zone_label,
+                "Sample Location Reference": s.zone_label,
                 "Sampled": s.sample_ts,
             }
             for s in samples
@@ -238,7 +238,7 @@ with tab_edit_delete:
             st.caption("Which run a sample belongs to can't be changed here - delete and re-add it under the correct run instead.")
             with st.form(f"edit_sample_{selected_sample.id}"):
                 e_zone = st.selectbox(
-                    "Zone *", ZONE_LABELS,
+                    "Sample Location Reference *", ZONE_LABELS,
                     index=ZONE_LABELS.index(selected_sample.zone_label) if selected_sample.zone_label in ZONE_LABELS else 0,
                     key=f"edit_sample_zone_{selected_sample.id}",
                 )
@@ -306,7 +306,7 @@ with tab_edit_delete:
 
 with tab_report:
     st.caption(
-        "Reports on samples currently in scope (your company's production runs). Narrow by zone "
+        "Reports on samples currently in scope (your company's production runs). Narrow by sample location reference "
         "and/or creation date below, then download - charts only, no raw sample list (use the "
         "Edit/Delete Sample tab's table for that)."
     )
@@ -320,7 +320,7 @@ with tab_report:
         st.info("No samples recorded yet.")
     else:
         zone_options = sorted({s.zone_label for s in all_samples if s.zone_label})
-        zone_filter = st.multiselect("Zone", zone_options, default=zone_options, key="sample_report_zone")
+        zone_filter = st.multiselect("Sample Location Reference", zone_options, default=zone_options, key="sample_report_zone")
         rc1, rc2 = st.columns(2)
         date_from = rc1.date_input("Sampled from (optional)", value=None, key="sample_report_from")
         date_to = rc2.date_input("Sampled to (optional)", value=None, key="sample_report_to")
@@ -333,7 +333,7 @@ with tab_report:
         ]
 
         if zone_filter == zone_options:
-            zone_label_text = "All zones"
+            zone_label_text = "All sample location references"
         elif zone_filter:
             zone_label_text = ", ".join(zone_filter)
         else:
@@ -341,7 +341,7 @@ with tab_report:
         date_label_text = (
             f"{date_from or 'earliest'} to {date_to or 'latest'}" if (date_from or date_to) else "All dates"
         )
-        selection_label = f"Zone: {zone_label_text} · Sampled: {date_label_text} · {len(runs)} production run(s) in scope"
+        selection_label = f"Sample Location Reference: {zone_label_text} · Sampled: {date_label_text} · {len(runs)} production run(s) in scope"
         st.caption(selection_label)
 
         report_data = reports.build_sample_report_data(
@@ -353,7 +353,7 @@ with tab_report:
         rc3.metric("Pass rate (linked results)", f"{report_data['pass_rate']}%" if report_data["pass_rate"] is not None else "—")
 
         if report_data["zone_breakdown"]:
-            st.bar_chart(pd.DataFrame(report_data["zone_breakdown"]).set_index("Zone"))
+            st.bar_chart(pd.DataFrame(report_data["zone_breakdown"]).set_index("Sample Location Reference"))
 
         st.download_button(
             "Download Word", data=reports.render_sample_report_docx(report_data),

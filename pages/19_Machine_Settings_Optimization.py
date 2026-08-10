@@ -1,8 +1,11 @@
-"""Industrial Intelligence: Machine Settings Optimization
+"""Industrial Intelligence: Process Parameter Optimization (CR-01, 2026-08-10:
+renamed from "Machine Settings Optimization" - backend module/file name and
+analytics.rank_setting_optimization() are unchanged, this is a label-only
+rename per CR-01's mandatory terminology table)
 
 Ranks every process setting (mixer rpm, air pressure, conveyor speed, ...)
 by how clearly its low/medium/high ranges separate good outcomes from bad
-ones for a foam grade, so the setting most worth reviewing surfaces first
+ones for a product grade, so the setting most worth reviewing surfaces first
 - a starting point for technical review, not an automatic setpoint change.
 """
 
@@ -38,26 +41,26 @@ from helpers import (
 import reports
 from tenant_scope import apply_scope, company_picker, grade_ids_for_company
 
-page_setup("Machine Settings Optimization")
+page_setup("Process Parameter Optimization")
 init_db()
 require_login()
 logout_button()
 
-st.title("Machine Settings Optimization")
+st.title("Process Parameter Optimization")
 render_function_action_intro(
     function_text=(
         "Ranks every Finalized-phase process setting (mixer rpm, air pressure, "
         "conveyor speed, and so on) by how clearly its low/medium/high ranges separate outcomes "
-        "closest to target from outcomes furthest from it, across a foam grade's production runs "
+        "closest to target from outcomes furthest from it, across a product grade's production runs "
         "- a starting point for your team to review, not an automatic setpoint change. PI3 can "
         "then turn the ranked pattern into a plain-language read."
     ),
     action_text=(
-        "Pick the foam grade (or a foam family to pool several grades together) and the property "
+        "Pick the product grade (or a foam family to pool several grades together) and the property "
         "you want to optimize toward, then read the ranked table - the setting at the top "
         "separates good from bad outcomes most clearly and is the one most worth reviewing on the "
         "floor. Use the PI3 synthesis further down for a plain-language interpretation before "
-        "proposing any setpoint change to your team. Download the Machine Settings Optimization "
+        "proposing any setpoint change to your team. Download the Process Parameter Optimization "
         "Report further down for a shareable Word summary of the ranked table above."
     ),
 )
@@ -81,8 +84,8 @@ grades = [
 ]
 if not grades:
     st.warning(
-        "No foam grade yet has quality test results recorded - add these first before using "
-        "Machine Settings Optimization."
+        "No product grade yet has quality test results recorded - add these first before using "
+        "Process Parameter Optimization."
     )
     st.stop()
 
@@ -170,13 +173,13 @@ st.caption(
 )
 
 # ---------------------------------------------------------------------------
-# Machine Settings Optimization Report (Context / Analysis / Conclusions) -
+# Process Parameter Optimization Report (Context / Analysis / Conclusions) -
 # the page's own ranked table, distinct from PI3's synthesis further down
 # (which has its own separate Word download). Uses the exact `ranked`
 # DataFrame already computed above - never re-derived.
 # ---------------------------------------------------------------------------
 st.divider()
-st.subheader("Machine Settings Optimization Report")
+st.subheader("Process Parameter Optimization Report")
 st.caption(f"Context, analysis, and conclusions for {property_name} across {unit['label']}.")
 mso_report_data = reports.build_machine_settings_report_data(
     session, unit, property_name, ranked, pooling_grades,
@@ -287,7 +290,7 @@ else:
 
 plant_id = unit["plant_id"]
 subject_desc = (
-    f"foam grade {unit['label']}" if unit["mode"] == "grade"
+    f"product grade {unit['label']}" if unit["mode"] == "grade"
     else f"foam family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
 )
 docx_grade_id = unit["entity_id"] if unit["mode"] == "grade" else None
@@ -318,7 +321,7 @@ if ai_assistant.is_enabled_for_plant(session, plant_id):
             "historically (bigger gap = more actionable).\n\n"
             f"{ranking_summary}\n\n"
             + (
-                "Note: because this pools multiple foam grades, the property values are expressed "
+                "Note: because this pools multiple product grades, the property values are expressed "
                 "as a percentage of each run's own target, not the raw unit.\n\n"
                 if pooling_grades else ""
             )
@@ -393,7 +396,7 @@ render_ask_pi3_section(
     plant_id,
     default_foam_grade_id=docx_grade_id,
     page_context=(
-        f"The reviewer is on the Machine Settings Optimization page, looking at '{property_name}' "
+        f"The reviewer is on the Process Parameter Optimization page, looking at '{property_name}' "
         f"for {subject_desc}."
     ),
     sample_questions=[

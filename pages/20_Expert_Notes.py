@@ -2,9 +2,9 @@
 
 Captures qualitative expert knowledge - the kind of thing that lives in a
 technical person's head or a stray email, not a structured measurement -
-linked to a production run (the common case), a foam grade, or a foam
+linked to a production run (the common case), a product grade, or a foam
 family (added 2026-08-02, alongside "analyze by foam family" on Trend
-Analysis/Process-Property Correlation/Machine Settings Optimization - see
+Analysis/Process-Property Correlation/Process Parameter Optimization - see
 helpers.analysis_unit_picker). This is the raw material
 PI3 needs: when PI3 connectivity is enabled for the relevant plant, saving
 a note here also feeds it into PI3 so future Root-Cause Assistant reasoning
@@ -12,7 +12,7 @@ can retrieve it.
 
 Also shows PI3-sourced notes - insights a reviewer explicitly chose to
 keep via a "Save to Expert Notes" button on Recipe Optimization, Trend
-Analysis, Machine Settings vs Physical Properties Correlation, or
+Analysis, Process Parameters vs Product Properties Correlation, or
 Root-Cause Assistant (both
 their fixed-prompt sections and free-form Ask PI3 boxes). These are
 tagged with their originating question and can be re-exported as the
@@ -52,9 +52,9 @@ render_function_action_intro(
     function_text=(
         "Captures qualitative expert knowledge that doesn't fit a structured field - a hunch "
         "about why a batch behaved oddly, a supplier quirk, a process tip - linked to a "
-        "production run, a foam grade, or a foam family. It also shows the PI3-sourced notes "
+        "production run, a product grade, or a foam family. It also shows the PI3-sourced notes "
         "a reviewer chose to keep from Recipe Optimization, Trend Analysis, Process-Property "
-        "Correlation, Root-Cause Assistant, or Machine Settings Optimization, each tagged with "
+        "Correlation, Root-Cause Assistant, or Process Parameter Optimization, each tagged with "
         "its originating question and re-exportable as the same Word report the reviewer "
         "originally saw. When PI3 connectivity is enabled for the relevant plant, a note saved "
         "here also feeds PI3 so future free-form Ask PI3 questions and Root-Cause Assistant "
@@ -62,7 +62,7 @@ render_function_action_intro(
         "down by confidence level, source, and linked-entity type."
     ),
     action_text=(
-        "Pick what the note is about (a production run, foam grade, or foam family), write it, set a "
+        "Pick what the note is about (a production run, product grade, or foam family), write it, set a "
         "confidence level, and save - there's no other structured field to fill in, so use this "
         "for anything worth remembering that the rest of the app has no place for. Click a "
         "PI3-sourced note to re-download its original Word report, or edit/delete any note the "
@@ -83,7 +83,7 @@ scoped_grade_ids = grade_ids_for_company(session, active_company_id)
 
 LINK_TYPES = {
     "Production Run": "production_run",
-    "Foam Grade": "foam_grade",
+    "Product Grade": "foam_grade",
     "Foam Family": "product_family",
 }
 
@@ -101,7 +101,7 @@ grades = (
 # Foam families offered here are derived from this same scoped grades list
 # (any family with at least one in-scope grade), not a separate company
 # scope query - keeps "what's offered to link to" consistent with the
-# Foam Grade option above rather than a second, possibly-diverging notion
+# Product Grade option above rather than a second, possibly-diverging notion
 # of company scope for families specifically.
 families = sorted({g.product_family for g in grades if g.product_family}, key=lambda f: f.name)
 
@@ -125,11 +125,11 @@ with st.form("add_expert_note"):
         )
     elif entity_type == "foam_grade":
         if not grades:
-            st.warning("No foam grades yet - create one on the Product Family & Foam Grade page first.")
-        entity = st.selectbox("Foam grade *", grades, format_func=lambda g: g.grade_name)
+            st.warning("No product grades yet - create one on the Product Family & Product Grade page first.")
+        entity = st.selectbox("Product grade *", grades, format_func=lambda g: g.grade_name)
     else:
         if not families:
-            st.warning("No foam families yet - create one on the Product Family & Foam Grade page first.")
+            st.warning("No foam families yet - create one on the Product Family & Product Grade page first.")
         entity = st.selectbox("Foam family *", families, format_func=lambda f: f.name)
     note_text = st.text_area("Note *")
     confidence_level = st.selectbox("Confidence level", CONFIDENCE_LEVELS, index=2)
@@ -137,7 +137,7 @@ with st.form("add_expert_note"):
     submitted = st.form_submit_button("Save note", disabled=not page_usable)
     if submitted and page_usable:
         if not entity:
-            st.error("Nothing to link to - add a production run or foam grade first.")
+            st.error("Nothing to link to - add a production run or product grade first.")
         elif not note_text.strip():
             st.error("Note text is required.")
         else:
@@ -176,7 +176,7 @@ if active_company_id is None:
     notes = all_notes
 else:
     # ExpertNote is polymorphic (linked_entity_type + linked_entity_id can
-    # point at a production run, trial record, foam grade, or foam family).
+    # point at a production run, trial record, product grade, or foam family).
     # Scope each kind against the id set already computed above for that
     # company. Missing the product_family branch here would make any note
     # PI3 saved from a "foam family" analysis (see analysis_unit_picker,

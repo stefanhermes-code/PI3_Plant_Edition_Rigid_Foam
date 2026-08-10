@@ -1,6 +1,7 @@
-"""Screen 7: Quality Issue
+"""Screen 7: Quality Issues (CR-01, 2026-08-10: title pluralized from
+"Quality Issue" per CR-01's mandatory terminology table - label-only rename)
 
-Approved terminology: "Quality Issue", not "Defect Module". The
+Approved terminology: "Quality Issues", not "Defect Module". The
 underlying QualityObservation model/table name is unchanged — this is a
 display-text rename only.
 
@@ -156,12 +157,12 @@ def _issue_type_picker(key_prefix, current_value=None):
 
     return issue_name, (entry["typical_causes"] if entry else None)
 
-page_setup("Quality Issue")
+page_setup("Quality Issues")
 init_db()
 require_login()
 logout_button()
 
-st.title("Quality Issue")
+st.title("Quality Issues")
 render_function_action_intro(
     function_text=(
         "Captures what went wrong (or was noticed) on a batch - the issue type, severity, "
@@ -421,7 +422,7 @@ filter_col1, filter_col2 = st.columns([1, 1])
 with filter_col1:
     severity_filter = st.multiselect("Severity filter", SEVERITIES, default=SEVERITIES)
 with filter_col2:
-    # Foam scope - same "All foam grades / Foam grade / Foam family" pattern
+    # Foam scope - same "All product grades / Product grade / Foam family" pattern
     # as the Quality Test Result page's breakdown chart, so both pages let
     # you ask "which issue is most common for this grade/family" the same
     # way. This filter set and the Pareto chart below both read from the
@@ -432,14 +433,14 @@ with filter_col2:
         .all()
     )
     foam_scope_mode = st.radio(
-        "Foam scope", ["All foam grades", "Foam grade", "Foam family"], key="qi_foam_scope_mode"
+        "Foam scope", ["All product grades", "Product grade", "Foam family"], key="qi_foam_scope_mode"
     )
-    if foam_scope_mode == "All foam grades" or not scoped_grades:
+    if foam_scope_mode == "All product grades" or not scoped_grades:
         scope_grade_ids = None
-        scope_label = "all foam grades"
-    elif foam_scope_mode == "Foam grade":
+        scope_label = "all product grades"
+    elif foam_scope_mode == "Product grade":
         scope_grade = st.selectbox(
-            "Foam grade", scoped_grades, format_func=lambda g: g.grade_name, key="qi_foam_scope_grade"
+            "Product grade", scoped_grades, format_func=lambda g: g.grade_name, key="qi_foam_scope_grade"
         )
         scope_grade_ids = [scope_grade.id] if scope_grade else []
         scope_label = scope_grade.grade_name if scope_grade else "—"
@@ -530,7 +531,7 @@ else:
     render_pareto_chart(breakdown_counts, category_col=breakdown_col, count_col="Count")
 
     # -------------------------------------------------------------------
-    # Quality Issue Report - exports exactly this selection (Severity +
+    # Quality Issues Report - exports exactly this selection (Severity +
     # Foam scope filters, Group by choice above), aggregated into a
     # severity/recurring-vs-one-off summary, a confidence-level breakdown,
     # an issues-by-type-or-category breakdown, and a curated table of just
@@ -540,7 +541,7 @@ else:
     # reason as the Quality Test Result report: it needs this comprehensive
     # selection built first, unlike the Report page's single-dropdown reports.
     st.divider()
-    st.subheader("Quality Issue Report")
+    st.subheader("Quality Issues Report")
     if set(severity_filter) == set(SEVERITIES):
         severity_label = "All"
     elif severity_filter:

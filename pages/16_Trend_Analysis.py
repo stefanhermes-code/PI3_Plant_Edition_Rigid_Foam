@@ -58,7 +58,7 @@ logout_button()
 st.title("Trend Analysis")
 render_function_action_intro(
     function_text=(
-        "Runs the standard SPC toolkit against one quality property's history for a foam grade (or "
+        "Runs the standard SPC toolkit against one quality property's history for a product grade (or "
         "a whole foam family pooled together): an individuals control chart with real control "
         "limits (catches a sudden shift), process capability (Cpk) against that property's own "
         "tolerance band (catches 'in control but too close to spec'), a CUSUM chart (catches a "
@@ -70,7 +70,7 @@ render_function_action_intro(
         "place."
     ),
     action_text=(
-        "Choose whether to analyze one foam grade or a whole foam family (its grades pooled "
+        "Choose whether to analyze one product grade or a whole foam family (its grades pooled "
         "together), pick the property you want to track (density, hardness/IFD, tensile, and so "
         "on). Read the control chart first for sudden shifts, then capability for how much margin "
         "there is to spec, then CUSUM for a slower drift the control chart might miss, and the "
@@ -159,7 +159,7 @@ grades = [
     if not property_results_dataframe(session, foam_grade_id=g.id, include_trials=True).empty
 ]
 if not grades:
-    st.warning("No foam grade yet has quality test results recorded - add these first before using Trend Analysis.")
+    st.warning("No product grade yet has quality test results recorded - add these first before using Trend Analysis.")
     st.stop()
 
 unit = analysis_unit_picker(grades, key_prefix="trend")
@@ -609,7 +609,7 @@ render_data_table(series[results_columns], max_height="400px")
 # ---------------------------------------------------------------------------
 plant_id = unit["plant_id"]
 subject_desc = (
-    f"foam grade {unit['label']}" if unit["mode"] == "grade"
+    f"product grade {unit['label']}" if unit["mode"] == "grade"
     else f"foam family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
 )
 docx_grade_id = unit["entity_id"] if unit["mode"] == "grade" else None
@@ -672,7 +672,7 @@ if ai_assistant.is_enabled_for_plant(session, plant_id):
             ""
             if not pooling_grades
             else (
-                "\n\nNote: this pools multiple foam grades from the same family together, and every "
+                "\n\nNote: this pools multiple product grades from the same family together, and every "
                 "number above is expressed as % of each run's own target (100% = on target), not the "
                 "property's raw unit, precisely so grades with different target values can be pooled "
                 "without a plain grade-to-grade target difference looking like a false shift or trend."

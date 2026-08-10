@@ -68,7 +68,7 @@ render_function_action_intro(
         "at the bottom for audit purposes."
     ),
     action_text=(
-        "Select the foam grade you want to review, then check the current formulation's cost per "
+        "Select the product grade you want to review, then check the current formulation's cost per "
         "kg and ingredient list against the quality-outcome table below to spot any drift from "
         "target. Check 'Does the current recipe meet target?' for a straight achieved/not-achieved "
         "answer per property, then pick a property there to see which raw material's actual "
@@ -102,13 +102,13 @@ grades = [
 ]
 if not grades:
     st.warning(
-        "No foam grade yet has both a recipe version and quality test results recorded - "
+        "No product grade yet has both a recipe version and quality test results recorded - "
         "add these first before using Recipe Optimization."
     )
     st.stop()
 
-grade = st.selectbox("Foam grade", grades, format_func=lambda g: g.grade_name)
-# WP4 (Converged Joint Implementation Plan, section 7.5): a rigid-foam grade
+grade = st.selectbox("Product grade", grades, format_func=lambda g: g.grade_name)
+# WP4 (Converged Joint Implementation Plan, section 7.5): a rigid-product grade
 # (chemistry_id/production_method_id/application_id/construction_id
 # populated - see db.py's WP3 additions to FoamGrade) is judged against its
 # own GradeSpecification rows via wp3_conformance's live conformance logic,
@@ -120,7 +120,7 @@ is_rigid = grade.chemistry_id is not None
 versions = sorted(grade.recipe_versions, key=lambda v: v.created_at)
 
 if not versions:
-    st.info("This foam grade has no recipe versions yet.")
+    st.info("This product grade has no recipe versions yet.")
     st.stop()
 
 # A new recipe version replaces the previous one in production - versions
@@ -147,8 +147,8 @@ include_trials = st.checkbox(
     ),
 )
 # Production Method filter (added 2026-08-10, per Charlie's flat-PM
-# technical completion instruction): a foam grade can be produced on more
-# than one machine (see the Foam Grade page's many-to-many machine
+# technical completion instruction): a product grade can be produced on more
+# than one machine (see the Product Grade page's many-to-many machine
 # assignment), and those machines can sit under different Production
 # Methods - so even a single grade's own production runs can span more
 # than one method. Only shown when this grade's runs actually do, same
@@ -177,7 +177,7 @@ if selected_method_id and method_choice != "All":
     st.caption(f"Isolated to Production Method **{method_choice}**.")
 
 if results_df.empty:
-    st.info("No quality test results recorded yet for this foam grade's production runs.")
+    st.info("No quality test results recorded yet for this product grade's production runs.")
 else:
     st.subheader("Physical properties")
     if is_rigid:
@@ -243,7 +243,7 @@ for prop in available_properties:
         .reset_index()
     )
     # See the "Physical properties" section above for why to_numeric(errors="coerce")
-    # rather than a bare .round(2): a rigid-foam grade's results generally have no
+    # rather than a bare .round(2): a rigid-product grade's results generally have no
     # target_value at all, which makes avg_target object-dtype rather than float.
     summary["avg_actual"] = pd.to_numeric(summary["avg_actual"], errors="coerce").round(2)
     summary["avg_target"] = pd.to_numeric(summary["avg_target"], errors="coerce").round(2)
@@ -737,7 +737,7 @@ elif is_rigid:
         "metered lot-use correlation data above as its basis rather than just the ingredient "
         "list. Target properties below are prefilled from this grade's own specifications (see "
         "'Does the current recipe meet target?' above), plus any other target properties "
-        "recorded on the Product Family & Foam Grade page that don't yet have a specification - "
+        "recorded on the Product Family & Product Grade page that don't yet have a specification - "
         "edit or add to them before requesting a recommendation."
     )
     default_target_lines = []
@@ -869,7 +869,7 @@ elif is_rigid:
 
         prompt = (
             "You are helping a technical reviewer at a rigid polyurethane foam manufacturer "
-            f"select a formulation direction for {grade.grade_name}. Below is this foam grade's "
+            f"select a formulation direction for {grade.grade_name}. Below is this product grade's "
             "recipe version history: formulation composition, formulation cost, the most recent "
             "version-to-version change, whether the CURRENT recipe achieves each of this grade's "
             "own specifications (based only on production runs made under this recipe, each "
@@ -886,7 +886,7 @@ elif is_rigid:
             "explicitly rather than restating the raw ingredient list. If a specification is "
             "noted as not yet cleared for production release (UAT-only), say so rather than "
             "treating it as production-approved.\n\n"
-            f"Foam grade: {grade.grade_name}\n\n"
+            f"Product grade: {grade.grade_name}\n\n"
             f"Recipe versions and composition:\n{composition_summary}\n\n"
             f"Formulation cost by version:\n{cost_summary}\n\n"
             f"Most recent formulation change:\n{diff_summary}\n\n"
@@ -911,7 +911,7 @@ elif is_rigid:
     if ai_answer:
         st.subheader("🤖 PI3 recommendation")
         st.caption(
-            "Generated by PI3 from this foam grade's formulation cost, version differences, "
+            "Generated by PI3 from this product grade's formulation cost, version differences, "
             "ingredient-outcome correlations, and quality-test history, plus expert notes and "
             "historical cases. For your technical team to evaluate and confirm before applying."
         )
@@ -948,7 +948,7 @@ else:
         "properties below are prefilled from every property with a recorded target under the "
         "current recipe (density, hardness, tensile strength, elongation, compression set, "
         "resilience, and so on - see 'Does the current recipe meet target?' above), plus any "
-        "other target properties recorded on the Product Family & Foam Grade page that don't yet "
+        "other target properties recorded on the Product Family & Product Grade page that don't yet "
         "have results - edit or add to them before requesting a recommendation."
     )
     # Built primarily from this recipe version's own recorded quality-test
@@ -962,7 +962,7 @@ else:
     # judges Pass/Fail against published tolerances for all of them.
     # Falls back to foam_grades' own target_density/target_hardness
     # (dedicated columns every grade has) and foam_grade_target_properties
-    # (any other property recorded on the Product Family & Foam Grade page,
+    # (any other property recorded on the Product Family & Product Grade page,
     # entered with or without a target value yet) for anything not already
     # covered by a recorded result under this version.
     target_by_name = {}
@@ -1082,7 +1082,7 @@ else:
 
         prompt = (
             "You are helping a technical reviewer at a flexible slabstock foam manufacturer "
-            f"select a formulation direction for {grade.grade_name}. Below is this foam grade's "
+            f"select a formulation direction for {grade.grade_name}. Below is this product grade's "
             "recipe version history: formulation composition, formulation cost, the most recent "
             "version-to-version change, whether the CURRENT recipe achieves each required property "
             "(based only on production runs made under this recipe), which ingredient's ACTUAL "
@@ -1095,7 +1095,7 @@ else:
             "their own trial process, addressed directly to the target properties requested. "
             "Where you rely on a specific cost, diff, or correlation figure below, refer to it "
             "explicitly rather than restating the raw ingredient list.\n\n"
-            f"Foam grade: {grade.grade_name}\n\n"
+            f"Product grade: {grade.grade_name}\n\n"
             f"Recipe versions and composition:\n{composition_summary}\n\n"
             f"Formulation cost by version:\n{cost_summary}\n\n"
             f"Most recent formulation change:\n{diff_summary}\n\n"
@@ -1120,7 +1120,7 @@ else:
     if ai_answer:
         st.subheader("🤖 PI3 recommendation")
         st.caption(
-            "Generated by PI3 from this foam grade's formulation cost, version differences, "
+            "Generated by PI3 from this product grade's formulation cost, version differences, "
             "ingredient-outcome correlations, and quality-test history, plus expert notes and "
             "historical cases. For your technical team to evaluate and confirm before applying."
         )
@@ -1157,7 +1157,7 @@ render_ask_pi3_section(
     plant_id,
     default_foam_grade_id=grade.id,
     page_context=(
-        f"The reviewer is on the Recipe Optimization page, looking at foam grade "
+        f"The reviewer is on the Recipe Optimization page, looking at product grade "
         f"'{grade.grade_name}' (id {grade.id})."
     ),
     sample_questions=[

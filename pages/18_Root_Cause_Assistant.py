@@ -1,7 +1,7 @@
 """Industrial Intelligence: Root-Cause Assistant
 
 Given a quality observation, surfaces what was different about that run
-compared to the most recent prior run of the same foam grade - recipe
+compared to the most recent prior run of the same product grade - recipe
 version, machine, or Finalized-phase process settings - as a starting
 point for the reviewer's own investigation. Historical comparison for
 technical review (see the advisory boundary at the bottom of this page).
@@ -37,7 +37,7 @@ st.title("Root-Cause Assistant")
 render_function_action_intro(
     function_text=(
         "Given a logged quality issue, compares that run against the most recent prior run of the "
-        "same foam grade and lists what was different - recipe version, machine, or Finalized-"
+        "same product grade and lists what was different - recipe version, machine, or Finalized-"
         "phase process settings (mixer rpm, air pressure, conveyor speed, and so on) - as a starting "
         "point for your own investigation, not a diagnosis. PI3 can then help interpret that diff "
         "against expert notes and similar past cases."
@@ -222,7 +222,7 @@ if ai_assistant.is_enabled_for_plant(session, run.plant_id):
         prompt = (
             "You are helping a technical reviewer at a flexible slabstock foam manufacturer "
             "investigate a quality issue. Below is a deterministic comparison between the "
-            "flagged production run and the most recent prior run of the same foam grade. "
+            "flagged production run and the most recent prior run of the same product grade. "
             "Using this comparison plus any relevant expert notes or historical cases in the "
             "connected knowledge base, suggest possible hypotheses for the root cause.\n\n"
             "IMPORTANT: this is a starting point for investigation, not a diagnosis. Never "

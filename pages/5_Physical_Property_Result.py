@@ -1,4 +1,6 @@
-"""Screen 6: Quality Test Result
+"""Screen 6: Test Results (CR-01, 2026-08-10: renamed from "Quality Test
+Result" - file name/backend model (QualityTestResult) unchanged, label-only
+rename per CR-01's mandatory terminology table)
 
 Sample capture moved to its own pages on 2026-08-02 - this page had been
 doing two jobs (samples and the result itself), which crowded a single
@@ -127,12 +129,12 @@ def _samples_for_parent(session, source_type, parent_id):
     fk_field = sample_source_fk_field(source_type)
     return session.query(Sample).filter(getattr(Sample, fk_field) == parent_id).all()
 
-page_setup("Quality Test Result")
+page_setup("Test Results")
 init_db()
 require_login()
 logout_button()
 
-st.title("Quality Test Result")
+st.title("Test Results")
 render_function_action_intro(
     function_text=(
         "Records the lab results that prove out (or flag) a batch against the property/method/"
@@ -519,7 +521,7 @@ with filter_col2:
         else None
     )
 with filter_col3:
-    # Foam scope - "All foam grades" pools the whole company's results (the
+    # Foam scope - "All product grades" pools the whole company's results (the
     # common case: which properties fail most, overall), while Foam
     # grade/family narrows to one grade or a whole family (e.g. "Comfort
     # foams that failed") - both this filter set and the Pareto chart below
@@ -531,14 +533,14 @@ with filter_col3:
         .all()
     )
     foam_scope_mode = st.radio(
-        "Foam scope", ["All foam grades", "Foam grade", "Foam family"], key="qtr_foam_scope_mode"
+        "Foam scope", ["All product grades", "Product grade", "Foam family"], key="qtr_foam_scope_mode"
     )
-    if foam_scope_mode == "All foam grades" or not scoped_grades:
+    if foam_scope_mode == "All product grades" or not scoped_grades:
         scope_grade_ids = None
-        scope_label = "all foam grades"
-    elif foam_scope_mode == "Foam grade":
+        scope_label = "all product grades"
+    elif foam_scope_mode == "Product grade":
         scope_grade = st.selectbox(
-            "Foam grade", scoped_grades, format_func=lambda g: g.grade_name, key="qtr_foam_scope_grade"
+            "Product grade", scoped_grades, format_func=lambda g: g.grade_name, key="qtr_foam_scope_grade"
         )
         scope_grade_ids = [scope_grade.id] if scope_grade else []
         scope_label = scope_grade.grade_name if scope_grade else "—"
@@ -572,7 +574,7 @@ all_results = results_query.order_by(PhysicalPropertyResult.tested_at.desc()).al
 # see the same note in analytics.property_results_dataframe - so this
 # filter is applied here in Python against the live verdict, not as a SQL
 # WHERE clause against the stored (possibly stale) column. Foam scope is
-# applied here too (rather than a SQL join) since a result's foam grade is
+# applied here too (rather than a SQL join) since a result's product grade is
 # reached through whichever of the three mutually-exclusive parents it
 # has - see _result_foam_grade_id().
 filtered_results = []
@@ -636,7 +638,7 @@ else:
     render_pareto_chart(property_counts, category_col="Property", count_col="Count")
 
     # -------------------------------------------------------------------
-    # Quality Test Result Report - exports exactly this selection (Pass/
+    # Test Results Report - exports exactly this selection (Pass/
     # Fail + Property + Foam scope filters above), aggregated into a
     # pass-rate summary, failure breakdown charts, and a curated table of
     # just the failing results - not a dump of every row in the table
@@ -645,7 +647,7 @@ else:
     # this comprehensive selection built first, unlike the Report page's
     # other reports which are each a single dropdown choice.
     st.divider()
-    st.subheader("Quality Test Result Report")
+    st.subheader("Test Results Report")
     if set(pass_fail_filter) == set(pass_fail_options):
         pass_fail_label = "All"
     elif pass_fail_filter:

@@ -18,7 +18,7 @@ Batch Release / Conformance Record lives here (rather than on the
 Production Run page itself) because selecting its subject is a single
 simple choice - pick one run from a dropdown - same as the other two
 reports on this page. A report needing a more involved, multi-field
-selection first (date range, foam grade, etc.) belongs on its own page
+selection first (date range, product grade, etc.) belongs on its own page
 instead, next to where that selection naturally happens - see reports.py's
 Recipe / Formulation Record and Where Used Report, both on the Recipes
 page. Replaced the older, flatter build_run_report_data()-based version
@@ -78,7 +78,7 @@ render_function_action_intro(
         "if it didn't), the Plant/Period Summary for a broader review across a date range, the "
         "Trial Closeout Report once a customer or optimization trial is formally closed, the "
         "Sample Certificate of Analysis for one sample's full result-and-recipe traceability, "
-        "and the WP3 Property Conformance Report for a rigid-foam grade specification's full "
+        "and the WP3 Property Conformance Report for a rigid-product grade specification's full "
         "method/unit/condition/orientation-aware verdict against one production run."
     ),
 )
@@ -150,12 +150,12 @@ with tab_run:
         render_data_table(pd.DataFrame(data["quality_issues"] or [{"—": "No data recorded"}]))
 
         if data["has_flags"]:
-            st.write("**Process setting changes (Setup → Finalized)**")
+            st.write("**Process setting changes (Planned Settings → Actual Run and Cycle Data)**")
             render_data_table(pd.DataFrame(data["setup_deviations"] or [{"—": "No changes"}]))
             if data["fallplate_deviations"]:
-                st.write("**Fall-plate position changes (Setup → Finalized)**")
+                st.write("**Tool geometry and fill configuration changes (Planned Settings → Actual Run and Cycle Data)**")
                 render_data_table(pd.DataFrame(data["fallplate_deviations"]))
-            st.write("**Component stream readings (Finalized phase)**")
+            st.write("**Material metering and actual usage (Actual Run and Cycle Data phase)**")
             render_data_table(pd.DataFrame(data["stream_readings"] or [{"—": "No data recorded"}]))
             if data["stream_calibration_flags"]:
                 st.warning(
@@ -263,7 +263,7 @@ with tab_period:
     render_data_table(pd.DataFrame(data["runs"] or [{"—": "No data recorded"}]))
     st.write("**Quality issues in range**")
     render_data_table(pd.DataFrame(data["quality_issues"] or [{"—": "No data recorded"}]))
-    st.write("**Breakdown by foam grade**")
+    st.write("**Breakdown by product grade**")
     render_data_table(pd.DataFrame(data["grade_breakdown"] or [{"—": "No data recorded"}]))
     st.write("**Breakdown by Production Method**")
     render_data_table(pd.DataFrame(data.get("method_breakdown") or [{"—": "No data recorded"}]))
@@ -378,7 +378,7 @@ with tab_sample:
             src = f"Optimization Trial #{s.optimization_trial_id}"
         else:
             src = "—"
-        return f"Sample #{s.id} — {src} · Zone: {s.zone_label or '—'}" + (f" · {s.sample_ts:%Y-%m-%d}" if s.sample_ts else "")
+        return f"Sample #{s.id} — {src} · Sample Location Reference: {s.zone_label or '—'}" + (f" · {s.sample_ts:%Y-%m-%d}" if s.sample_ts else "")
 
     if not all_samples:
         st.info("No samples recorded yet.")
@@ -391,7 +391,7 @@ with tab_sample:
         st.subheader(f"Sample #{data['sample_id']} — {data['foam_grade']}")
         c1, c2, c3 = st.columns(3)
         c1.metric("Overall verdict", data["overall_verdict"])
-        c2.metric("Zone", data["zone_label"])
+        c2.metric("Sample Location Reference", data["zone_label"])
         c3.metric("Plant", data["plant"])
 
         st.write("**Sample source**")
@@ -431,7 +431,7 @@ with tab_sample:
 # ---------------------------------------------------------------------------
 with tab_wp3:
     st.caption(
-        "Every grade specification for a rigid-foam grade, matched against that grade's physical "
+        "Every grade specification for a rigid-product grade, matched against that grade's physical "
         "property results for one production run - method, unit, condition, orientation, sample "
         "context, and a live-computed Pass/Fail/Excluded/Invalid verdict, plus this grade's pass "
         "rate across all runs recorded so far."
@@ -447,10 +447,10 @@ with tab_wp3:
         .all()
     )
     if not grades_with_specs:
-        st.info("No foam grade has any grade specification recorded yet.")
+        st.info("No product grade has any grade specification recorded yet.")
     else:
         wp3_grade = st.selectbox(
-            "Foam grade", grades_with_specs, format_func=lambda g: g.grade_name, key="report_wp3_grade",
+            "Product grade", grades_with_specs, format_func=lambda g: g.grade_name, key="report_wp3_grade",
         )
         wp3_runs = (
             apply_scope(

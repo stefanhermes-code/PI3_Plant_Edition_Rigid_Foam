@@ -17,9 +17,23 @@ link or a machine data export/import: each run gets exactly two phase
 snapshots, Setup (planned/configured before the run) and Finalized (what
 actually happened, entered at shutdown).
 
+CR-01 (UI Navigation and Rigid-Foam Terminology for UAT), implemented
+2026-08-10: the tab bar's visible labels were renamed per CR-01's mandatory
+terminology table - "Setup" -> "Planned Settings", "Runtime Data" ->
+"Actual Run and Cycle Data", "Component Stream Readings" -> "Material
+Metering and Actual Usage", "Fall-plate positions" -> "Tool Geometry and
+Fill Configuration", "Meters produced" -> "Output Quantity and Unit". These
+are label-only changes - the underlying ProductionPhase.phase_name values
+("Setup"/"Finalized"), table/column names, and every docstring/comment
+below that predates this rename still say "Setup"/"Runtime Data" etc.,
+since renaming those would be a backend/data change CR-01 explicitly does
+not require (see the CR-01 document's "backend entity name may stay"
+guidance).
+
 Laid out as one tab per function: Production Runs (overview/edit/delete +
-create), Setup, Runtime Data, Component Stream Readings, and Production
-Events. Every function tab (other than Production Runs) opens with a
+create), Planned Settings, Actual Run and Cycle Data, Material Metering and
+Actual Usage, and Production Events. Every function tab (other than
+Production Runs) opens with a
 production-run selector shared with the other tabs, shows that run's related
 record(s) with edit + delete, and keeps CSV/Excel bulk import as its own
 sub-tab. Raw material lot tracking has been removed from this page (not
@@ -105,7 +119,7 @@ from tenant_scope import apply_scope, clear_scope_cache, company_picker, grade_i
 
 @st.cache_data(ttl=30)
 def _cached_versions_for_grade(_session, grade_id):
-    """RecipeVersion rows for one foam grade. This page's Edit-run form and
+    """RecipeVersion rows for one product grade. This page's Edit-run form and
     Add-run form each independently re-ran this exact query on every
     rerun (a Streamlit rerun fires on every widget interaction anywhere on
     the page, including switching tabs) - one of the contributors to this
@@ -229,7 +243,7 @@ def _run_selector(runs, key):
 
 # --- Production run cascade delete (a run can have a lot hanging off it) ---
 # Shared with pages 1/2/3, which have to delete every run under a plant/
-# product family/foam grade/recipe version being deleted - see cascades.py.
+# product family/product grade/recipe version being deleted - see cascades.py.
 
 def _delete_phase_cascade(session, phase):
     phase_id = phase.id
@@ -262,14 +276,14 @@ render_function_action_intro(
         "Optimization Trials & Samples page instead - most runs never need that."
     ),
     action_steps=[
-        "Open the **Production Runs** tab and create the batch record: pick the foam grade, "
+        "Open the **Production Runs** tab and create the batch record: pick the product grade, "
         "recipe version, machine and run date. The batch reference is generated automatically.",
         "Open the **Setup** tab and log the planned/configured settings for this run, including "
         "ambient temperature and humidity.",
         "Open the **Runtime Data** tab once the run is finished and log what actually happened - "
         "the same settings as Setup, plus line-speed and rise time. Comparing Setup to Runtime "
         "Data is the plan-vs-actual read.",
-        "Open the **Component Stream Readings** tab and log the metered material flows. Readings "
+        "Open the **Material Metering and Actual Usage** tab and log the metered material flows. Readings "
         "always attach to the Runtime Data (Finalized) snapshot.",
         "Open the **Production Events** tab and log any alarms, interventions or grade changes.",
     ],
@@ -293,7 +307,7 @@ grade_ids = grade_ids_for_company(session, active_company_id)
 
 grades = apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids).all()
 if not grades:
-    st.warning("Add a foam grade and recipe version first.")
+    st.warning("Add a product grade and recipe version first.")
     st.stop()
 
 runs = (
@@ -305,9 +319,9 @@ runs = (
 tab_runs, tab_setup, tab_runtime, tab_streams, tab_events = st.tabs(
     [
         "📋 Production Runs",
-        "🛠️ Setup",
-        "📊 Runtime Data",
-        "🧪 Component Stream Readings",
+        "🛠️ Planned Settings",
+        "📊 Actual Run and Cycle Data",
+        "🧪 Material Metering and Actual Usage",
         "🚨 Production Events",
     ]
 )
@@ -351,11 +365,11 @@ with tab_runs:
                 with st.form(f"edit_run_form_{selected_run.id}"):
                     grade_idx = next((i for i, g in enumerate(grades) if g.id == selected_run.foam_grade_id), 0)
                     grade = st.selectbox(
-                        "Foam grade *", grades, index=grade_idx,
+                        "Product grade *", grades, index=grade_idx,
                         format_func=lambda g: g.grade_name, key=f"edit_run_grade_{selected_run.id}",
                     )
                     # No version picker here - a production run always uses whichever
-                    # recipe version is currently active for the foam grade (see
+                    # recipe version is currently active for the product grade (see
                     # RecipeVersion.is_active in db.py; only one can be active per
                     # grade at a time). Offering a dropdown of every version implied
                     # a choice that doesn't actually exist - the version to use isn't
@@ -370,7 +384,7 @@ with tab_runs:
                     if current_version:
                         st.caption(f"Recipe version in use: **{current_version.version_label}** (current)")
                     else:
-                        st.caption("⚠️ This foam grade has no recipe version yet - add one on the Recipes page first.")
+                        st.caption("⚠️ This product grade has no recipe version yet - add one on the Recipes page first.")
                     # Machine choices are filtered to this PU Material's own
                     # Machine assignment (FoamGrade.machines, the new
                     # many-to-many from the Production Method Hierarchy
@@ -392,7 +406,7 @@ with tab_runs:
                     if grade and not assigned_machines:
                         st.caption(
                             "⚠️ This PU Material has no Machine assigned yet - assign one on the "
-                            "Product Family & Foam Grade page first."
+                            "Product Family & Product Grade page first."
                         )
                     machine_options = [None] + assigned_machines
                     machine_idx = next(
@@ -434,7 +448,7 @@ with tab_runs:
                     save = st.form_submit_button("Save changes", disabled=not page_usable)
                     if save and page_usable:
                         if not current_version:
-                            st.error("This foam grade has no recipe version yet — add one on the Recipes page first.")
+                            st.error("This product grade has no recipe version yet — add one on the Recipes page first.")
                         else:
                             selected_run.foam_grade_id = grade.id
                             selected_run.plant_id = grade.product_family.plant_id
@@ -499,10 +513,10 @@ with tab_runs:
             )
 
             with st.form("add_run"):
-                grade = st.selectbox("Foam grade *", grades, format_func=lambda g: g.grade_name)
+                grade = st.selectbox("Product grade *", grades, format_func=lambda g: g.grade_name)
                 # No version picker - see the same note in the Edit Run form above.
                 # A new run always uses whichever recipe version is currently active
-                # for the chosen foam grade.
+                # for the chosen product grade.
                 versions_for_grade = _cached_versions_for_grade(session, grade.id if grade else None)
                 current_version = next(
                     (v for v in versions_for_grade if v.is_active),
@@ -511,7 +525,7 @@ with tab_runs:
                 if current_version:
                     st.caption(f"Recipe version in use: **{current_version.version_label}** (current)")
                 else:
-                    st.caption("⚠️ This foam grade has no recipe version yet - add one on the Recipes page first.")
+                    st.caption("⚠️ This product grade has no recipe version yet - add one on the Recipes page first.")
                 # Filtered to this PU Material's own Machine assignment
                 # (FoamGrade.machines) - see the same note in the Edit Run
                 # form above, including the NULL-is-active handling.
@@ -534,7 +548,7 @@ with tab_runs:
                 submitted = st.form_submit_button("Save production run", disabled=not page_usable)
                 if submitted and page_usable:
                     if not current_version:
-                        st.error("This foam grade has no recipe version yet — add one on the Recipes page first.")
+                        st.error("This product grade has no recipe version yet — add one on the Recipes page first.")
                     else:
                         run = ProductionRun(
                             plant_id=grade.product_family.plant_id,
@@ -559,7 +573,7 @@ with tab_runs:
             show_pending_banner("run_import_msg")
             st.caption(
                 "recipe_version_id must belong to the foam_grade_id on the same row. plant_id and machine "
-                "assignment are derived/validated from the foam grade automatically."
+                "assignment are derived/validated from the product grade automatically."
             )
             run_df, run_filename = csv_excel_uploader(RUN_REQUIRED_COLUMNS, RUN_OPTIONAL_COLUMNS, key="run_upload")
             if run_df is not None:
@@ -598,7 +612,7 @@ with tab_runs:
                 if bad_rows:
                     st.warning(
                         "Flagged rows reference an unknown foam_grade_id/recipe_version_id, a recipe version "
-                        "that doesn't belong to that foam grade, or an unknown machine_id."
+                        "that doesn't belong to that product grade, or an unknown machine_id."
                     )
                     render_data_table(pd.DataFrame(bad_rows), max_height="300px")
 
@@ -645,7 +659,7 @@ with tab_runs:
                         # flat-model redesign 2026-08-10): derive the
                         # snapshot the same way manual entry does - from the
                         # imported machine's own production_method, not the
-                        # foam grade's, since the machine is the actual
+                        # product grade's, since the machine is the actual
                         # source of method context (a grade can only be
                         # assigned to machines under one method per
                         # Charlie's consistency rule, so either source
@@ -694,7 +708,7 @@ with tab_setup:
         st.caption(f"Showing Setup data for **{_run_label(run)}**")
 
         sub_overview, sub_create, sub_import, sub_fallplate = st.tabs(
-            ["Overview & Edit", "Create", "CSV / Excel import", "Fall-plate positions"]
+            ["Overview & Edit", "Create", "CSV / Excel import", "Tool Geometry and Fill Configuration"]
         )
 
         setup_phase = (
@@ -1673,7 +1687,7 @@ with tab_runtime:
         st.caption(f"Showing Runtime Data for **{_run_label(run)}**")
 
         sub_overview, sub_create, sub_import, sub_fallplate = st.tabs(
-            ["Overview & Edit", "Create", "CSV / Excel import", "Fall-plate positions"]
+            ["Overview & Edit", "Create", "CSV / Excel import", "Tool Geometry and Fill Configuration"]
         )
 
         finalized_phase = (
@@ -1768,7 +1782,7 @@ with tab_runtime:
                         key=f"edit_runtime_rise_{finalized_phase.id}",
                     )
                     meters_produced = st.number_input(
-                        "Meters produced (m)", min_value=0.0, step=1.0,
+                        "Output Quantity and Unit (m)", min_value=0.0, step=1.0,
                         value=float(finalized_phase.meters_produced or 0.0), key=f"edit_runtime_meters_{finalized_phase.id}",
                         help=(
                             "Leave at 0 to have it calculated instead from conveyor speed x run start/end time. "
@@ -1814,7 +1828,7 @@ with tab_runtime:
                     )
                 else:
                     oc1, oc2, oc3 = st.columns(3)
-                    length_label = "Meters produced"
+                    length_label = "Output Quantity and Unit"
                     if _output["length_source"] == "calculated":
                         length_label += " (calculated)"
                     oc1.metric(length_label, f"{_output['length_m']:.1f} m" if _output["length_m"] is not None else "—")
@@ -1838,13 +1852,13 @@ with tab_runtime:
                         st.caption(note)
                     elif _output["length_source"] == "calculated" and _output["actual_duration_min"] is not None:
                         st.caption(
-                            "Meters produced wasn't entered - calculated from conveyor speed x the recorded run "
+                            "Output Quantity and Unit wasn't entered - calculated from conveyor speed x the recorded run "
                             f"duration ({_output['actual_duration_min']:.1f} min)."
                         )
                     if _output["volume_m3"] is None and _output["length_m"] is not None:
                         st.caption("Tunnel width and/or foam height not recorded - can't calculate volume/weight yet.")
                     elif _output["weight_kg"] is None and _output["volume_m3"] is not None:
-                        st.caption("This foam grade has no target density set - can't calculate weight yet.")
+                        st.caption("This product grade has no target density set - can't calculate weight yet.")
 
                 def _do_delete_runtime(_session=session, _phase=finalized_phase):
                     _delete_phase_cascade(_session, _phase)
@@ -1922,7 +1936,7 @@ with tab_runtime:
                     )
                     rise_time = st.number_input("Rise time (s)", min_value=0.0, step=1.0, key=f"new_runtime_rise_{run.id}")
                     meters_produced = st.number_input(
-                        "Meters produced (m)", min_value=0.0, step=1.0, key=f"new_runtime_meters_{run.id}",
+                        "Output Quantity and Unit (m)", min_value=0.0, step=1.0, key=f"new_runtime_meters_{run.id}",
                         help=(
                             "Leave at 0 to have it calculated instead from conveyor speed x run start/end time. "
                             "Combined with tunnel width and foam height, this drives the calculated volume/weight "

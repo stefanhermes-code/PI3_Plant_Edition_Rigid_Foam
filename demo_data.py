@@ -558,7 +558,7 @@ def seed_demo_data(session) -> str:
 
     session.commit()
     return (
-        "Demo data created: 1 plant, 1 product family, 2 foam grades, 3 recipe versions, "
+        "Demo data created: 1 plant, 1 product family, 2 product grades, 3 recipe versions, "
         "5 production runs with quality test results and a quality issue each, "
         "2 routine production runs with quality results and no issue at all, plus 1 closed "
         "Customer Trial and 1 closed Optimization Trial (each with its own sample and quality "

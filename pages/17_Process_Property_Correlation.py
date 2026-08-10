@@ -1,4 +1,7 @@
-"""Industrial Intelligence: Machine Settings vs Physical Properties Correlation
+"""Industrial Intelligence: Process Parameters vs Product Properties Correlation
+(CR-01, 2026-08-10: renamed from "Machine Settings vs Physical Properties
+Correlation" - backend module/file name and analytics.rank_setting_correlations()
+are unchanged, this is a label-only rename per CR-01's mandatory terminology table)
 
 Cross-references every machine/process setting (Finalized-phase mixer rpm,
 air pressure, conveyor speed, ...) against a physical property outcome for
@@ -38,12 +41,12 @@ from helpers import (
     view_only_notice,
 )
 
-page_setup("Machine Settings vs Physical Properties Correlation")
+page_setup("Process Parameters vs Product Properties Correlation")
 init_db()
 require_login()
 logout_button()
 
-st.title("Machine Settings vs Physical Properties Correlation")
+st.title("Process Parameters vs Product Properties Correlation")
 render_function_action_intro(
     function_text=(
         "Cross-references every Finalized-phase machine/process setting (mixer rpm, "
@@ -54,7 +57,7 @@ render_function_action_intro(
         "plain-language read for the technical team."
     ),
     action_text=(
-        "Choose whether to analyze one foam grade or a whole foam family (its grades pooled "
+        "Choose whether to analyze one product grade or a whole foam family (its grades pooled "
         "together) and the property you want to explain, then read down the ranked table - the "
         "setting at the top has the strongest statistical association with that outcome across "
         "the recorded runs. Treat it as a lead to investigate, not a cause on its own: review it "
@@ -84,8 +87,8 @@ grades = [
 ]
 if not grades:
     st.warning(
-        "No foam grade yet has quality test results recorded - add these first before using "
-        "Machine Settings vs Physical Properties Correlation."
+        "No product grade yet has quality test results recorded - add these first before using "
+        "Process Parameters vs Product Properties Correlation."
     )
     st.stop()
 
@@ -229,7 +232,7 @@ else:
 
 plant_id = unit["plant_id"]
 subject_desc = (
-    f"foam grade {unit['label']}" if unit["mode"] == "grade"
+    f"product grade {unit['label']}" if unit["mode"] == "grade"
     else f"foam family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
 )
 docx_grade_id = unit["entity_id"] if unit["mode"] == "grade" else None
@@ -254,7 +257,7 @@ if ai_assistant.is_enabled_for_plant(session, plant_id):
             "correlation with this property across this production history.\n\n"
             f"{ranking_summary}\n\n"
             + (
-                "Note: because this pools multiple foam grades, the property values shown are "
+                "Note: because this pools multiple product grades, the property values shown are "
                 "expressed as a percentage of each run's own target, not the raw unit.\n\n"
                 if pooling_grades else ""
             )
@@ -330,7 +333,7 @@ render_ask_pi3_section(
     plant_id,
     default_foam_grade_id=docx_grade_id,
     page_context=(
-        f"The reviewer is on the Machine Settings vs Physical Properties Correlation page, looking "
+        f"The reviewer is on the Process Parameters vs Product Properties Correlation page, looking "
         f"at '{property_name}' "
         f"for {subject_desc}."
     ),

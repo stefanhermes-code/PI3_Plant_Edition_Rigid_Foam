@@ -11,7 +11,7 @@ from that same join, so it is built once here rather than five
 slightly-different copies of the same query living in each page.
 
 Every `foam_grade_id` parameter below (see _grade_id_list) accepts either a
-single foam grade's id (the original, most common case) or a list of ids -
+single product grade's id (the original, most common case) or a list of ids -
 the latter is how "analyze by foam family" works (Trend Analysis,
 Machine Settings vs Physical Properties Correlation, and Machine Settings
 Optimization): a product family's member grades are resolved to their ids
@@ -74,7 +74,7 @@ def compute_runtime_output(phase, foam_grade):
     Tunnel width (phase.sidewall_width_mm - renamed "Tunnel width" in the UI
     2026-08-05, since "sidewall width" wasn't a term anyone recognized;
     the column itself is unchanged) x foam height x length gives the
-    produced volume (m3); volume x the foam grade's target density gives
+    produced volume (m3); volume x the product grade's target density gives
     the produced weight (kg). Returns a dict of None-safe display values;
     never raises."""
     result = {
@@ -164,7 +164,7 @@ _DATA_CACHE_TTL = 30
 
 def _grade_id_list(foam_grade_id):
     """Every function below that takes `foam_grade_id` accepts either a
-    single id (the original "analyze one foam grade" case) or a list/tuple
+    single id (the original "analyze one product grade" case) or a list/tuple
     of ids (analyzing a whole foam family - a product family's grades
     pooled together, see analysis_unit_picker in helpers.py). Normalizes
     both shapes to a list (or None) so the caller can always filter with
@@ -604,7 +604,7 @@ def normalize_to_pct_of_target(df):
     """Re-expresses a dataframe's actual_value/target_value columns on a
     "percent of target" basis - target becomes 100 for every row,
     actual_value becomes (actual/target)*100 - instead of the property's
-    own raw unit. This is what makes pooling multiple foam grades into one
+    own raw unit. This is what makes pooling multiple product grades into one
     analysis (see helpers.analysis_unit_picker's "foam family" mode)
     statistically sound rather than misleading: two grades of the same
     property (e.g. two different density grades) can have very different
@@ -1092,7 +1092,7 @@ def recipe_version_isocyanate_index(session, recipe_version):
 
 def recipe_version_diff(version_a, version_b):
     """Component-by-component diff between two recipe versions of the same
-    foam grade: for every raw material appearing in either version, its php
+    product grade: for every raw material appearing in either version, its php
     in each, the change, and whether it's new/removed/unchanged. This is
     the same "what actually changed" question Root-Cause Assistant answers
     for process settings between two production runs - applied to
@@ -1324,7 +1324,7 @@ def property_run_series(
     production_method_id=None,
 ):
     """One row per production run (mean of any replicate results) for a
-    foam grade/property, sorted chronologically by test date. This is the
+    product grade/property, sorted chronologically by test date. This is the
     base series every SPC function below works from - a control chart,
     capability index, or trend test needs one point per run, not one point
     per replicate.

@@ -1,6 +1,6 @@
 """Screen 4: Recipes (formulation memory)
 
-Each foam grade has exactly one ACTIVE recipe at a time - a new version
+Each product grade has exactly one ACTIVE recipe at a time - a new version
 replaces the previous one in production, they don't coexist. This page
 leads with that: "Create Recipe" starts a brand new formulation for a
 grade, "Edit Recipe" revises the current one (saving records it as a new
@@ -62,15 +62,15 @@ logout_button()
 st.title("Recipes")
 render_function_action_intro(
     function_text=(
-        "Maintains the formulation history for each foam grade: the raw-material list with php "
+        "Maintains the formulation history for each product grade: the raw-material list with php "
         "dosage, supplier, and role for the currently active recipe, plus every retired version "
-        "before it with who approved it and when. A foam grade has exactly one active recipe in "
+        "before it with who approved it and when. A product grade has exactly one active recipe in "
         "production at a time - a new version replaces it rather than running alongside it - so "
         "this is the single source of truth Recipe Optimization, cost, and correlation pages all "
         "read from."
     ),
     action_text=(
-        "Use 'Create Recipe' to start a brand-new formulation for a foam grade that doesn't have "
+        "Use 'Create Recipe' to start a brand-new formulation for a product grade that doesn't have "
         "one yet, or 'Edit Recipe' to revise the currently active one - saving automatically "
         "records it as a new version and retires the one it replaces, so you don't have to manage "
         "version numbers or active flags by hand. Add raw materials to a recipe by name (typing a "
@@ -93,7 +93,7 @@ grade_ids = grade_ids_for_company(session, active_company_id)
 
 grades = apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids).all()
 if not grades:
-    st.warning("Add a foam grade first (Product Family & Foam Grade page).")
+    st.warning("Add a product grade first (Product Family & Product Grade page).")
     st.stop()
 
 
@@ -139,12 +139,12 @@ with tab_create:
         st.caption("View-only access - creating a recipe is restricted for your role.")
     else:
         st.caption(
-            "Start a brand new formulation for a foam grade. If this grade already has an active "
+            "Start a brand new formulation for a product grade. If this grade already has an active "
             "recipe, it will be retired the moment this one is saved."
         )
         with st.form("create_recipe"):
             grade = st.selectbox(
-                "Foam grade *", grades, format_func=lambda g: g.grade_name, key="create_recipe_grade"
+                "Product grade *", grades, format_func=lambda g: g.grade_name, key="create_recipe_grade"
             )
             version_label = st.text_input("Version label * (e.g. 28-MH-05)")
             effective_date = st.date_input("Effective date", value=dt.date.today())
@@ -171,7 +171,7 @@ with tab_create:
                         ratio_index=ratio_index or None,
                         # Explicitly False at creation, not the column's own
                         # True default: the DB now enforces at most one
-                        # active version per foam grade (see db.py's
+                        # active version per product grade (see db.py's
                         # RecipeVersion.is_active comment), so this row must
                         # not be flushed as active while the grade's current
                         # version is still active too - activate_recipe_
@@ -195,11 +195,11 @@ with tab_edit:
     else:
         grades_with_active = [g for g in grades if _active_version(g)]
         if not grades_with_active:
-            st.info("No foam grade has an active recipe yet - use 'Create Recipe' to start one.")
+            st.info("No product grade has an active recipe yet - use 'Create Recipe' to start one.")
         else:
             grade_rows = [
                 {
-                    "Foam grade": g.grade_name,
+                    "Product grade": g.grade_name,
                     "Active version": _active_version(g).version_label,
                     "Status": _active_version(g).approval_status,
                     "Effective date": _active_version(g).effective_date,
@@ -216,7 +216,7 @@ with tab_edit:
             edit_grade = next((g for g in grades_with_active if g.id == selected_grade_id), None)
 
             if edit_grade is None:
-                st.caption("Select a foam grade above to edit its recipe.")
+                st.caption("Select a product grade above to edit its recipe.")
             else:
                 active_version = _active_version(edit_grade)
 
@@ -386,7 +386,7 @@ with tab_import:
                 session.commit()
                 msg = f"Imported {len(new_rows)} recipe version(s) from {filename}."
                 if dup_rows:
-                    msg += f" Skipped {len(dup_rows)} row(s) already recorded for their foam grade + version label (likely a repeat click)."
+                    msg += f" Skipped {len(dup_rows)} row(s) already recorded for their product grade + version label (likely a repeat click)."
                 set_pending_banner("recipe_version_import_msg", msg)
                 st.rerun()
 
@@ -476,7 +476,7 @@ else:
 st.divider()
 st.subheader("Recipe versions")
 st.caption(
-    "Full formulation history across every foam grade. Click a row to view or manage that "
+    "Full formulation history across every product grade. Click a row to view or manage that "
     "version's details, ingredients, or delete it."
 )
 
@@ -486,7 +486,7 @@ else:
     version_rows = [
         {
             "Version": v.version_label,
-            "Foam grade": v.foam_grade.grade_name if v.foam_grade else "—",
+            "Product grade": v.foam_grade.grade_name if v.foam_grade else "—",
             "Active": "Yes" if v.is_active else "No",
             "Status": v.approval_status,
             "Effective date": v.effective_date,
@@ -632,7 +632,7 @@ else:
                 )
                 with st.form(f"edit_version_{v.id}"):
                     e_grade = st.selectbox(
-                        "Foam grade *", grades,
+                        "Product grade *", grades,
                         index=next((i for i, g in enumerate(grades) if g.id == v.foam_grade_id), 0),
                         format_func=lambda g: g.grade_name, key=f"edit_version_grade_{v.id}",
                     )
@@ -836,7 +836,7 @@ st.divider()
 st.subheader("📄 Where Used Report")
 st.caption(
     "Pick a raw material to see every recipe version - active and retired - that uses it, the "
-    "target properties of the foam grades affected, and any Customer/Optimization Trial precedent "
+    "target properties of the product grades affected, and any Customer/Optimization Trial precedent "
     "tied to those recipes. Useful before considering a material substitution."
 )
 wu_rm_query = session.query(RawMaterial)
@@ -856,12 +856,12 @@ else:
 
     wc1, wc2, wc3 = st.columns(3)
     wc1.metric("Recipe versions using it", wu_data["recipe_version_count"])
-    wc2.metric("Foam grades affected", wu_data["foam_grade_count"])
+    wc2.metric("Product grades affected", wu_data["foam_grade_count"])
     wc3.metric("Product families affected", wu_data["product_family_count"])
 
     st.write("**Recipes using this material**")
     render_data_table(pd.DataFrame(wu_data["usage_rows"] or [{"—": "No data recorded"}]))
-    st.write("**Target properties of affected foam grades**")
+    st.write("**Target properties of affected product grades**")
     render_data_table(pd.DataFrame(wu_data["target_rows"] or [{"—": "No data recorded"}]))
     st.write("**Trial precedent**")
     render_data_table(pd.DataFrame(wu_data["trial_rows"] or [{"—": "No data recorded"}]))

@@ -69,7 +69,7 @@ def expert_note_link_label(entity_type, entity_id, session):
         return f"Run #{r.id} — {r.foam_grade.grade_name} · {r.run_date}" if r else f"Run #{entity_id} (deleted)"
     if entity_type == "foam_grade":
         g = session.get(FoamGrade, entity_id)
-        return f"Foam Grade: {g.grade_name}" if g else f"Foam Grade #{entity_id} (deleted)"
+        return f"Product Grade: {g.grade_name}" if g else f"Product Grade #{entity_id} (deleted)"
     if entity_type == "product_family":
         f = session.get(ProductFamily, entity_id)
         return f"Foam Family: {f.name}" if f else f"Foam Family #{entity_id} (deleted)"
@@ -77,8 +77,8 @@ def expert_note_link_label(entity_type, entity_id, session):
 
 
 def expert_note_foam_grade_id_for_link(entity_type, entity_id, session):
-    """Which foam grade (if any) a given Expert Note "link to" target
-    belongs to - used to populate the "Foam grade" field when regenerating
+    """Which product grade (if any) a given Expert Note "link to" target
+    belongs to - used to populate the "Product grade" field when regenerating
     a PI3-sourced note's Word report on demand."""
     if entity_type == "foam_grade":
         return entity_id
@@ -89,7 +89,7 @@ def expert_note_foam_grade_id_for_link(entity_type, entity_id, session):
 
 
 def analysis_unit_picker(grades, key_prefix):
-    """Shared "Analyze by: Foam Grade / Foam Family" control for the three
+    """Shared "Analyze by: Product Grade / Foam Family" control for the three
     Industrial Intelligence pages built on analytics.py's pooled per-grade
     pipeline (Trend Analysis, Machine Settings vs Physical Properties
     Correlation, Machine Settings Optimization) - added 2026-08-02 so a
@@ -104,7 +104,7 @@ def analysis_unit_picker(grades, key_prefix):
     results) - foam families are derived from this same list via groupby,
     so a family only ever offers the grades that already passed the
     caller's own filter, and "Foam family X" never silently pulls in a
-    grade that "Foam grade" mode wouldn't have offered on its own.
+    grade that "Product grade" mode wouldn't have offered on its own.
 
     Returns a dict:
     - mode: "grade" or "family"
@@ -123,11 +123,11 @@ def analysis_unit_picker(grades, key_prefix):
       that want to spell out exactly which grades were pooled
     """
     mode_choice = st.radio(
-        "Analyze by", ["Foam grade", "Foam family"], key=f"{key_prefix}_unit_mode", horizontal=True
+        "Analyze by", ["Product grade", "Foam family"], key=f"{key_prefix}_unit_mode", horizontal=True
     )
-    if mode_choice == "Foam grade":
+    if mode_choice == "Product grade":
         grade = st.selectbox(
-            "Foam grade", grades, format_func=lambda g: g.grade_name, key=f"{key_prefix}_grade_select"
+            "Product grade", grades, format_func=lambda g: g.grade_name, key=f"{key_prefix}_grade_select"
         )
         return {
             "mode": "grade",
@@ -236,7 +236,7 @@ def render_pareto_chart(df, category_col, count_col, category_title=None):
     lowest, left to right), overlaid with a line marking the running
     cumulative percentage of the total - the standard quality-engineering
     view for "which few categories account for most of the total" (e.g.
-    which properties account for most of a foam grade/family's failed
+    which properties account for most of a product grade/family's failed
     quality test results). df must already be one row per category with
     its count in count_col; this function does the sorting and cumulative-%
     math itself, so callers just pass in raw counts.
@@ -270,10 +270,10 @@ def render_pareto_chart(df, category_col, count_col, category_title=None):
 
 
 def activate_recipe_version(session, foam_grade_id, new_version):
-    """Marks new_version as the active recipe for its foam grade, and
+    """Marks new_version as the active recipe for its product grade, and
     deactivates whatever was active before it. Recipe versions don't
     coexist in production - a new one replaces the previous one - so
-    exactly one version per foam grade should have is_active=True at a
+    exactly one version per product grade should have is_active=True at a
     time. Call this right after adding+flushing new_version, before
     session.commit(). Does not touch approval_status - a version can be
     Approved but no longer active (superseded by a later revision)."""
@@ -301,7 +301,7 @@ def all_production_methods(session):
 def activated_methods_for_plant(session, plant_id):
     """Top-level Production Methods currently active for a plant, per the
     new plant_production_methods join table - what Machine setup's method
-    picker (page 1) and the Foam Grade method picker (page 2) both filter
+    picker (page 1) and the Product Grade method picker (page 2) both filter
     to. Returns ProductionMethod rows, not the join rows themselves."""
     return (
         session.query(ProductionMethod)
@@ -354,7 +354,7 @@ def machines_for_plant_across_activated_methods(session, plant_id):
     method first.
 
     Added 2026-08-10 as part of Charlie's architecture correction
-    (deprecating FoamGrade.production_method_id): the Add/Edit Foam Grade
+    (deprecating FoamGrade.production_method_id): the Add/Edit Product Grade
     form previously forced a single "Production Method *" choice before
     offering any machines, via machines_for_plant_and_method(). That
     single-method gate is exactly the design this many-to-many

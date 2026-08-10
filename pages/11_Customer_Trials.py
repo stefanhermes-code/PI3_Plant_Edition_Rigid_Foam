@@ -11,7 +11,7 @@ CSV/Excel import for bulk-creating trials.
 A customer trial is initiated by a customer request in light of a sales
 opportunity - usually a lab trial in a small box - and is a completely
 separate flow from production runs. It is NOT a production run with a
-flag on it: it has its own table, its own plant/foam grade/recipe-version
+flag on it: it has its own table, its own plant/product grade/recipe-version
 references, and no ProductionPhase (no machine/process settings) behind
 it, unlike a real production batch.
 
@@ -121,7 +121,7 @@ grade_ids = grade_ids_for_company(session, active_company_id)
 
 grades = apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids).all()
 if not grades:
-    st.warning("Add a foam grade first (Product Family & Foam Grade page).")
+    st.warning("Add a product grade first (Product Family & Product Grade page).")
     st.stop()
 
 trials = (
@@ -165,7 +165,7 @@ with tab_create:
     else:
         with st.form("add_customer_trial"):
             grade = st.selectbox(
-                "Foam grade *", grades, format_func=lambda g: g.grade_name, key="ct_add_grade",
+                "Product grade *", grades, format_func=lambda g: g.grade_name, key="ct_add_grade",
             )
             customer_name = st.text_input("Customer name *")
             sales_opportunity_reference = st.text_input("Sales opportunity reference")
@@ -219,7 +219,7 @@ with tab_create:
                 st.caption("View-only access - adding a sample is restricted for your role.")
             else:
                 with st.form(f"add_sample_{managed_trial.id}"):
-                    zone_label = st.selectbox("Zone *", ZONE_LABELS, key=f"ct_sample_zone_{managed_trial.id}")
+                    zone_label = st.selectbox("Sample Location Reference *", ZONE_LABELS, key=f"ct_sample_zone_{managed_trial.id}")
                     sample_ts = combine_date_time("Sample creation time", f"ct_sample_ts_{managed_trial.id}")
                     sample_notes = st.text_area("Notes", key=f"ct_sample_notes_{managed_trial.id}")
                     dimension_fields = rigid_sample_dimension_fields(
@@ -246,7 +246,7 @@ with tab_create:
                 st.info("No samples recorded yet for this trial.")
             else:
                 sample_rows = [
-                    {"Sample ID": s.id, "Zone": s.zone_label, "Sampled": s.sample_ts, "Notes": s.notes or ""}
+                    {"Sample ID": s.id, "Sample Location Reference": s.zone_label, "Sampled": s.sample_ts, "Notes": s.notes or ""}
                     for s in trial_samples
                 ]
                 st.caption("Click a row to edit (and optionally delete) that sample.")
@@ -264,7 +264,7 @@ with tab_create:
                     st.markdown(f"**Edit sample #{selected_sample.id}**")
                     with st.form(f"edit_ct_sample_{selected_sample.id}"):
                         e_zone = st.selectbox(
-                            "Zone *", ZONE_LABELS,
+                            "Sample Location Reference *", ZONE_LABELS,
                             index=ZONE_LABELS.index(selected_sample.zone_label) if selected_sample.zone_label in ZONE_LABELS else 0,
                             key=f"edit_ct_sample_zone_{selected_sample.id}",
                         )
@@ -383,7 +383,7 @@ with tab_create:
                     session.commit()
                     msg = f"Imported {len(new_rows)} sample(s) from {ct_sample_filename}."
                     if dup_rows:
-                        msg += f" Skipped {len(dup_rows)} row(s) already recorded for their source + zone (likely a repeat click)."
+                        msg += f" Skipped {len(dup_rows)} row(s) already recorded for their source + sample location reference (likely a repeat click)."
                     set_pending_banner("ct_sample_import_msg", msg)
                     st.rerun()
 
@@ -392,7 +392,7 @@ with tab_import:
     st.caption(
         "Required columns: foam_grade_id, customer_name. Optional columns: sales_opportunity_reference, "
         "requested_by, trial_objective, responsible_person, trial_date, batch_reference, notes. "
-        "foam_grade_id must be one of your foam grades; recipe version is auto-resolved from the grade's "
+        "foam_grade_id must be one of your product grades; recipe version is auto-resolved from the grade's "
         "active version; status is always set to Open."
     )
     trial_df, trial_filename = csv_excel_uploader(TRIAL_REQUIRED_COLUMNS, TRIAL_OPTIONAL_COLUMNS, key="ct_trial_upload")
@@ -411,7 +411,7 @@ with tab_import:
 
         st.write(f"Rows ready to import: **{len(good_trial_rows)}** | Rows flagged as invalid: **{len(bad_trial_rows)}**")
         if bad_trial_rows:
-            st.warning("These rows are missing customer_name, or foam_grade_id isn't one of your foam grades.")
+            st.warning("These rows are missing customer_name, or foam_grade_id isn't one of your product grades.")
             render_data_table(pd.DataFrame(bad_trial_rows), max_height="300px")
 
         if good_trial_rows and st.button("Confirm import", key="confirm_ct_trial_import", disabled=not page_usable):
@@ -494,7 +494,7 @@ with tab_edit_delete:
             with st.form(f"edit_customer_trial_{selected.id}"):
                 grade_idx = next((i for i, g in enumerate(grades) if g.id == selected.foam_grade_id), 0)
                 e_grade = st.selectbox(
-                    "Foam grade *", grades, index=grade_idx, format_func=lambda g: g.grade_name,
+                    "Product grade *", grades, index=grade_idx, format_func=lambda g: g.grade_name,
                     key=f"ct_edit_grade_{selected.id}",
                 )
                 e_customer_name = st.text_input("Customer name *", value=selected.customer_name or "", key=f"ct_edit_customer_{selected.id}")
@@ -586,7 +586,7 @@ with tab_edit_delete:
 with tab_report:
     st.caption(
         "Reports on samples currently in scope (your company's customer trials, across all of "
-        "them - not just the one selected in 'Manage samples' above). Narrow by zone and/or "
+        "them - not just the one selected in 'Manage samples' above). Narrow by sample location reference and/or "
         "creation date below, then download - charts only, no raw sample list."
     )
     all_ct_samples = (
@@ -599,7 +599,7 @@ with tab_report:
         st.info("No samples recorded yet.")
     else:
         zone_options = sorted({s.zone_label for s in all_ct_samples if s.zone_label})
-        zone_filter = st.multiselect("Zone", zone_options, default=zone_options, key="ct_report_zone")
+        zone_filter = st.multiselect("Sample Location Reference", zone_options, default=zone_options, key="ct_report_zone")
         rc1, rc2 = st.columns(2)
         date_from = rc1.date_input("Sampled from (optional)", value=None, key="ct_report_from")
         date_to = rc2.date_input("Sampled to (optional)", value=None, key="ct_report_to")
@@ -612,7 +612,7 @@ with tab_report:
         ]
 
         if zone_filter == zone_options:
-            zone_label_text = "All zones"
+            zone_label_text = "All sample location references"
         elif zone_filter:
             zone_label_text = ", ".join(zone_filter)
         else:
@@ -620,7 +620,7 @@ with tab_report:
         date_label_text = (
             f"{date_from or 'earliest'} to {date_to or 'latest'}" if (date_from or date_to) else "All dates"
         )
-        selection_label = f"Zone: {zone_label_text} · Sampled: {date_label_text} · {len(trials)} customer trial(s) in scope"
+        selection_label = f"Sample Location Reference: {zone_label_text} · Sampled: {date_label_text} · {len(trials)} customer trial(s) in scope"
         st.caption(selection_label)
 
         report_data = reports.build_sample_report_data(
@@ -632,7 +632,7 @@ with tab_report:
         rc3.metric("Pass rate (linked results)", f"{report_data['pass_rate']}%" if report_data["pass_rate"] is not None else "—")
 
         if report_data["zone_breakdown"]:
-            st.bar_chart(pd.DataFrame(report_data["zone_breakdown"]).set_index("Zone"))
+            st.bar_chart(pd.DataFrame(report_data["zone_breakdown"]).set_index("Sample Location Reference"))
 
         st.download_button(
             "Download Word", data=reports.render_sample_report_docx(report_data),

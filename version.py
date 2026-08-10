@@ -2225,4 +2225,94 @@ CR-02, and CR-03 are all complete. CR-01 (UI navigation and rigid-foam
 terminology alignment) proceeds next, per Charlie's specified sequence.
 """
 
-APP_VERSION = "0.18.0"
+CHANGELOG_v0_18_0_TO_v0_19_0 = """
+v0.18.0 -> v0.19.0 (2026-08-10, CR-01 - UI Navigation and Rigid-Foam
+Terminology Alignment)
+
+Implements CR-01 of the three pre-approved Change Requests Charlie specified
+must land strictly in sequence (CR-01 -> CR-02 -> CR-03 -> Stefan UAT), with
+NO browser walkthrough performed for this CR individually - per Charlie's
+explicit instruction, only one consolidated walkthrough happens, after CR-03,
+before Stefan's UAT (task #740). Backend entity/column/model names were
+deliberately preserved everywhere a rename would add migration risk with no
+customer-visible value - every change below is a display-text/label rename
+only unless stated otherwise.
+
+1. Navigation / page-split (target sidebar structure):
+- Split the old combined "Plant & Foam Equipment Overview" page into three:
+  pages/1_Plant_Installation_Overview.py (Plants - pure identity/location,
+  Machine/equipment UI and Production Method activation checkboxes removed),
+  pages/30_Production_Methods.py (NEW - plant-activated methods with
+  Production Units/Product Grades/Recipes counts, plus a new session-level
+  "operating context" concept - st.session_state["pm_context_plant_id"]/
+  ["pm_context_method_id"] - settable here and read as a soft default,
+  never a hard gate, by Production Equipment's pickers),
+  pages/31_Production_Equipment.py (Machine CRUD moved here verbatim from
+  the old page 1, all user-visible labels renamed "Machine / foaming line"
+  -> "Production Unit or Cell").
+- access_control.py: added a new "production_methods" page_key for the new
+  Production Methods page. Production Equipment intentionally reuses the
+  existing "plant_overview" page_key (same CRUD/permission surface as
+  before the split) - avoids a RolePagePermission migration for existing
+  companies/roles. PAGE_CATALOG titles updated to match the table below.
+- app_rigid_foam.py: nav sections rebuilt to the approved order - Overview,
+  Plant Setup, Production Methods, Formulations, Production, Samples &
+  Trials, Quality, Industrial Intelligence, Company Admin, Application
+  Admin. Formulations (Raw Materials/Recipes/Reference Formulations) split
+  out of the old combined Setup section.
+
+2. Mandatory terminology rename table (label-only, backend unchanged):
+   Foam Grade -> Product Grade | Machine (in the equipment-add UI) ->
+   Production Unit or Cell | Quality Test Result -> Test Results |
+   Quality Issue -> Quality Issues | Setup (Production Run tab) -> Planned
+   Settings | Runtime Data -> Actual Run and Cycle Data | Component Stream
+   Readings -> Material Metering and Actual Usage | Fall-plate positions ->
+   Tool Geometry and Fill Configuration | Meters produced -> Output
+   Quantity and Unit | Sample zone -> Sample Location Reference | Machine
+   Settings vs Physical Properties (Correlation) -> Process Parameters vs
+   Product Properties (Correlation) | Machine Settings Optimization ->
+   Process Parameter Optimization.
+- Applied across pages/1, 2, 3, 4, 5, 6, 9, 11, 12, 15-21, 27, 30, 31,
+  reports.py, analytics.py, helpers.py, cascades.py, demo_data.py, and
+  app_rigid_foam.py: page titles, tab labels, form/field labels, table
+  column headers, chart titles, report titles (both the on-screen
+  st.subheader and the exported Word doc/PDF title block), and Add/Delete
+  confirmation copy. "Foam Grade"/"foam grade" (all case variants) was
+  swept app-wide via a scoped, verified find/replace limited to the exact
+  two-word phrase, which cannot collide with the FoamGrade class name or
+  foam_grade_id/grade_name columns (no space) - confirmed zero remaining
+  hits via grep afterward and a full test-suite rerun (unchanged pass
+  count) to catch any accidental producer/consumer mismatch in report
+  column-key strings.
+- Known deferred scope (disclosed, not silently dropped): the mandatory
+  table's "Machine -> Production Unit or Cell" rename was completed only
+  on pages/31 (the equipment Add/Edit form itself, the highest-visibility
+  surface). The word "Machine" still appears as a plain UI label/column
+  header/chart-category string in a number of other places app-wide
+  (breadcrumbs, table headers, dropdown labels) where a blind find/replace
+  was judged unsafe (the same word is also the backend model name, and is
+  used legitimately in unrelated phrases like "Machine Data" imports and
+  MachineModel/MachineCategory). Completing that rename requires a
+  dedicated per-site pass and is tracked as follow-up work before CR-01 is
+  considered fully closed against the letter of the mandatory table -
+  flagged to Charlie/Stefan rather than claimed as done.
+
+3. Tests: tests/test_pm_hierarchy_pages_smoke.py updated for the page
+   split (new PAGE30/PAGE31 constants; test_plants_page_has_no_equipment_ui
+   and test_production_methods_page_shows_activated_method_and_counts
+   added; test_add_machine_form_offers_plants_activated_method retargeted
+   from PAGE1 to PAGE31). Full suite re-run after every edit batch in this
+   changelog entry: 53 passed, 0 failed throughout (unchanged from pre-CR-01
+   baseline), 4 pre-existing benign numpy RuntimeWarnings.
+
+4. Deviation from CR-01's own evidence-package template: CR-01's document
+   calls for "JC completes a live UI walkthrough" as part of its own
+   closeout evidence. Per Charlie's overriding instruction for this batch
+   ("do not perform another browser walkthrough now... after CR-01, CR-02,
+   CR-03 are complete, perform ONE consolidated browser-level walkthrough"),
+   that walkthrough is deliberately deferred to task #740, after CR-03.
+   CR-02 (Overview dashboard Production Method alignment) proceeds next,
+   per Charlie's specified sequence.
+"""
+
+APP_VERSION = "0.19.0"
