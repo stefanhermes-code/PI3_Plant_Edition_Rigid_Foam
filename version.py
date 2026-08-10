@@ -2435,4 +2435,106 @@ deferred to task #740, same disclosed deviation pattern as CR-01's closeout.
    per Charlie's specified sequence.
 """
 
-APP_VERSION = "0.20.0"
+CHANGELOG_v0_20_0_TO_v0_21_0 = """
+v0.20.0 -> v0.21.0 (2026-08-10, CR-03 - Recipe Consolidation and Pending
+Review Status)
+
+Implements CR-03, the last of Charlie's three pre-approved, strictly-
+sequenced Change Requests (CR-01 -> CR-02 -> CR-03 -> Stefan UAT). Per
+Charlie's overriding instruction, NO browser walkthrough was performed for
+this CR individually - only one consolidated walkthrough happens now, task
+#740, before Stefan's UAT. CR-03's own source document independently calls
+for "JC completes a live walkthrough of Recipes, one Pending Review recipe,
+approval-status filtering, and one production recipe selection path" as
+acceptance evidence; that requirement is deliberately deferred to task #740,
+same disclosed-deviation pattern as CR-01 and CR-02's closeouts.
+
+1. Reference Formulations page removed entirely (CR-03 target navigation):
+   pages/29_Reference_Formulations.py deleted from disk; its nav
+   registration and "reference_formulations" access_control.PAGE_CATALOG
+   entry removed. Any pre-existing RolePagePermission rows keyed to that
+   page_key become inert (no code checks that key anymore) - left in place
+   rather than deleted, since a stray permission row with no matching page
+   has no effect and deleting live role data for zero functional gain is
+   unnecessary risk.
+
+2. Imported scientific formulations consolidated into the Recipes page
+   (pages/3_Recipe_Version_Record.py): a new "Approval Status" filter
+   (db.APPROVAL_STATUSES vocabulary, includes "Pending Review") sits above
+   the existing "Recipe versions" list, which now shows real RecipeVersion
+   rows AND every ReferenceFormulation row combined into one list at the
+   application layer (per CR-03 rule 6's explicit permission to keep them
+   in separate backend tables and combine only for display). Clicking a
+   reference-formulation row shows its full reported parameters, ingredient
+   lines and source/provenance (content carried over from the removed
+   page), plus a "Change Approval Status" control gated behind the same
+   page_usable permission check real recipe edits already use.
+   - Scope deliberately broadened beyond CR-03's own literal "eight
+     formulations, 52 components" wording: that count only covers RFREF-*
+     (the Post-G5 exact scientific reference recipes). The 10 RF-* patent/
+     literature rows from the earlier WP5 reconciliation batch lived on the
+     SAME now-removed page and are exact formulations in exactly the sense
+     CR-03 contrasts against "research formulation families" (RFFAM-*, the
+     only category CR-03 explicitly excludes) - leaving them off this list
+     would have silently orphaned 10 rows / 100 component lines with no UI
+     surface anywhere in the app. All 18 rows (10 RF-* + 8 RFREF-*) are
+     included; the 2 RFFAM-* research families are not, unchanged. Flagged
+     here explicitly as a scope broadening, not a silent overreach.
+   - Never migrated into real RecipeVersion rows: ReferenceFormulation has
+     no foam_grade_id/company_id (a shared, plant-agnostic public library,
+     structurally incompatible with RecipeVersion's per-grade, per-tenant
+     model). No new duplicate Recipe records were created - CR-03's "avoid
+     duplicate Recipe records during consolidation" and "no code path links
+     a ReferenceFormulation row to RecipeVersion.is_active" (CR-03 rule 3,
+     "must not become selectable for production use through an approval
+     bypass") are both satisfied structurally, with zero new guard code:
+     the only real link between the two tables remains the pre-existing,
+     user-set RecipeVersion.reference_formulation_id "informed by" FK.
+
+3. Schema: added ReferenceFormulation.approval_status (String(50),
+   nullable) - a real, mutable Approval Status using the exact same
+   controlled vocabulary as RecipeVersion.approval_status, so a Pending
+   Review -> Approved transition goes through the identical mechanism (a
+   controlled selectbox + commit) real recipes already use, satisfying
+   CR-03 rule 4's "must use the normal controlled approval mechanism and
+   retain auditability" with the same auditability level RecipeVersion
+   itself has (neither model has a dedicated approved_by/approved_at
+   column in this app - parity, not a lesser bar). Applied to Supabase via
+   the cr03_reference_formulation_approval_status migration; backfilled to
+   "Pending Review" for all 18 pre-existing rows. ReferenceFormulationFamily
+   (RFFAM-*) deliberately untouched - no approval_status column, no
+   appearance anywhere in the Recipes flow, per CR-03 rule 7.
+
+4. Data reconciliation (before/after counts, per CR-03 section 6 and UAT
+   acceptance criterion 8): reference_formulations 18 -> 18 (0 rows added/
+   removed - only the new nullable column populated), reference_formulation_
+   components 152 -> 152, reference_formulation_families 2 -> 2,
+   reference_formulation_performance_results 53 -> 53, reference_formulation_
+   processing_notes 40 -> 40, recipe_versions 5 -> 5, recipe_components
+   52 -> 52. Verified directly against the real Supabase rigid_foam schema
+   before and after the migration - a pure additive schema change, no
+   existing row touched except the new column's own value.
+
+5. Tests: new tests/test_cr03_recipe_consolidation.py (9 cases) - nav/
+   PAGE_CATALOG no longer references reference_formulations, the page file
+   is gone from disk, new ReferenceFormulation rows default to a None
+   approval_status that the app treats as Pending Review, Reference
+   FormulationFamily has no approval_status column at all, an approval
+   transition persists across sessions, ReferenceFormulation has no
+   foam_grade_id/is_active columns (the structural guarantee behind rule 3),
+   approving a reference formulation never touches an unrelated grade's
+   active RecipeVersion, and the Recipes page renders the combined list and
+   its Approval Status filter without exception (including filtered to
+   Pending Review only). All 9 pass. Full existing suite re-run after the
+   rewrite: 68 passed (59 pre-existing + 9 new), 0 failed, same 2
+   pre-existing benign numpy RuntimeWarnings as before this batch - zero
+   regressions.
+
+6. This closes the CR-01 -> CR-02 -> CR-03 sequence Charlie specified.
+   Per his standing instruction, the single consolidated browser-level
+   walkthrough (task #740) is next, immediately before Stefan begins UAT -
+   covering all three CRs' own individually-deferred walkthrough
+   requirements in one pass rather than three separate ones.
+"""
+
+APP_VERSION = "0.21.0"

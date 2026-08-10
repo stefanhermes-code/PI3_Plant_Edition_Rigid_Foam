@@ -412,8 +412,14 @@ production_method_pages = [
 
 formulation_pages = [
     ("raw_materials", st.Page("pages/14_Raw_Materials.py", title="Raw Materials", icon="🧴")),
+    # CR-03 (Recipe Consolidation and Pending Review Status), implemented
+    # 2026-08-10: the separate "Reference Formulations" nav entry/page is
+    # removed per CR-03's target navigation table - imported scientific
+    # formulations (RF-*, RFREF-*) now appear directly in the Recipes list
+    # below, tagged with Approval Status = Pending Review, rather than
+    # living behind their own sidebar item. See pages/3_Recipe_Version_
+    # Record.py's own module docstring for the combined-list design.
     ("recipes", st.Page("pages/3_Recipe_Version_Record.py", title="Recipes", icon="📋")),
-    ("reference_formulations", st.Page("pages/29_Reference_Formulations.py", title="Reference Formulations", icon="📚")),
 ]
 
 production_pages = [

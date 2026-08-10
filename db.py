@@ -3134,6 +3134,19 @@ class ReferenceFormulation(Base):
     source_location = Column(String(300))  # e.g. "Example 21C"
     record_status = Column(String(100))  # e.g. "Locked public parameter summary"
     plant_use_rule = Column(Text)  # e.g. "Reference only; local material matching, safety review and validation required"
+
+    # CR-03 addition (2026-08-10, Recipe Consolidation and Pending Review
+    # Status): a real, mutable Approval Status - same controlled vocabulary
+    # as RecipeVersion.approval_status (db.APPROVAL_STATUSES) - so every row
+    # here can be shown, filtered and transitioned on the consolidated
+    # Recipes page instead of the now-removed standalone Reference
+    # Formulations page. Backfilled to "Pending Review" for all 18
+    # pre-existing rows (10 RF-* patent examples + 8 RFREF-* exact
+    # scientific reference recipes) via the cr03_reference_formulation_
+    # approval_status migration. Deliberately NOT added to
+    # ReferenceFormulationFamily (RFFAM-*) - CR-03 rule 7 keeps research
+    # formulation families out of the Recipe/approval workflow entirely.
+    approval_status = Column(String(50))
     sort_order = Column(Integer)
 
     # --- Reconciliation additions (2026-08-08, Reference_Formulations_10 package) ---

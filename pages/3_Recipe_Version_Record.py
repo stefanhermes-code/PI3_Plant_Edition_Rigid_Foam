@@ -8,6 +8,44 @@ version automatically and retires the one it replaces). Full version
 history - every retired version, its ingredients, who approved what and
 when - stays fully intact below, it's just not the first thing you have
 to manage by hand.
+
+CR-03 (Recipe Consolidation and Pending Review Status), implemented
+2026-08-10: the "Recipe versions" list below now also shows every imported
+scientific formulation from the reference_formulations table (RF-001..010,
+the WP5-reconciliation patent/literature examples, AND RFREF-001..008, the
+Post-G5 exact scientific reference recipes - 18 rows total) alongside real
+plant RecipeVersion rows, tagged with Approval Status = "Pending Review"
+until a plant-authorized review changes it via the same "Edit details"
+control real recipes already use. The standalone Reference Formulations
+page/nav entry (formerly pages/29) is removed entirely per CR-03's target
+navigation - this is now the only place those rows are visible in the app.
+
+Deliberately scoped WIDER than CR-03's own literal "eight formulations, 52
+components" wording (which only covers RFREF-*, the Post-G5 batch): the
+document's stated objective is "presenting exact imported scientific
+formulations in the normal Recipes list" and only ever excludes "the two
+research formulation families" (RFFAM-*, a genuinely different kind of
+record - a parameter range/optimization study, not one exact recipe). The
+10 RF-* patent/literature rows are exact formulations in exactly the same
+sense RFREF-* rows are (contrasted with RFFAM-*'s ranges), and were the
+only thing living on the now-removed Reference Formulations page besides
+RFREF-* - leaving them off this list would silently orphan 10 rows and 100
+component lines with no UI surface anywhere in the app. Flagged to Charlie/
+Stefan in the CR-03 closeout note as a scope broadening, not hidden.
+
+Never migrated into real RecipeVersion rows (no foam_grade_id, no
+company_id - ReferenceFormulation is a shared, plant-agnostic public
+library, structurally incompatible with RecipeVersion's per-grade,
+per-tenant model). Per CR-03 rule 6 ("JC may preserve backend table names
+or relationships... the customer-facing Recipes page may combine the
+records at the application layer"), they stay in their own table and are
+combined here only for display/filtering - see _reference_formulation_rows()
+and the combined-list building code below the "Recipe versions" heading.
+They can never become an active production recipe for any grade (no code
+path links a ReferenceFormulation row to RecipeVersion.is_active at all;
+the only real link is the pre-existing, user-set RecipeVersion.
+reference_formulation_id "informed by" FK) - satisfying CR-03 rule 3
+structurally, with no extra guard code needed.
 """
 
 import datetime as dt
@@ -25,6 +63,7 @@ from db import (
     RawMaterial,
     RecipeComponent,
     RecipeVersion,
+    ReferenceFormulation,
     get_session,
     init_db,
 )
@@ -67,7 +106,10 @@ render_function_action_intro(
         "before it with who approved it and when. A product grade has exactly one active recipe in "
         "production at a time - a new version replaces it rather than running alongside it - so "
         "this is the single source of truth Recipe Optimization, cost, and correlation pages all "
-        "read from."
+        "read from. The recipe list below also includes imported scientific reference formulations "
+        "(patent and literature examples) with Approval Status = Pending Review - they are visible "
+        "for technical review and comparison, but can never become an active production recipe for "
+        "any grade until a real recipe is created that draws on them."
     ),
     action_text=(
         "Use 'Create Recipe' to start a brand-new formulation for a product grade that doesn't have "
@@ -77,7 +119,7 @@ render_function_action_intro(
         "new one creates it in Raw Materials automatically) with its php and role in the "
         "formulation, or import a full component list via CSV/Excel for bulk loading. Older "
         "versions, their ingredient lists, and approval status stay available further down for "
-        "audit."
+        "audit - use the Approval Status filter there to isolate Pending Review formulations."
     ),
 )
 session = get_session()
@@ -472,39 +514,172 @@ else:
 # Recipe versions (full history + detail/edit/delete) - kept at the bottom of
 # the page on purpose: Create/Edit Recipe above cover the day-to-day flow,
 # this is the audit trail underneath it.
+#
+# CR-03 (2026-08-10): combined at the application layer with every imported
+# scientific reference formulation (see module docstring above) - one list,
+# one Approval Status filter, per CR-03's "the user should experience one
+# Recipe list" requirement. ReferenceFormulation rows stay in their own
+# table/query; nothing here writes a RecipeVersion row for them.
 # ---------------------------------------------------------------------------
 st.divider()
 st.subheader("Recipe versions")
 st.caption(
-    "Full formulation history across every product grade. Click a row to view or manage that "
-    "version's details, ingredients, or delete it."
+    "Full formulation history across every product grade, plus imported scientific reference "
+    "formulations (Approval Status: Pending Review until reviewed). Click a row to view or manage "
+    "details, ingredients, or delete/approve it."
 )
 
-if not versions:
-    st.info("No recipe versions recorded yet.")
+ref_formulations = (
+    session.query(ReferenceFormulation)
+    .order_by(ReferenceFormulation.sort_order, ReferenceFormulation.controlled_id)
+    .all()
+)
+
+status_filter = st.selectbox(
+    "Approval Status",
+    ["All"] + APPROVAL_STATUSES,
+    key="recipe_status_filter",
+    help="Filters both real recipes and imported scientific reference formulations below. "
+    "Reference formulations start at Pending Review until a plant-authorized review approves them.",
+)
+
+combined = [("version", cv) for cv in versions] + [("reference", rf) for rf in ref_formulations]
+if status_filter != "All":
+    combined = [
+        (kind, obj)
+        for kind, obj in combined
+        if (obj.approval_status or "Pending Review") == status_filter
+    ]
+
+if not combined:
+    st.info("No recipe versions or reference formulations match this filter.")
 else:
     version_rows = [
         {
-            "Version": v.version_label,
-            "Product grade": v.foam_grade.grade_name if v.foam_grade else "—",
-            "Active": "Yes" if v.is_active else "No",
-            "Status": v.approval_status,
-            "Effective date": v.effective_date,
-            "Created by": v.created_by,
+            "Version": obj.version_label if kind == "version" else obj.controlled_id,
+            "Product grade": (
+                (obj.foam_grade.grade_name if obj.foam_grade else "—")
+                if kind == "version"
+                else f"— {obj.name} (imported reference)"
+            ),
+            "Active": "Yes" if (kind == "version" and obj.is_active) else "No",
+            "Status": obj.approval_status or ("Draft" if kind == "version" else "Pending Review"),
+            "Effective date": obj.effective_date if kind == "version" else "—",
+            "Created by": obj.created_by if kind == "version" else "Imported (see provenance)",
         }
-        for v in versions
+        for kind, obj in combined
     ]
     idx = clickable_table(version_rows, key="recipe_versions_table")
-    if idx is not None and idx < len(versions):
-        st.session_state["rv_selected_id"] = versions[idx].id
-    elif st.session_state.get("rv_selected_id") not in {v.id for v in versions}:
+    if idx is not None and idx < len(combined):
+        sel_kind, sel_obj = combined[idx]
+        st.session_state["rv_selected_kind"] = sel_kind
+        st.session_state["rv_selected_id"] = sel_obj.id
+    elif st.session_state.get("rv_selected_id") not in {obj.id for _, obj in combined}:
         st.session_state.pop("rv_selected_id", None)
+        st.session_state.pop("rv_selected_kind", None)
 
     selected_id = st.session_state.get("rv_selected_id")
-    v = next((x for x in versions if x.id == selected_id), None)
+    selected_kind = st.session_state.get("rv_selected_kind")
+    v = next((x for x in versions if x.id == selected_id), None) if selected_kind == "version" else None
+    rf = next((x for x in ref_formulations if x.id == selected_id), None) if selected_kind == "reference" else None
 
-    if v is None:
+    if v is None and rf is None:
         st.caption("Select a row above to view or manage that recipe version.")
+    elif rf is not None:
+        st.markdown(f"### {rf.controlled_id} — {rf.name}")
+        st.warning(
+            "🔒 Imported scientific reference formulation - not a plant recipe. Local material "
+            "matching, safety review and validation are required before this informs production, "
+            "per this record's own plant_use_rule. Visible here for technical review, comparison "
+            "and PI3 reasoning only, per CR-03's Pending Review governance.",
+            icon="🔒",
+        )
+        st.caption(
+            f"Source: {rf.source.controlled_id if rf.source else (rf.source_number or 'not recorded')}"
+            + (f" ({rf.source_organisation})" if rf.source_organisation else "")
+            + (f", {rf.source_location}" if rf.source_location else "")
+        )
+        if rf.plant_use_rule:
+            st.caption(f"Use rule: {rf.plant_use_rule}")
+        st.caption(f"Approval Status: `{rf.approval_status or 'Pending Review'}`")
+
+        rf1, rf2, rf3, rf4 = st.columns(4)
+        rf1.metric(
+            "Reported isocyanate index",
+            rf.reported_isocyanate_index if rf.reported_isocyanate_index is not None else (rf.target_index if rf.target_index is not None else "—"),
+        )
+        rf2.metric("Reported A:B mass ratio", rf.reported_ab_mass_ratio if rf.reported_ab_mass_ratio is not None else "—")
+        rf3.metric("Free-rise density (kg/m3)", rf.reported_free_rise_density_kg_m3 if rf.reported_free_rise_density_kg_m3 is not None else "—")
+        rf4.metric("Thermal conductivity (mW/m.K)", rf.reported_thermal_conductivity_mw_mk if rf.reported_thermal_conductivity_mw_mk is not None else "—")
+
+        with st.expander("Full reported parameters"):
+            detail_rows = [
+                {"Field": "Chemistry", "Value": rf.chemistry.name if rf.chemistry else (rf.chemistry_label or "—")},
+                {"Field": "Production method", "Value": rf.production_method.name if rf.production_method else "—"},
+                {"Field": "Application", "Value": rf.application.name if rf.application else "—"},
+                {"Field": "Construction", "Value": rf.construction.name if rf.construction else "—"},
+                {"Field": "Formulation basis", "Value": rf.formulation_basis or "—"},
+                {"Field": "Index basis", "Value": rf.index_basis or "—"},
+                {"Field": "Water level", "Value": f"{rf.water_level} {rf.water_uom.name}" if rf.water_level is not None and rf.water_uom else rf.water_level},
+                {"Field": "Physical blowing agent", "Value": rf.physical_blowing_agent_description or "—"},
+                {"Field": "Physical blowing agent level", "Value": f"{rf.physical_blowing_agent_level} {rf.blowing_agent_uom.name}" if rf.physical_blowing_agent_level is not None and rf.blowing_agent_uom else rf.physical_blowing_agent_level},
+                {"Field": "Minimum fill density (kg/m3)", "Value": rf.reported_minimum_fill_density_kg_m3},
+                {"Field": "Molded core density (kg/m3)", "Value": rf.reported_molded_core_density_kg_m3},
+                {"Field": "Cream time (s)", "Value": rf.reported_cream_time_s},
+                {"Field": "Gel/string time (s)", "Value": rf.reported_gel_or_string_time_s},
+                {"Field": "Rise time (s)", "Value": rf.reported_rise_time_s},
+                {"Field": "Demold time (min)", "Value": rf.reported_demold_time_min},
+                {"Field": "Mold temperature (C)", "Value": rf.reported_mold_temp_c},
+                {"Field": "Open-cell content (%)", "Value": rf.reported_open_cell_content_pct},
+                {"Field": "Validation status", "Value": rf.validation_status or "—"},
+                {"Field": "Local material matching status", "Value": rf.local_rm_matching_status or "—"},
+                {"Field": "Safety review status", "Value": rf.safety_review_status or "—"},
+                {"Field": "Released to plant recipe", "Value": "Yes" if rf.release_to_plant_recipe else "No"},
+            ]
+            render_data_table(pd.DataFrame(detail_rows))
+            if rf.technical_notes:
+                st.caption(rf.technical_notes)
+
+        st.write("**Ingredient lines**")
+        rf_components = sorted(rf.components, key=lambda c: (c.sequence if c.sequence is not None else 999))
+        if not rf_components:
+            st.caption("No ingredient lines recorded for this reference formulation.")
+        else:
+            comp_rows = [
+                {
+                    "#": c.sequence,
+                    "Material": c.material_name or c.source_component_term,
+                    "Category / role": c.controlled_category_or_role or "—",
+                    "Side": c.component_side or "—",
+                    "Amount": c.amount_text or c.reported_amount,
+                    "Basis": c.amount_basis or (c.uom.name if c.uom else "—"),
+                    "Source location": c.source_location or "—",
+                }
+                for c in rf_components
+            ]
+            render_data_table(pd.DataFrame(comp_rows))
+
+        with st.expander("Change Approval Status"):
+            if not page_usable:
+                st.caption("View-only access - changing approval status is restricted for your role.")
+            else:
+                st.caption(
+                    "Per CR-03 rule 4: any transition away from Pending Review must go through this "
+                    "same controlled mechanism real recipes use - there is no separate bypass. This "
+                    "never makes the formulation selectable as a grade's active production recipe; "
+                    "that only ever happens by creating a real Recipe that draws on it."
+                )
+                with st.form(f"edit_rf_status_{rf.id}"):
+                    new_rf_status = st.selectbox(
+                        "Approval status", APPROVAL_STATUSES,
+                        index=APPROVAL_STATUSES.index(rf.approval_status) if rf.approval_status in APPROVAL_STATUSES else APPROVAL_STATUSES.index("Pending Review"),
+                        key=f"rf_status_{rf.id}",
+                    )
+                    if st.form_submit_button("Save approval status"):
+                        rf.approval_status = new_rf_status
+                        session.commit()
+                        st.success(f"'{rf.controlled_id}' approval status updated to {new_rf_status}.")
+                        st.rerun()
     else:
         st.markdown(
             f"### {v.version_label} — {v.foam_grade.grade_name if v.foam_grade else '—'} "

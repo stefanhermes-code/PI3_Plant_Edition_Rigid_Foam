@@ -158,13 +158,21 @@ ADMIN_ROLE_NAMES = frozenset({"company admin", "platform admin"})
 # rather than getting its own, since it's the same underlying
 # CRUD/permission surface the old combined page already had - splitting the
 # UI didn't need to split the permission grid too.
+#
+# CR-03 (Recipe Consolidation and Pending Review Status), implemented
+# 2026-08-10: the "reference_formulations" page_key is removed entirely -
+# that page/nav entry no longer exists (imported scientific formulations
+# now appear on the Recipes page itself). Any pre-existing RolePagePermission
+# rows keyed to "reference_formulations" become inert (no code ever checks
+# that key again); not backfilled/deleted, since a stray permission row with
+# no matching page has no effect and deleting rows out from under live role
+# data is unnecessary risk for zero functional gain.
 PAGE_CATALOG = {
     "plant_overview": "Plants",
     "production_methods": "Production Methods",
     "product_family_foam_grade": "Product Families & Product Grades",
     "raw_materials": "Raw Materials",
     "recipes": "Recipes",
-    "reference_formulations": "Reference Formulations",
     "production_run": "Production Runs",
     "quality_test_result": "Test Results",
     "quality_issue": "Quality Issues",
