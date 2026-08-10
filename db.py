@@ -298,10 +298,14 @@ class Company(Base):
 
 
 class Role(Base):
-    """company_id NULL + is_builtin True is a *template* row (exactly 3:
-    admin/technical/viewer) - never assigned to a User directly, and never
-    shown outside the Default User Roles page (platform-owner-only). Every
-    real company gets its own company_id-scoped CLONE of those 3 roles,
+    """company_id NULL + is_builtin True is a *template* row - never assigned
+    to a User directly, and never shown outside the Default User Roles page
+    (platform-owner-only). Originally exactly 3 (admin/technical/viewer,
+    since renamed); per CR-05 (Default User Role Inheritance and Platform
+    Admin Separation, 2026-08-11) the approved set is exactly 4 - Company
+    Admin, R&D, Read Only, Technical Engineer - matching the Flexible Foam
+    application's Default User Roles baseline. Every real company gets its
+    own company_id-scoped CLONE of those roles,
     seeded from the templates at company-creation time (see
     role_provisioning.clone_builtin_roles_for_company) - that clone is what
     Users actually get assigned to, and what a company's own admin narrows

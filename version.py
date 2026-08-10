@@ -2876,4 +2876,110 @@ evidence for Charlie's final technical closure sign-off; the deployed-
 browser walkthrough and Stefan's UAT are next.
 """
 
-APP_VERSION = "0.25.0"
+VERSION_0_26_0_NOTES = """
+CR-05 (Default User Role Inheritance and Platform Admin Separation for
+UAT), implemented 2026-08-11 per Charlie's instruction document
+(PI3_Rigid_Foam_Phase_1_CR05_Default_User_Role_Inheritance_and_Platform_
+Admin_Separation_for_UAT.docx). Corrects the Rigid Foam user-role model to
+match the approved PI3 Default User Roles architecture already used by the
+Flexible Foam application: Platform Admin stays platform-level and outside
+the company-role inheritance path; every customer company inherits exactly
+the 4 approved Default Company Roles (Company Admin, R&D, Read Only,
+Technical Engineer); legacy role names and "Application Admin" are removed
+from the customer-facing model.
+
+1. Live Supabase data (rigid_foam.roles) - the actual gap this CR closes:
+   - The 3 Default Company Role templates (company_id NULL) were still
+     literally named "technical" and "viewer" (Company Admin was already
+     correct) - renamed to "Technical Engineer" and "Read Only".
+   - Added a 4th template, "R&D" ("R&D Manager, Engineer."), matching
+     Flexible Foam's baseline - previously missing entirely.
+   - The same two renames were backfilled onto HTC Global's and Pacific
+     Thai Urethanes (PTU)'s existing role clones, and both companies were
+     backfilled a new "R&D" clone, so every existing company - not just
+     ones created after this change - ends up with the full approved
+     4-role set. All renames are same-row updates (id unchanged), so no
+     user's role_id needed re-pointing and no access was lost.
+   - HTC Global's own admin clone (id=4) was relabeled from "Company
+     Admin" back to "Platform Admin" - restoring the platform/company
+     naming distinction (see access_control.STRUCTURALLY_REQUIRED_ROLE_
+     NAMES / ADMIN_ROLE_NAMES's docstrings, and auth.py's module
+     docstring) that CR-04's "Database Reset and Clean UAT Baseline" reset
+     had inadvertently lost when it re-seeded HTC's company row - the
+     template itself was never renamed, so this is purely a one-time data
+     correction on HTC's own row, not a code change. Stefan's existing
+     user account keeps its role_id unchanged.
+
+2. Code/terminology sweep for the remaining literal "Application Admin"
+   and "viewer" occurrences the audit turned up outside the DB:
+   - app_rigid_foam.py: the sidebar nav section label for the platform-
+     owner-only page group (Companies, Subscription Types, Default User
+     Roles, User Accounts, PI3 Connectivity, Performance, Company
+     Analysis) was literally "Application Admin" - the one place this
+     legacy term was still visible in the live app. Renamed to "Platform
+     Admin".
+   - auth.py: four "viewer" fallback-default role strings (used only when
+     a session has no real role - the AUTH_DISABLED dev bypass path aside,
+     which already said "Platform Admin") updated to "Read Only" for
+     consistency with the approved role names.
+   - .streamlit/secrets.toml.example: the legacy-fallback-login example
+     blocks used literal "technical"/"viewer" role values - updated to
+     "Technical Engineer"/"Read Only" so a fresh deployment following this
+     example doesn't recreate the retired names.
+   - pages/27_Performance.py, role_provisioning.py, db.py (Role class),
+     pages/26_Default_User_Roles.py: docstring accuracy updates only (no
+     behavior change) - these described "exactly 3" templates / literal
+     admin/technical/viewer names as current fact; corrected to describe
+     the 4-role baseline CR-05 establishes.
+
+3. No schema change: is_builtin=True role rows (templates and their
+   per-company clones) are pure runtime data - CR-05 needed new/renamed
+   rows and new RolePagePermission-free defaults (full access, matching
+   the "no rows = full access" convention every other template already
+   uses), not new columns. role_provisioning.clone_builtin_roles_for_
+   company already clones "every template" dynamically, so adding the R&D
+   template needed no code change there - new companies going forward
+   automatically get all 4 roles with zero additional wiring.
+
+4. Confirmed already-satisfied by existing design, no code change needed:
+   - Platform Admin can never be cloned into a customer company (criterion
+     2) - structurally guaranteed, since clone_builtin_roles_for_company
+     only ever reads company_id IS NULL templates, and "Platform Admin" is
+     never a template (it only exists as HTC's own company-scoped clone's
+     name).
+   - Platform Admin can never be offered as a customer company's role
+     assignment (criterion 6) - pages/25_User_Accounts.py's role dropdown
+     is already filtered to `Role.company_id == company_id`, so a role
+     scoped to HTC's own company_id never appears in another company's
+     picker.
+   - Company Admin protection / one-admin-per-company enforcement
+     (criteria 6, 13 partial) - already covers both "Company Admin" and
+     "Platform Admin" via access_control.ADMIN_ROLE_NAMES, unchanged by
+     this CR.
+
+5. New automated tests (criterion 13): tests/test_cr05_role_model.py - 9
+   tests covering the exact 4-template set, a company-creation inheritance
+   test (clone_builtin_roles_for_company produces exactly the 4 approved
+   roles), a Platform-Admin-exclusion test (a "Platform Admin"-named
+   company-scoped role, simulating HTC's real row, does not leak into a
+   new company's clone set), a per-company isolation test for the new R&D
+   role, and parametrized checks that no legacy name is accidentally
+   wired into ADMIN_ROLE_NAMES/protected_role_name.
+
+6. Out of my reach - flagged for Charlie/Stefan: acceptance criterion 12
+   ("the Customer User Access Request implementation workbook uses the
+   same four Default Company Roles as its controlled role choices") refers
+   to an external implementation workbook I don't have a copy of in either
+   the app repo or the Development Docs folder - not actioned here; needs
+   Charlie to confirm which file this is or supply it for a follow-up
+   pass.
+
+Verified via py_compile on every touched file, a full regression run (92
+passed, 0 failed - 83 pre-existing + 9 new CR-05 tests, same benign
+pre-existing numpy RuntimeWarnings as every prior batch), and an AppTest
+smoke pass of pages 23/24/25/26 and app_rigid_foam.py's own nav render
+against both an empty schema and a schema seeded with the exact 4-template
+set - zero exceptions.
+"""
+
+APP_VERSION = "0.26.0"

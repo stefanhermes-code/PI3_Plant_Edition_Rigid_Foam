@@ -492,9 +492,17 @@ platform_admin_pages = [
 # Equipment, Product Families & Product Grades) / Formulations (Raw
 # Materials, Recipes, Reference Formulations) / Production (Production
 # Runs) / Samples & Trials / Quality (Test Results, Quality Issues) /
-# Industrial Intelligence (unchanged). Company Admin / Application Admin
-# stay as-is - out of CR-01's scope (rigid-foam terminology/navigation for
-# the operational app), not customer-facing production-method concepts.
+# Industrial Intelligence (unchanged). Company Admin stays as-is - out of
+# CR-01's scope (rigid-foam terminology/navigation for the operational app),
+# not a customer-facing production-method concept.
+#
+# CR-05 (Default User Role Inheritance and Platform Admin Separation),
+# implemented 2026-08-11: the nav section for the platform-owner-only pages
+# (Companies, Subscription Types, Default User Roles, User Accounts, PI3
+# Connectivity, Performance, Company Analysis) was literally labeled
+# "Application Admin" - a legacy term CR-05 requires replaced with "Platform
+# Admin" everywhere it means platform-level HTC administration. This is the
+# one place that term was still customer/HTC-staff-visible; renamed here.
 nav_sections_with_keys = {
     "Plant Setup": plant_setup_pages,
     "Production Methods": production_method_pages,
@@ -504,7 +512,7 @@ nav_sections_with_keys = {
     "Quality": quality_pages,
     "Industrial Intelligence": industrial_intelligence_pages,
     "Company Admin": admin_pages,
-    "Application Admin": platform_admin_pages,
+    "Platform Admin": platform_admin_pages,
 }
 
 # Nav visibility: a fresh, unauthenticated script run has no role/company in

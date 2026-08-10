@@ -33,8 +33,9 @@ navigation long before anyone has triggered a PerformanceLog cache miss.
 Platform-owner-only (see auth.require_platform_owner): this is an
 operational/engineering view of the deployment itself, not something a
 customer company's own admin needs or should see - same reasoning as
-PI3 Connectivity and the other Application Admin pages. See
-access_control.py's PLATFORM_ONLY_KEYS.
+PI3 Connectivity and the other Platform Admin pages (renamed from
+"Application Admin" per CR-05, 2026-08-11). See access_control.py's
+PLATFORM_ONLY_KEYS.
 """
 
 import datetime as dt

@@ -151,7 +151,7 @@ def _start_db_session(session, user):
     st.session_state["username"] = user.username
     st.session_state["display_name"] = user.display_name or user.username
     st.session_state["role_id"] = user.role_id
-    st.session_state["role"] = user.role.name if user.role else "viewer"
+    st.session_state["role"] = user.role.name if user.role else "Read Only"
     st.session_state["company_id"] = user.company_id
     st.session_state["is_platform_owner"] = bool(user.company and user.company.is_platform_owner)
     st.session_state["is_super_admin"] = bool(user.is_super_admin)
@@ -168,7 +168,7 @@ def _start_legacy_session(username, user_record):
     st.session_state["auth_source"] = "legacy"
     st.session_state["username"] = username
     st.session_state["display_name"] = user_record.get("display_name", username)
-    st.session_state["role"] = user_record.get("role", "viewer")
+    st.session_state["role"] = user_record.get("role", "Read Only")
     st.session_state["role_id"] = None
     st.session_state["company_id"] = None
     # Legacy secrets.toml users predate multi-tenancy entirely - treat them
@@ -325,7 +325,7 @@ def current_user():
         "id": st.session_state.get("user_id"),
         "username": st.session_state.get("username"),
         "display_name": st.session_state.get("display_name"),
-        "role": st.session_state.get("role", "viewer"),
+        "role": st.session_state.get("role", "Read Only"),
         "role_id": st.session_state.get("role_id"),
         "company_id": st.session_state.get("company_id"),
         "is_platform_owner": st.session_state.get("is_platform_owner", False),
@@ -335,7 +335,7 @@ def current_user():
 
 def require_role(*allowed_roles):
     """Call at the top of a page to restrict it to certain roles."""
-    role = st.session_state.get("role", "viewer")
+    role = st.session_state.get("role", "Read Only")
     if role not in allowed_roles:
         st.error(
             f"Your role ('{role}') does not have access to this screen. "

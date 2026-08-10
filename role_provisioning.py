@@ -1,6 +1,10 @@
-"""Clones every default role template (admin/technical/viewer, plus any
-others the platform owner has added on the Default User Roles page) into a
-new company's own copies.
+"""Clones every default role template (the 4 approved Default Company Roles
+as of CR-05, 2026-08-11 - Company Admin, R&D, Read Only, Technical Engineer
+- plus any others the platform owner has added on the Default User Roles
+page) into a new company's own copies. "Platform Admin" is never a template
+(see db.py's Role docstring) - it exists only as HTC's own company-scoped
+clone's name - so it is structurally excluded from this clone operation and
+can never be assigned to a customer company.
 
 See db.py's Role docstring for why this exists: the templates
 (company_id=NULL, is_builtin=True) are never assigned to a User directly and

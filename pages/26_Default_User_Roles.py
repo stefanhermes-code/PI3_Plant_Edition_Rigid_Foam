@@ -8,8 +8,11 @@ copies whatever's set here into a new company's own role clones the
 moment that company is created.
 
 Originally exactly 3 fixed templates (admin/technical/viewer, since
-renamed/consolidated); the platform owner can now add more, rename/
-describe any of them, and delete ones that aren't needed - except
+renamed/consolidated); per CR-05 (Default User Role Inheritance and
+Platform Admin Separation, 2026-08-11) the approved baseline is now 4 -
+Company Admin, R&D, Read Only, Technical Engineer - matching the Flexible
+Foam application. The platform owner can add more, rename/describe any of
+them, and delete ones that aren't needed - except
 "Company Admin" (renamed 2026-08-05 from "Platform Admin", itself renamed
 2026-08-04 from the old literal "admin" - the "Platform Admin" name was
 retired because it misled people into thinking it granted cross-company
