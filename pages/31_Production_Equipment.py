@@ -13,11 +13,11 @@ backend entity name (db.Machine) and its columns are unchanged - only
 labels/captions change, per CR-01's "implementation note: backend entity
 name may stay" guidance for this exact rename.
 
-Defaults its Plant/Production Method pickers to the operating context set
-on pages/30_Production_Methods.py (st.session_state["pm_context_plant_id"]/
-["pm_context_method_id"]), if one is set for this browser tab - but doesn't
-gate on it; a user can still pick a different plant/method here directly,
-same as before.
+REMOVED 2026-08-10 (CR-04 step 6, per Charlie's instruction to remove the
+global Operating Context concept entirely): this page used to default its
+Plant/Production Method pickers to the session-level context set on
+pages/30_Production_Methods.py. That cross-page session state is gone -
+pickers here now default plainly to the first plant/method in the list.
 """
 
 import streamlit as st
@@ -50,11 +50,11 @@ render_function_action_intro(
         "equipment that produced them - a production run picks one of these."
     ),
     action_text=(
-        "Pick a plant (defaults to your current Production Methods operating context, if one is "
-        "set), then add each Production Unit/Cell with its Production Method, OEM, and model. A "
-        "plant needs at least one activated Production Method (set on the Production Methods page) "
-        "before you can add equipment to it. Click a row in the table to edit or delete a Production "
-        "Unit/Cell - deleting one only unlinks it from any production runs that reference it."
+        "Pick a plant, then add each Production Unit/Cell with its Production Method, OEM, and "
+        "model. A plant needs at least one activated Production Method (set on the Production "
+        "Methods page) before you can add equipment to it. Click a row in the table to edit or "
+        "delete a Production Unit/Cell - deleting one only unlinks it from any production runs "
+        "that reference it."
     ),
 )
 session = get_session()
@@ -73,8 +73,7 @@ if not plants:
     st.info("Add a plant first (Plants page) before adding Production Equipment.")
     st.stop()
 
-_context_plant_id = st.session_state.get("pm_context_plant_id")
-_default_plant_index = next((i for i, p in enumerate(plants) if p.id == _context_plant_id), 0)
+_default_plant_index = 0
 
 
 def _machine_model_picker(oem, current_model, key_prefix):
@@ -114,15 +113,9 @@ with st.expander("Add Production Unit / Cell", expanded=False):
             )
             method_choice = None
         else:
-            _context_method_id = (
-                st.session_state.get("pm_context_method_id")
-                if st.session_state.get("pm_context_plant_id") == plant_for_machine.id
-                else None
-            )
             method_choice = st.selectbox(
                 "Production Method *", plant_methods, format_func=lambda m: m.name,
-                index=next((i for i, m in enumerate(plant_methods) if m.id == _context_method_id), 0),
-                key="add_machine_method",
+                index=0, key="add_machine_method",
             )
         oem = st.selectbox("OEM / manufacturer", MACHINE_OEMS, key="add_machine_oem")
         model = _machine_model_picker(oem, "", "add_machine")

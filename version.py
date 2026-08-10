@@ -2617,4 +2617,117 @@ executed as of this version.
    written instruction.
 """
 
-APP_VERSION = "0.22.0"
+VERSION_0_23_0_NOTES = """
+v0.22.0 -> v0.23.0 (2026-08-10, CR-04 completion - "Database Reset and
+Clean UAT Baseline for JC", Charlie's instruction): closes out the
+remaining CR-04 steps flagged as not-yet-done in v0.22.0's own changelog
+entry - the data RESET, Step 5 Import, and Step 6 (Apply CR-04) are all
+done as of this version. Steps 7 (Validate) and 8 (Close) remain.
+
+1. RESET (data): per Stefan's explicit "Go ahead," executed the actual
+   wipe against the live Supabase rigid_foam schema - DELETE (in
+   FK-dependency-safe child-before-parent order, verified against the
+   full cross-table FK graph before running) against 56 transactional/
+   UAT tables: plants, foam_grades and their machines/specs/target-
+   properties, the full production-unit/machine/tooling hierarchy
+   (production_units, machines, mixheads, tools, cavities, fill_points,
+   vent_configurations, calibration_records, and every machine-linked
+   table), plant_production_methods, recipe_versions/components,
+   production_runs and their full cycle/shot/output/phase/event chain,
+   samples, physical_property_results, quality_observations, customer_
+   trials, optimization_trials, controlled_failure_cases, raw_materials/
+   lots/lot_uses/documents/qualifications/attribute_values, suppliers,
+   expert_notes, the PI3 connection/interaction/feedback tables, and every
+   audit/activity log (login/page_view/page_load/performance/role_change/
+   export/error). Verified afterward via pg_stat_user_tables: all 56 at
+   zero rows. Explicitly NOT touched, verified unchanged: platform
+   bootstrap/tenant-identity (companies=1, users=1, roles=6) and every
+   controlled master/reference vocabulary table (production_methods=7,
+   chemistries=2, machine_models=64, reference_formulations=18,
+   quality_issue_types=64, raw_material_catalog_entries=166, and the
+   full location/condition/property/method/UOM taxonomies) - these are
+   validated content from many prior QA passes in this project, not test
+   data, and Charlie's instruction targets the PM-era interim decisions
+   and their downstream synthetic data, not this layer. The pre-reset
+   snapshot taken in v0.22.0's batch is the historical-value archive for
+   anything this step removed.
+
+2. Step 5 (Import) - reclassified per Stefan's explicit direction:
+   Charlie's original instruction gated this step on Charlie/Stefan first
+   producing Rigid-Foam-aligned Implementation Spreadsheets. Stefan
+   overrode that framing directly ("Step 5 should not depend on the
+   spreadsheet, that is nonsense. Unblock it") - the minimum Phase 1 UAT
+   baseline doesn't need a spreadsheet-import mechanism; it can be built
+   directly from controlled master data this project already has and
+   trusts, the same way every prior WP3/WP5 UAT seeding batch in this
+   project was done. Seeded directly against Supabase: 1 plant (HTC
+   Global - Phase 1 Plant) with PM-100 activated, 1 production unit + 1
+   machine (a real Hennecke PANELFOAMER pulled from the controlled
+   machine_models catalog), 1 product family + 1 foam grade (RF-COLDROOM-
+   001) assigned to that machine, 5 real raw materials pulled from the
+   166-row raw_material_catalog_entries catalog (BASF Lupranol 3300/
+   Lupranate M20, Evonik POLYCAT 5/DABCO DC 193, cyclopentane) inserted
+   into plant-scoped raw_materials, 1 recipe version (Pending Review -
+   fresh and unvalidated, not Approved) with its 5 components, 1 grade
+   specification (thermal conductivity <= 0.024 W/(m.K), reusing the
+   preserved controlled property/method/condition/orientation/location
+   vocabulary), and 1 production run -> sample -> physical property
+   result (0.0231, a pass) to prove the rebuilt architecture end-to-end.
+   No new architecture decisions - pure data population within already-
+   controlled vocabulary, verified afterward by re-querying every table
+   in the chain and confirming every FK resolves correctly.
+
+3. Step 6 (Apply CR-04) - Operating Context removal: per Charlie's
+   explicit instruction ("remove the global Operating Context concept
+   from the application entirely - not just never persisted, the feature
+   itself must be removed"), stripped every trace of the session-level
+   soft default from pages/30_Production_Methods.py (the "Set as
+   operating context"/"Clear operating context" buttons, the
+   st.session_state["pm_context_plant_id"]/["pm_context_method_id"]
+   reads/writes, the "Operating context [check]" success indicator, and
+   the bottom current-context info box) and pages/31_Production_
+   Equipment.py (its Plant/Production Method picker defaults that used to
+   read this same session state). Every picker now defaults plainly
+   (first item in the list) with zero cross-page session state. This
+   resolves the ambiguity JC's own PM reconciliation audit had flagged,
+   decisively in favour of full removal, per Charlie's own instruction.
+
+4. Step 6 (Apply CR-04) - PM release gating enforced in the UI: added
+   helpers.method_activatable_by_customer(method, is_platform_owner) - a
+   pure function (bool(is_platform_owner or method.is_released)) wiring
+   the is_released schema field (added in v0.22.0) into an actual UI
+   gate for the first time. pages/30_Production_Methods.py's activation
+   checkbox loop now disables (with an explanatory caption) any method a
+   customer/company user isn't allowed to activate - only PM-100 at the
+   Phase 1 baseline - while the platform-owner company (Company.
+   is_platform_owner, e.g. HTC Global) stays exempt, since it still needs
+   to activate any method for its own UAT/reference content ahead of a
+   future release decision. The activate/reactivate branches are guarded
+   by this same check; deactivating an already-active method is never
+   blocked (handles any pre-existing activation from before this gate
+   existed).
+
+5. Tests: new tests/test_cr04_pm_release_gating.py (4 cases) - the pure
+   helper function's both branches (released method activatable by
+   anyone; unreleased method blocked for a customer but not a platform
+   owner), plus two AppTest-based page tests using a dedicated non-
+   platform-owner fixture (deliberately NOT the shared seeded_pm_
+   hierarchy fixture, which is platform-owner by convention) proving the
+   released method's checkbox is enabled and the unreleased method's is
+   disabled-with-caption for a real customer, and that the platform-owner
+   exemption re-enables it. Updated tests/test_pm_hierarchy_pages_smoke.py's
+   test_production_methods_page_shows_activated_method_and_counts to
+   assert the "Set as operating context" button is now ABSENT (inverted
+   from its prior assertion that it existed), per the removal above. Full
+   suite: 72 passed (68 prior + 4 new), 0 failed, same 2 pre-existing
+   benign numpy RuntimeWarnings as every prior batch - zero regressions.
+
+6. Remaining CR-04 steps, tracked separately: Step 7 (Validate - full
+   regression already covered above, still need schema/data integrity
+   checks against the reset+reseeded Supabase database, a multi-method
+   engineering fixture, and the consolidated live browser walkthrough)
+   and Step 8 (Close - closeout package to Charlie, then Stefan's final
+   UAT/release decision).
+"""
+
+APP_VERSION = "0.23.0"

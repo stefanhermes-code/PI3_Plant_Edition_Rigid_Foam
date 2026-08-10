@@ -145,7 +145,11 @@ def test_plants_page_has_no_equipment_ui(seeded_pm_hierarchy):
 def test_production_methods_page_shows_activated_method_and_counts(seeded_pm_hierarchy):
     """New page (pages/30_Production_Methods.py, CR-01): shows the plant's
     activated method with its concise Production Units/Product Grades/
-    Recipes counts, and offers a 'Set as operating context' control."""
+    Recipes counts. The 'Set as operating context' control was removed
+    2026-08-10 per CR-04 step 6 (Charlie's instruction to remove the global
+    Operating Context concept entirely) - see
+    test_cr04_pm_release_gating.py for the release-gating behaviour that
+    replaced part of this page's logic."""
     ids = seeded_pm_hierarchy
     at = _run(PAGE30)
     assert not at.exception, f"Unhandled exception loading Production Methods: {at.exception}"
@@ -163,8 +167,8 @@ def test_production_methods_page_shows_activated_method_and_counts(seeded_pm_hie
     assert grades_metric is not None and grades_metric.value == "1", f"got {grades_metric}"
     assert recipes_metric is not None and recipes_metric.value == "1", f"got {recipes_metric}"
 
-    assert any(b.label == "Set as operating context" for b in at.button), (
-        "Operating-context button not found for the activated method"
+    assert not any(b.label == "Set as operating context" for b in at.button), (
+        "Operating-context button should be gone entirely per CR-04 step 6"
     )
 
 

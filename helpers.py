@@ -312,6 +312,20 @@ def activated_methods_for_plant(session, plant_id):
     )
 
 
+def method_activatable_by_customer(method, is_platform_owner):
+    """CR-04 step 6 (Charlie's "Database Reset and Clean UAT Baseline"
+    instruction, 2026-08-10): only Production Methods with is_released=True
+    may be activated by a real customer/company user via the Production
+    Methods page checkboxes - at the Phase 1 baseline that's PM-100 only,
+    per Charlie's maturity/release table (see ProductionMethod's own
+    docstring in db.py). The platform-owner company (Company.is_platform_owner,
+    e.g. HTC Global) is exempt from this gate, since it needs to activate any
+    method - released or not - to build its own UAT/reference content ahead
+    of a future release decision. A pure function (no DB/session access) so
+    it's trivial to unit-test both branches directly."""
+    return bool(is_platform_owner or method.is_released)
+
+
 def production_method_label(record):
     """Display label for the Production Method a quality/sample record
     inherits from its parent Production Run - the run's immutable

@@ -9,19 +9,32 @@ This page:
    from the old "Plant & Foam Equipment Overview" page - see
    pages/1_Plant_Installation_Overview.py's docstring for why: activation is
    a Production Method concern, not a Plant-identity one).
-2. Lets a user select one activated method as the "operating context" for
-   this browser tab - stored in st.session_state under
-   "pm_context_plant_id" / "pm_context_method_id". Production Equipment
-   (pages/31_Production_Equipment.py) reads this context to default its own
-   Plant/Production Method filters, without gating - a user can still pick
-   a different plant/method there directly.
-3. Shows concise counts per activated method: Production Units (Machines at
+2. Shows concise counts per activated method: Production Units (Machines at
    this plant tagged with this method), Product Grades (grades whose
    DERIVED Production Method set - see helpers.grade_production_methods,
    the architecture-correction batch immediately before this CR - includes
    this method), and Recipes (RecipeVersion rows under those grades). Kept
    deliberately concise per CR-01 - no per-run/per-sample counts here, that
    detail lives on the operational pages themselves.
+3. Gates which methods a customer/company user may activate at all, per
+   Charlie's Phase 1 maturity/release table (CR-04 step 6, 2026-08-10 -
+   "Database Reset and Clean UAT Baseline" instruction): only is_released
+   methods (PM-100 only, at this baseline) are activatable via this
+   checkbox for a real customer. The platform-owner company is exempt, so
+   it can still activate any method for its own UAT/reference content -
+   see helpers.method_activatable_by_customer.
+
+REMOVED 2026-08-10 (CR-04 step 6, per Charlie's explicit instruction to
+remove the global Operating Context concept from the application
+entirely, not merely stop persisting it): this page used to let a user
+"Set as operating context" one activated method for the browser tab
+(st.session_state["pm_context_plant_id"]/["pm_context_method_id"]), which
+pages/31_Production_Equipment.py read back to default its own Plant/
+Production Method pickers. That session-level soft default is gone -
+every page's pickers now default plainly (first plant/method in the list)
+with no cross-page session state at all. This resolves the ambiguity
+flagged in JC's PM reconciliation audit decisively in favour of full
+removal, per Charlie's own instruction.
 
 Controlled-ID-to-customer-name mapping: ProductionMethod.name already IS the
 customer-facing name (e.g. "Discontinuous Factory Foaming"); controlled_id
@@ -37,7 +50,13 @@ import streamlit as st
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
 from db import FoamGrade, Machine, Plant, PlantProductionMethod, RecipeVersion, get_session, init_db
-from helpers import all_production_methods, page_setup, render_function_action_intro, view_only_notice
+from helpers import (
+    all_production_methods,
+    method_activatable_by_customer,
+    page_setup,
+    render_function_action_intro,
+    view_only_notice,
+)
 from tenant_scope import apply_scope, company_picker, plant_ids_for_company
 
 page_setup("Production Methods")
@@ -48,19 +67,15 @@ logout_button()
 st.title("Production Methods")
 render_function_action_intro(
     function_text=(
-        "This is the operating-context home for Production Method: it shows which Production "
-        "Methods are activated at a plant, and lets you set one as the working context for this "
-        "session so Production Equipment, Product Grades, data entry, and reporting can default to "
-        "it. Each activated method's card shows a concise count of Production Units, Product "
-        "Grades, and Recipes within that method - a Product Grade can legitimately span more than "
-        "one method (via its Production Unit assignments), so a grade may be counted under more "
-        "than one method here."
+        "This shows which Production Methods are activated at a plant. Each activated method's "
+        "card shows a concise count of Production Units, Product Grades, and Recipes within that "
+        "method - a Product Grade can legitimately span more than one method (via its Production "
+        "Unit assignments), so a grade may be counted under more than one method here."
     ),
     action_text=(
         "Pick a plant, then activate every Production Method it actually runs using the checkboxes "
-        "below. Once at least one method is activated, click 'Set as operating context' on the "
-        "method you're working in - Production Equipment and other pages will default to it. Clear "
-        "the context at any time to go back to seeing everything for the plant."
+        "below. At Phase 1, only PM-100 (Discontinuous Factory Foaming) is released for customer "
+        "activation - the other methods are shown for visibility but stay disabled until released."
     ),
 )
 session = get_session()
@@ -81,12 +96,8 @@ if not plants:
     st.warning("Add a plant first (Plants page) before activating Production Methods.")
     st.stop()
 
-# Default the plant picker to the current operating context's plant, if one
-# is already set for this browser tab, so returning here doesn't lose it.
-_context_plant_id = st.session_state.get("pm_context_plant_id")
-_default_plant_index = next((i for i, p in enumerate(plants) if p.id == _context_plant_id), 0)
 selected_plant = st.selectbox(
-    "Plant *", plants, index=_default_plant_index, format_func=lambda p: p.name, key="pm_plant_picker"
+    "Plant *", plants, index=0, format_func=lambda p: p.name, key="pm_plant_picker"
 )
 
 st.divider()
@@ -102,40 +113,36 @@ existing_rows_by_method = {
     .all()
 }
 activated_ids = {mid for mid, row in existing_rows_by_method.items() if row.active}
-
-_context_method_id = (
-    st.session_state.get("pm_context_method_id")
-    if st.session_state.get("pm_context_plant_id") == selected_plant.id
-    else None
-)
+is_platform_owner = user["is_platform_owner"]
 
 if not all_methods:
     st.info("No controlled Production Methods are defined yet.")
 else:
     for method in all_methods:
+        already_active = method.id in activated_ids
+        can_activate = method_activatable_by_customer(method, is_platform_owner)
         checked = st.checkbox(
             f"{method.name} ({method.controlled_id})",
-            value=method.id in activated_ids,
+            value=already_active,
             key=f"pm_activate_{selected_plant.id}_{method.id}",
-            disabled=not page_usable,
+            disabled=not page_usable or (not can_activate and not already_active),
         )
+        if not can_activate and not already_active:
+            st.caption(
+                f"Not yet released for customer activation ({method.maturity_status or 'not released'}) - "
+                "Phase 1 offers Production Method PM-100 only."
+            )
         existing_row = existing_rows_by_method.get(method.id)
-        if checked and not existing_row:
+        if checked and can_activate and not existing_row:
             session.add(PlantProductionMethod(plant_id=selected_plant.id, production_method_id=method.id, active=True))
             session.commit()
             st.rerun()
-        elif checked and existing_row and not existing_row.active:
+        elif checked and can_activate and existing_row and not existing_row.active:
             existing_row.active = True
             session.commit()
             st.rerun()
         elif not checked and existing_row and existing_row.active:
             existing_row.active = False
-            # Clear the operating context if the method being deactivated
-            # was the one currently selected - an inactive method shouldn't
-            # stay silently selected as everyone's working context.
-            if _context_method_id == method.id:
-                st.session_state.pop("pm_context_method_id", None)
-                st.session_state.pop("pm_context_plant_id", None)
             session.commit()
             st.rerun()
 
@@ -162,33 +169,8 @@ else:
                 if grade_ids_for_method
                 else 0
             )
-            c1, c2, c3, c4 = st.columns([1, 1, 1, 1.4])
+            c1, c2, c3 = st.columns(3)
             c1.metric("Production Units", units_count)
             c2.metric("Product Grades", len(grade_ids_for_method))
             c3.metric("Recipes", recipes_count)
-            with c4:
-                st.markdown("")
-                is_context = (
-                    st.session_state.get("pm_context_plant_id") == selected_plant.id
-                    and st.session_state.get("pm_context_method_id") == method.id
-                )
-                if is_context:
-                    st.success("Operating context ✓")
-                elif st.button("Set as operating context", key=f"pm_set_context_{selected_plant.id}_{method.id}"):
-                    st.session_state["pm_context_plant_id"] = selected_plant.id
-                    st.session_state["pm_context_method_id"] = method.id
-                    st.rerun()
             st.divider()
-
-if st.session_state.get("pm_context_method_id"):
-    _ctx_method = next((m for m in all_methods if m.id == st.session_state["pm_context_method_id"]), None)
-    _ctx_plant = next((p for p in plants if p.id == st.session_state.get("pm_context_plant_id")), None)
-    if _ctx_method and _ctx_plant:
-        st.info(
-            f"Current operating context: **{_ctx_plant.name} → {_ctx_method.name} "
-            f"({_ctx_method.controlled_id})**. Production Equipment and other pages default to this."
-        )
-        if st.button("Clear operating context"):
-            st.session_state.pop("pm_context_plant_id", None)
-            st.session_state.pop("pm_context_method_id", None)
-            st.rerun()
