@@ -344,7 +344,7 @@ with tab_runs:
                     "Batch": r.batch_reference,
                     "Block": r.block_reference,
                     "Production Method": r.production_method.name if r.production_method else "—",
-                    "Machine": r.machine.name if r.machine else "—",
+                    "Production Unit or Cell": r.machine.name if r.machine else "—",
                     "Operator": r.operator_or_team_reference,
                 }
                 for r in runs
@@ -405,8 +405,8 @@ with tab_runs:
                     assigned_machines = [m for m in grade.machines if m.active is not False] if grade else []
                     if grade and not assigned_machines:
                         st.caption(
-                            "⚠️ This PU Material has no Machine assigned yet - assign one on the "
-                            "Product Family & Product Grade page first."
+                            "⚠️ This PU Material has no Production Unit or Cell assigned yet - assign "
+                            "one on the Product Family & Product Grade page first."
                         )
                     machine_options = [None] + assigned_machines
                     machine_idx = next(
@@ -414,7 +414,7 @@ with tab_runs:
                         0,
                     )
                     machine = st.selectbox(
-                        "Machine / foaming line", machine_options, index=machine_idx,
+                        "Production Unit or Cell", machine_options, index=machine_idx,
                         format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
                         key=f"edit_run_machine_{selected_run.id}",
                     )
@@ -422,7 +422,7 @@ with tab_runs:
                     st.caption(
                         f"Plant: **{grade.product_family.plant.name if grade else '—'}** · "
                         f"Production Method: **{run_method.name if run_method else '—'}** · "
-                        f"Machine: **{machine.name if machine else '—'}**"
+                        f"Production Unit or Cell: **{machine.name if machine else '—'}**"
                     )
                     run_date = st.date_input(
                         "Run date", value=selected_run.run_date or dt.date.today(),
@@ -531,7 +531,7 @@ with tab_runs:
                 # form above, including the NULL-is-active handling.
                 assigned_machines = [m for m in grade.machines if m.active is not False] if grade else []
                 machine = st.selectbox(
-                    "Machine / foaming line" + ("" if assigned_machines else " (none assigned to this PU Material yet)"),
+                    "Production Unit or Cell" + ("" if assigned_machines else " (none assigned to this PU Material yet)"),
                     [None] + assigned_machines,
                     format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
                 )
@@ -539,7 +539,7 @@ with tab_runs:
                 st.caption(
                     f"Plant: **{grade.product_family.plant.name if grade else '—'}** · "
                     f"Production Method: **{run_method.name if run_method else '—'}** · "
-                    f"Machine: **{machine.name if machine else '—'}**"
+                    f"Production Unit or Cell: **{machine.name if machine else '—'}**"
                 )
                 block_reference = st.text_input("Block reference")
                 operator = st.text_input("Operator / team reference")

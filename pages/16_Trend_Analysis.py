@@ -65,9 +65,9 @@ render_function_action_intro(
         "slow drift a control chart is bad at catching early - pump wear, catalyst degradation, an "
         "off-spec raw-material lot), and a formal trend test (replaces an eyeballed "
         "first-half-vs-second-half comparison with an actual significance test). PI3 is used only "
-        "after these numbers exist, to help interpret a real flag against recipe changes, machine "
-        "changes, and quality-issue history - never to guess whether a trend exists in the first "
-        "place."
+        "after these numbers exist, to help interpret a real flag against recipe changes, "
+        "production unit or cell changes, and quality-issue history - never to guess whether a "
+        "trend exists in the first place."
     ),
     action_text=(
         "Choose whether to analyze one product grade or a whole foam family (its grades pooled "
@@ -75,8 +75,9 @@ render_function_action_intro(
         "on). Read the control chart first for sudden shifts, then capability for how much margin "
         "there is to spec, then CUSUM for a slower drift the control chart might miss, and the "
         "trend test to confirm whether an apparent trend is statistically real. If something "
-        "flags, use 'Ask PI3' to get it interpreted against recipe changes, machine changes, and "
-        "quality-issue history before acting on it. Download the Trend Analysis Report further "
+        "flags, use 'Ask PI3' to get it interpreted against recipe changes, production unit or "
+        "cell changes, and quality-issue history before acting on it. Download the Trend Analysis "
+        "Report further "
         "down for a shareable Word summary of the control chart, capability, CUSUM, and "
         "trend-test results above."
     ),
@@ -171,9 +172,9 @@ include_trials = st.checkbox(
     help=(
         "Off by default: only production-run results are shown. Turning this on pools in results "
         "from Customer Trial and Optimization Trial lab samples for this grade/family too - useful "
-        "for spotting a pattern across everything tested, but these lab trials have no machine or "
-        "process settings behind them, so they're shown with a blank machine and won't line up with "
-        "a specific production run."
+        "for spotting a pattern across everything tested, but these lab trials have no production "
+        "unit/cell or process settings behind them, so they're shown with a blank production "
+        "unit/cell and won't line up with a specific production run."
     ),
 )
 # Production Method filter (added 2026-08-10, per Charlie's flat-PM
@@ -215,14 +216,18 @@ property_name = st.selectbox("Property", properties)
 c1, c2 = st.columns(2)
 recipe_versions = sorted(results_df["recipe_version"].dropna().unique())
 recipe_filter = c1.selectbox("Recipe version filter", ["All"] + list(recipe_versions))
-# Only offer a machine filter when this selection's runs actually span more
-# than one machine - with a single machine (today's actual production
-# state), "Machine filter: All" vs "Machine filter: <the only machine>"
-# is the same noise problem the Company selector had: nothing to choose
-# between, identical result set either way.
+# Only offer a production unit/cell filter when this selection's runs
+# actually span more than one - with a single one (today's actual
+# production state), "Production Unit or Cell filter: All" vs "Production
+# Unit or Cell filter: <the only one>" is the same noise problem the
+# Company selector had: nothing to choose between, identical result set
+# either way. (CR-01 follow-up, 2026-08-10: label renamed from "Machine
+# filter" per task #746 - the underlying results_df["machine"] column/
+# variable names are unchanged, per CR-01's own "label-only, backend
+# unchanged" principle.)
 machines = sorted(m for m in results_df["machine"].dropna().unique())
 if len(machines) > 1:
-    machine_filter = c2.selectbox("Machine filter", ["All"] + list(machines))
+    machine_filter = c2.selectbox("Production Unit or Cell filter", ["All"] + list(machines))
 else:
     machine_filter = "All"
 
@@ -531,7 +536,7 @@ for _, row in series.iterrows():
         continue
     if prev_machine is not None and row["machine"] != prev_machine:
         change_rows.append(
-            {"Date": row["tested_at"], "Run ID": row["run_id"], "Change": f"Machine: {prev_machine} -> {row['machine']}"}
+            {"Date": row["tested_at"], "Run ID": row["run_id"], "Change": f"Production Unit or Cell: {prev_machine} -> {row['machine']}"}
         )
     prev_machine = row["machine"]
 
@@ -556,7 +561,7 @@ if change_rows:
     render_data_table(change_df)
     st.caption("Cross-reference these dates against any unusual pattern, slow drift, or trend flagged above.")
 else:
-    st.caption("No recipe-version changes, machine changes, or quality issues recorded across these runs.")
+    st.caption("No recipe-version changes, production unit or cell changes, or quality issues recorded across these runs.")
 
 # ---------------------------------------------------------------------------
 # Trend Analysis Report (Context / Analysis / Conclusions) - the page's own

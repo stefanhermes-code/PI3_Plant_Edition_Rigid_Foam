@@ -412,7 +412,12 @@ def plant_dependency_counts(session, plant_id):
     for ot_id in extra_ot_ids:
         _merge_counts(counts, optimization_trial_dependency_counts(session, ot_id))
 
-    counts["machine(s)"] = session.query(Machine).filter(Machine.plant_id == plant_id).count()
+    # CR-01 follow-up (task #746, 2026-08-10): label-only rename to match
+    # every other "Machine" -> "Production Unit or Cell" customer-facing
+    # string - this key renders verbatim in the delete-confirmation detail
+    # text (e.g. "3 production unit(s) or cell(s)"), so it must read
+    # naturally there, not just as a dict key.
+    counts["production unit(s) or cell(s)"] = session.query(Machine).filter(Machine.plant_id == plant_id).count()
     counts["pi3/ai connectivity setting(s)"] = (
         session.query(PI3AIConnectionSetting).filter(PI3AIConnectionSetting.plant_id == plant_id).count()
     )

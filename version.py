@@ -2788,4 +2788,92 @@ Charlie, then Stefan's final live-browser check and UAT/release
 decision) is next.
 """
 
-APP_VERSION = "0.24.0"
+VERSION_0_25_0_NOTES = """
+2026-08-10 (later same day, CR-04 conditional-acceptance follow-up, per
+Charlie's response to the v0.24.0 closeout package): Charlie conditionally
+accepted the CR-04 engineering closeout (reset, clean baseline, Operating
+Context removal, PM release gating, integrity validation, regression
+evidence) pending two items before final technical closure.
+
+1. Confirmed ProductionMethod.parent_method_id is absent from both the
+   active db.py model and the live Supabase rigid_foam schema. db.py's
+   own ProductionMethod docstring already documents that this
+   self-referencing column was introduced briefly on 2026-08-09 and
+   dropped the next day when Charlie's technical completion instruction
+   replaced the parent/child hierarchy design with the permanent flat
+   PM-100..PM-700 vocabulary (see the v0.20.0-era changelog entry for
+   that migration). Re-verified directly rather than trusting the
+   docstring alone: grepped db.py for any parent_method_id Column
+   definition (none found - only the docstring's own historical
+   narration), queried information_schema.columns for rigid_foam.
+   production_methods on the live Supabase project (columns are id,
+   controlled_id, name, description, sort_order, maturity_status,
+   is_released - no parent_method_id), and confirmed zero foreign-key
+   constraints on that table (a self-referencing FK would show up here
+   if the column or constraint had survived in any form). No removal was
+   needed - the clean-schema instruction was already fully satisfied by
+   the prior flat-PM migration.
+
+2. Completed task #746 (the CR-01 follow-up "Machine" -> "Production
+   Unit or Cell" customer-facing sweep), which CR-01's own v0.19.0
+   changelog entry had explicitly disclosed as only partially done (the
+   equipment Add/Edit form on pages/31_Production_Equipment.py only).
+   Swept every remaining customer-facing surface where "Machine" refers
+   to the equipment entity itself - not the backend Machine model/table/
+   column names, which CR-01's own "label-only, no migration risk"
+   principle keeps unchanged, and not the separate "Machine Settings" ->
+   "Process Parameters" naming axis (already renamed at the page-title
+   level in CR-01; inline occurrences of that phrase, e.g. the "**Machine
+   settings**" section headers on pages/4's Setup tabs and "machine/
+   process setting" in pages/17's intro text, are a different naming
+   decision and were deliberately left alone rather than guessed at -
+   flagged here for Charlie/Stefan to decide separately if desired).
+
+   Renamed: pages/16_Trend_Analysis.py (the "Machine filter" selectbox,
+   the "no machine ... blank machine" checkbox help text, the "Machine:
+   X -> Y" change-log entry, the "no recipe-version changes, machine
+   changes..." caption, and both Function/Action intro mentions of
+   "machine changes"); pages/18_Root_Cause_Assistant.py (the "recipe
+   version, machine, or..." intro phrase, the "Machine changed:" diff
+   line, and both "no meaningful difference... machine..." fallback
+   messages); pages/2_Product_Family_Foam_Grade.py (the "Machines this PU
+   Material can be produced on" multiselect label on both the Add and
+   Edit forms, the "Machines" grade-list table column, and the "no
+   machines tagged... add a machine on the Plant & Foam Equipment
+   Overview page" warning - which also corrected a stale page reference
+   left over from CR-01's own page split, to "Production Equipment
+   page"); pages/4_Production_Run_Trial_Record.py (the "Machine /
+   foaming line" selectbox on both the Add and Edit Production Run
+   forms, both breadcrumb captions, the run-history table's "Machine"
+   column, and the "no Machine assigned yet" warning); pages/21_Report.py
+   (the Batch Release and WP3 Conformance report viewers' "Machine"
+   metric/inline label); reports.py (the "Machine" key-value row on both
+   the PDF and Word Batch Release Record renderers, the run-history table
+   column, the multi-source report header's "Machine" field, and the
+   WP3 Conformance report's "Machine" row); cascades.py (the
+   plant-delete-confirmation detail text's "machine(s)" count key, now
+   "production unit(s) or cell(s)" - this one renders directly into the
+   confirmation message a user reads before deleting a plant, e.g. "3
+   production unit(s) or cell(s), 12 sample(s)...").
+
+   Confirmed already complete, not touched again: pages/31_Production_
+   Equipment.py (every label already read "Production Unit or Cell" from
+   CR-01 itself) and pages/1_Plant_Installation_Overview.py (its
+   "Production Units/Cells" metric was already correctly named).
+
+   Two tests asserted the old interim label text and needed updating in
+   lockstep with the rename (not a regression - these tests were
+   correctly written against CR-01's own admittedly-partial v0.19.0
+   state): tests/test_pm_hierarchy_pages_smoke.py's
+   test_foam_grade_form_offers_machines_across_activated_methods (the
+   multiselect label) and test_production_run_form_derives_method_
+   snapshot_from_selected_machine (the selectbox label).
+
+Verified via py_compile on every touched file and a full regression run:
+83 passed, 0 failed, same benign pre-existing numpy RuntimeWarnings as
+every prior batch - zero regressions. CR-04 closeout updated with this
+evidence for Charlie's final technical closure sign-off; the deployed-
+browser walkthrough and Stefan's UAT are next.
+"""
+
+APP_VERSION = "0.25.0"

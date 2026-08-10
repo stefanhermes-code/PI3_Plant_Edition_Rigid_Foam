@@ -37,8 +37,9 @@ st.title("Root-Cause Assistant")
 render_function_action_intro(
     function_text=(
         "Given a logged quality issue, compares that run against the most recent prior run of the "
-        "same product grade and lists what was different - recipe version, machine, or Finalized-"
-        "phase process settings (mixer rpm, air pressure, conveyor speed, and so on) - as a starting "
+        "same product grade and lists what was different - recipe version, production unit or "
+        "cell, or Finalized-phase process settings (mixer rpm, air pressure, conveyor speed, and "
+        "so on) - as a starting "
         "point for your own investigation, not a diagnosis. PI3 can then help interpret that diff "
         "against expert notes and similar past cases."
     ),
@@ -136,7 +137,7 @@ setting_shifts = []
 if current["recipe_version"] != prior["recipe_version"]:
     changes.append(f"Recipe version changed: {prior['recipe_version']} → {current['recipe_version']}")
 if current["machine"] != prior["machine"]:
-    changes.append(f"Machine changed: {prior['machine'] or '—'} → {current['machine'] or '—'}")
+    changes.append(f"Production Unit or Cell changed: {prior['machine'] or '—'} → {current['machine'] or '—'}")
 
 # Scoped to Phase-1-eligible settings only (see analytics.
 # eligible_phase_setting_fields) - for a Phase 1 rigid grade this excludes
@@ -168,9 +169,9 @@ if changes:
         st.write(f"- {c}")
 else:
     st.info(
-        "No meaningful difference found in recipe, machine, or recorded process settings between "
-        "these two runs — the cause may lie outside what this app currently captures (raw material "
-        "lot variation, ambient conditions, downstream handling)."
+        "No meaningful difference found in recipe, production unit or cell, or recorded process "
+        "settings between these two runs — the cause may lie outside what this app currently "
+        "captures (raw material lot variation, ambient conditions, downstream handling)."
     )
 
 # ---------------------------------------------------------------------------
@@ -215,8 +216,8 @@ if ai_assistant.is_enabled_for_plant(session, run.plant_id):
             "\n".join(f"- {c}" for c in changes)
             if changes
             else (
-                "No meaningful difference was found in recipe, machine, or recorded process "
-                "settings between these two runs."
+                "No meaningful difference was found in recipe, production unit or cell, or "
+                "recorded process settings between these two runs."
             )
         )
         prompt = (

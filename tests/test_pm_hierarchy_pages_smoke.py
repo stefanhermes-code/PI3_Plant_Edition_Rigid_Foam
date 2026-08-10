@@ -32,6 +32,13 @@ Add-record flows exercise the exact same Production Method filtering logic
 widgets narrowing each other live outside st.form on all three pages, same
 as the Edit forms).
 
+Updated 2026-08-10 for CR-01 follow-up (task #746, per Charlie's CR-04
+conditional-acceptance instruction to finish the "Machine" -> "Production
+Unit or Cell" customer-facing rename app-wide): the multiselect/selectbox
+label assertions below now expect the completed labels ("Production Units
+or Cells this PU Material can be produced on", "Production Unit or Cell"),
+not the interim labels CR-01 itself shipped with.
+
 Usage: python -m pytest tests/test_pm_hierarchy_pages_smoke.py
 """
 import datetime as dt
@@ -190,7 +197,7 @@ def test_foam_grade_form_offers_machines_across_activated_methods(seeded_pm_hier
         "Method picker gating the machine multiselect"
     )
 
-    machines_ms = next((ms for ms in at.multiselect if ms.label == "Machines this PU Material can be produced on"), None)
+    machines_ms = next((ms for ms in at.multiselect if ms.label == "Production Units or Cells this PU Material can be produced on"), None)
     assert machines_ms is not None, "Machine-assignment multiselect not found"
     assert any(ids["machine_name"] in str(opt) for opt in machines_ms.options), (
         f"Machine tagged to the activated method should be offered - got {machines_ms.options}"
@@ -202,8 +209,8 @@ def test_production_run_form_derives_method_snapshot_from_selected_machine(seede
     at = _run(PAGE4)
     assert not at.exception, f"Unhandled exception loading Production Run: {at.exception}"
 
-    machine_sb = next((sb for sb in at.selectbox if sb.label == "Machine / foaming line"), None)
-    assert machine_sb is not None, "Create Production Run form's Machine picker not found"
+    machine_sb = next((sb for sb in at.selectbox if sb.label == "Production Unit or Cell"), None)
+    assert machine_sb is not None, "Create Production Run form's Production Unit or Cell picker not found"
     machine_display = next((opt for opt in machine_sb.options if ids["machine_name"] in opt), None)
     assert machine_display is not None, f"Grade's assigned machine not offered - got {machine_sb.options}"
 

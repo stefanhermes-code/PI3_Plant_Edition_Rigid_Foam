@@ -607,7 +607,7 @@ def build_period_summary_data(
             "Run ID": r.id, "Date": r.run_date,
             "Product grade": r.foam_grade.grade_name if r.foam_grade else "—",
             "Recipe version": r.recipe_version.version_label if r.recipe_version else "—",
-            "Machine": r.machine.name if r.machine else "—",
+            "Production Unit or Cell": r.machine.name if r.machine else "—",
             "Production Method": r.production_method.name if r.production_method else "—",
             "Batch reference": r.batch_reference or "—",
         }
@@ -1587,7 +1587,7 @@ def render_batch_release_record_pdf(data):
         )
         story.append(_key_value_table([
             ("Plant", data["plant"]), ("Product family", data["product_family"]),
-            ("Product grade", data["foam_grade"]), ("Machine", data["machine"]),
+            ("Product grade", data["foam_grade"]), ("Production Unit or Cell", data["machine"]),
             ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
             ("Block reference", data["block_reference"]), ("Operator/team", data["operator"]),
             ("Quality verdict", data["quality_verdict"]), ("", ""),
@@ -1632,7 +1632,7 @@ def render_batch_release_record_docx(data):
     )
     _docx_kv_table(doc, [
         ("Plant", data["plant"]), ("Product family", data["product_family"]),
-        ("Product grade", data["foam_grade"]), ("Machine", data["machine"]),
+        ("Product grade", data["foam_grade"]), ("Production Unit or Cell", data["machine"]),
         ("Production method", data["production_method"]),
         ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
         ("Block reference", data["block_reference"]), ("Operator/team", data["operator"]),
@@ -1716,7 +1716,7 @@ def build_sample_certificate_data(session, sample_id):
             ("Source", f"Production Run #{source.id}"),
             ("Run date", source.run_date), ("Batch reference", source.batch_reference or "—"),
             ("Block reference", source.block_reference or "—"),
-            ("Machine", source.machine.name if source.machine else "—"),
+            ("Production Unit or Cell", source.machine.name if source.machine else "—"),
             ("Production Method", source.production_method.name if source.production_method else "—"),
             ("Operator/team", source.operator_or_team_reference or "—"),
         ]
@@ -4472,7 +4472,7 @@ def render_wp3_conformance_report_docx(data):
     _docx_heading(doc, "Run", size=12, color=_HTC_GREY, space_before=10)
     _docx_kv_table(doc, [
         ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
-        ("Machine", data["machine"]), ("Product grade", data["grade_name"]),
+        ("Production Unit or Cell", data["machine"]), ("Product grade", data["grade_name"]),
     ])
 
     _docx_section(doc, "Conformance results", data["conformance_rows"])
