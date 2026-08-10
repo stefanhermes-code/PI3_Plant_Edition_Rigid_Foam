@@ -2537,4 +2537,84 @@ same disclosed-deviation pattern as CR-01 and CR-02's closeouts.
    requirements in one pass rather than three separate ones.
 """
 
-APP_VERSION = "0.21.0"
+VERSION_0_22_0_NOTES = """
+v0.21.0 -> v0.22.0 (2026-08-10, CR-04 prep - "Database Reset and Clean UAT
+Baseline for JC", Charlie's instruction following Stefan's decision to
+abandon careful per-item migration in favour of a clean rebuild since all
+current rigid_foam data is test data): this batch covers steps 2-3 of
+Charlie's own 8-step sequence (Plan/Snapshot/Rebuild) at the schema level;
+the data-level RESET (wiping transactional/UAT rows) and steps 5-8
+(Import/Apply CR-04/Validate/Close) are tracked separately and not yet
+executed as of this version.
+
+1. Snapshot (step 2): full row_to_json() dump of every populated table in
+   the live rigid_foam schema (68 tables, source commit + app version +
+   timestamp recorded in a manifest), taken via the Supabase MCP
+   execute_sql tool (no pg_dump/psql access in this sandbox - confirmed no
+   outbound network access beyond allowlisted MCP tools). Zipped and
+   archived at PI3 Rigid Foam Development Docs/Phase 1/Snapshots/
+   PI3_Rigid_Foam_PreReset_Snapshot_2026-08-10_1512.zip - the historical-
+   value archive for anything the clean rebuild removes outright (see
+   FoamGrade.production_method_id below).
+
+2. Schema (step 3, part 1) - PM release gating: added ProductionMethod.
+   maturity_status (String(50)) and is_released (Boolean, default False,
+   not nullable), per Charlie's 7-code maturity/release table. Backfilled
+   directly against Supabase: PM-100 -> Released/is_released=true (the
+   only method activatable via the customer UI at Phase 1); PM-200/300/400
+   -> Defined / planned/is_released=false; PM-500/600/700 -> Placeholder/
+   is_released=false. Verified afterward by direct query - all 7 rows
+   correct. The actual UI enforcement of is_released in the Production
+   Method activation checkbox loop (pages/30_Production_Methods.py), with
+   a platform-owner exemption for the owner's own UAT/reference
+   activation, is CR-04's own step 6 ("Apply CR-04") - schema only in this
+   batch, gating code not yet written.
+
+3. Schema (step 3, part 2) - FoamGrade.production_method_id fully removed:
+   per Charlie's explicit instruction ("omit from the clean schema
+   entirely, not just null it out"), dropped the column, its FK
+   constraint (fk_foam_grades_production_method_id), and the model
+   relationship from db.py outright - not deprecated-in-place as the
+   PM-hierarchy-reconciliation batch (task #736) had left it. A foam
+   grade's applicable methods are now derived solely from its assigned
+   Production Units/Machines (Production Unit <-> Product Grade many-to-
+   many), per Charlie's explicit resolution of the ambiguity JC's own PM
+   reconciliation audit had flagged. Applied to Supabase as migration
+   cr04_pm_release_status_and_drop_foamgrade_pm_id (single migration
+   covering both the PM fields and this drop) - verified afterward that
+   foam_grades has no production_method_id column.
+
+4. Test fixtures: removing a live model column broke every fixture that
+   still constructed db.FoamGrade(..., production_method_id=...) - a
+   TypeError, not a silent bug, since SQLAlchemy rejects unknown
+   constructor kwargs outright. First grep pass (single-line regex) missed
+   4 of 7 occurrences because this codebase commonly splits constructor
+   calls across multiple lines; a multiline-mode regex found the complete
+   set. Fixed in tests/test_flat_pm_propagation_smoke.py, tests/
+   test_pm_hierarchy_pages_smoke.py, tests/test_wp4_recipe_optimization_
+   page_smoke.py, tests/test_wp4_rigid_achievement_summary.py, tests/
+   test_wp4_rigid_lot_use_correlation.py, tests/test_wp4_unit_conversion.py,
+   and gen_uat015_019_live_pages.py (a standalone UAT-evidence-generation
+   script, not part of the live app) - each simply drops the removed
+   kwarg, since none of these fixtures' assertions depended on the
+   deprecated field's value (the PM-hierarchy batch had already moved
+   every downstream read onto grade.machines-derived methods). Full local
+   suite (SQLite): 68 passed, 0 failed - same 2 pre-existing benign numpy
+   RuntimeWarnings as every prior batch, zero regressions.
+
+5. Not yet done, tracked as separate follow-on work: the actual RESET
+   (deleting rows from the classified transactional/UAT tables - plants,
+   foam_grades, machines, production_runs and their full dependency
+   chains, raw_materials, logs, etc. - while preserving controlled master/
+   reference vocabulary and platform bootstrap/tenant-identity tables);
+   CR-04's own step 6 (removing the Operating Context UI feature entirely
+   from pages/30 and /31, and wiring is_released into the PM activation
+   checkbox loop); step 7 (full validation - regression, integrity,
+   multi-method fixture, consolidated browser walkthrough); and step 8
+   (closeout package to Charlie, then Stefan's final UAT/release
+   decision). Executed under Stefan's explicit "Go ahead" authorization
+   for this reset/rebuild approach, given after reviewing Charlie's full
+   written instruction.
+"""
+
+APP_VERSION = "0.22.0"

@@ -114,9 +114,12 @@ def seeded_rigid_only():
     chem = db.Chemistry(controlled_id=f"CHM-SMOKE-010-{u}", name="Rigid polyurethane foam")
     method = db.ProductionMethod(controlled_id=f"PM-SMOKE-120-{u}", name="Closed-mold panel injection")
     session.add_all([chem, method]); session.flush()
+    # FoamGrade.production_method_id removed 2026-08-10 (Charlie's "Database
+    # Reset and Clean UAT Baseline" instruction) - chemistry_id alone is
+    # what this test needs to exercise the rigid-vs-flexible branch.
     grade = db.FoamGrade(
         product_family_id=family.id, grade_name=f"Rigid Grade Smoke {u}",
-        chemistry_id=chem.id, production_method_id=method.id, status="UAT_ONLY",
+        chemistry_id=chem.id, status="UAT_ONLY",
     )
     session.add(grade); session.flush()
     recipe = db.RecipeVersion(foam_grade_id=grade.id, version_label="v1", approval_status="Draft", is_active=True)

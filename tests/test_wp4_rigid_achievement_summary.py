@@ -46,9 +46,12 @@ def _seed_grade(session):
     method = db.ProductionMethod(controlled_id=f"PM-120-A-{u}", name="Closed-mold panel injection")
     session.add_all([chem, method]); session.flush()
 
+    # FoamGrade.production_method_id removed 2026-08-10 (Charlie's "Database
+    # Reset and Clean UAT Baseline" instruction) - chemistry_id alone is
+    # what this test needs to exercise the rigid branch.
     grade = db.FoamGrade(
         product_family_id=family.id, grade_name=f"RF-COLD-ACHIEVE-{u}",
-        chemistry_id=chem.id, production_method_id=method.id, status="UAT_ONLY",
+        chemistry_id=chem.id, status="UAT_ONLY",
     )
     session.add(grade); session.flush()
 

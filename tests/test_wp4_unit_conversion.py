@@ -93,9 +93,11 @@ def _seed_thermal_conductivity_grade(session):
     method = db.ProductionMethod(controlled_id=f"PM-120-U-{u}", name="Closed-mold panel injection")
     session.add_all([chem, method]); session.flush()
 
+    # FoamGrade.production_method_id removed 2026-08-10 (Charlie's "Database
+    # Reset and Clean UAT Baseline" instruction).
     grade = db.FoamGrade(
         product_family_id=family.id, grade_name=f"RF-COLD-UNIT-TEST-{u}",
-        chemistry_id=chem.id, production_method_id=method.id, status="UAT_ONLY",
+        chemistry_id=chem.id, status="UAT_ONLY",
     )
     session.add(grade); session.flush()
 

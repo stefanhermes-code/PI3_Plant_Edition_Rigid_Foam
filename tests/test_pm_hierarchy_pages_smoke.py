@@ -82,7 +82,10 @@ def seeded_pm_hierarchy():
 
     family = db.ProductFamily(plant_id=plant.id, name=f"PM Hierarchy Smoke Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"PM Hierarchy Smoke Grade {u}", production_method_id=top_method.id)
+    # FoamGrade.production_method_id removed 2026-08-10 (Charlie's "Database
+    # Reset and Clean UAT Baseline" instruction) - method now derives solely
+    # from grade.machines, set just below.
+    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"PM Hierarchy Smoke Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()

@@ -51,9 +51,11 @@ def seed():
     method = db.ProductionMethod(controlled_id=f"PM-LIVE-{u}", name="Closed-mold panel injection")
     s.add_all([chem, method]); s.flush()
 
+    # FoamGrade.production_method_id removed 2026-08-10 (Charlie's "Database
+    # Reset and Clean UAT Baseline" instruction).
     grade = db.FoamGrade(
         product_family_id=family.id, grade_name=f"RF-LIVE-UAT-{u}",
-        chemistry_id=chem.id, production_method_id=method.id, status="UAT_ONLY",
+        chemistry_id=chem.id, status="UAT_ONLY",
     )
     s.add(grade); s.flush()
 

@@ -81,10 +81,12 @@ def two_method_fixture():
 
     family = db.ProductFamily(plant_id=plant.id, name=f"Flat-PM Smoke Family {u}")
     session.add(family); session.flush()
-    # Grade itself carries method_a as its own WP3-style classification, but
-    # is producible on BOTH machines - this is what lets its own production
-    # runs span two Production Methods (the isolation dimension under test).
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"Flat-PM Smoke Grade {u}", production_method_id=method_a.id)
+    # Grade is producible on BOTH machines - this is what lets its own
+    # production runs span two Production Methods (the isolation dimension
+    # under test). (FoamGrade.production_method_id was removed 2026-08-10
+    # per Charlie's "Database Reset and Clean UAT Baseline" instruction -
+    # see db.py; grade methods now derive solely from grade.machines.)
+    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"Flat-PM Smoke Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine_a, machine_b]
     session.flush()
@@ -283,21 +285,23 @@ def test_batch_release_record_shows_runs_own_method_snapshot(two_method_fixture)
 
 # ---------------------------------------------------------------------------
 # Architecture correction (2026-08-10, Charlie's competing-source-of-truth
-# finding): FoamGrade.production_method_id deprecated in favor of deriving a
+# finding, completed by his "Database Reset and Clean UAT Baseline"
+# instruction the same day): FoamGrade.production_method_id was first
+# deprecated, then removed from the schema entirely, in favor of deriving a
 # grade's Production Method(s) from its assigned Machines. The
-# two_method_fixture grade above is a perfect regression bed for this: it
-# sets grade.production_method_id = method_a (the old, now-deprecated
-# single-method field) while grade.machines spans BOTH method_a and
-# method_b - exactly the disagreement Charlie flagged as possible.
+# two_method_fixture grade above is a perfect regression bed for this: its
+# machines span BOTH method_a and method_b, so a correct implementation
+# must report both methods with no single-value field to fall back on.
 # ---------------------------------------------------------------------------
 
-def test_grade_production_methods_derives_from_machines_not_deprecated_field(two_method_fixture):
+def test_grade_production_methods_derives_from_machines(two_method_fixture):
     ids = two_method_fixture
     session = db.get_session()
     grade = session.get(db.FoamGrade, ids["grade_id"])
-    # The deprecated field still holds its old value (never migrated away) -
-    # this assertion documents that fact, it does not endorse reading it.
-    assert grade.production_method_id == ids["method_a_id"]
+    assert not hasattr(grade, "production_method_id"), (
+        "FoamGrade.production_method_id should no longer exist on the model - "
+        "removed 2026-08-10 per Charlie's clean-schema decision"
+    )
 
     from helpers import grade_production_method_label, grade_production_methods
     methods = grade_production_methods(grade)
