@@ -3324,4 +3324,44 @@ own explicit direction, not JC inference, and the package's status line
 now reflects CR-08 as technically accepted.
 """
 
-APP_VERSION = "0.29.1"
+VERSION_0_29_2_NOTES = """
+v0.29.1 -> v0.29.2 (2026-08-11, RawMaterialCatalogEntry taxonomy alignment -
+data only): Charlie delivered an updated PI3_Plant_Edition_Rigid_Foam_Raw_
+Materials_Master_v2_MASTER_LINKED.xlsx (same file CR-08's closeout package
+flagged in §6 as "badly inconsistent... out of CR-08's direct scope, not
+touched"), now carrying a new Controlled_Taxonomy sheet that reproduces
+CR-08's exact 10-Category/40-Subcategory vocabulary, and a Category/
+Subcategory pair for all 151 Rigid_Raw_Materials rows validated 100% clean
+against it (verified independently before writing anything - zero
+mismatches across all 151 rows). Applied directly to the live
+rigid_foam.raw_material_catalog_entries table in Supabase as a data-only
+correction - no schema, code, or test file touched, matching the v0.12.1/
+v0.29.1 precedent for this class of change. All 151 matched rows (by
+controlled_id/Material_ID: the 109 commercial-grade RF-ADD/BA/CAT/FR/ISO/
+POL/SUR rows plus 42 RF-REF-001 through 042 generic reference-material
+rows) had their free-text category/subcategory columns overwritten with
+the aligned values - e.g. "Additive" -> "Functional Additive", "Surface-
+cure / rigid foam catalyst" -> "Gel catalyst", "Aromatic polyester polyol"
+-> "Polyester polyol". Verified afterward: total row count unchanged
+(166), and all 151 targeted rows now resolve a clean Category/Subcategory
+pair against the active rigid_foam.raw_material_categories rows via a
+direct join query.
+
+Explicitly out of scope, not touched: 15 additional RF-REF-043 through
+RF-REF-057 rows, added after this spreadsheet was originally authored (by
+the later Post-G5 Reference Data Enrichment batch, tasks #690-696). These
+rows have Category and Subcategory literally swapped (e.g.
+category="Polyether polyol", subcategory="Polyol") - a worse defect than
+the free-text mismatch this batch fixed, but this spreadsheet doesn't
+cover them (its own Material_ID range stops at RF-REF-042), so guessing
+their correct values would repeat the exact "flag rather than guess"
+violation this project has avoided since WP3. Flagged to Charlie/Stefan as
+a follow-up, not silently left broken.
+
+This table has no live UI reading it (RawMaterialCatalogEntry is a
+dormant Charlie-owned research catalog, per its own db.py docstring), so
+this is purely a content-accuracy correction with no user-facing or
+functional impact - no regression suite change needed, no page touched.
+"""
+
+APP_VERSION = "0.29.2"
