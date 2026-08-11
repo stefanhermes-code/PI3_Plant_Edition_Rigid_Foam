@@ -2046,9 +2046,14 @@ class ProductionMethod(Base):
     "Defined / planned", "Placeholder"); is_released is the boolean
     gate the UI actually enforces. At the Phase 1 baseline only PM-100
     has is_released=True; PM-200 through PM-700 are defined/placeholder
-    and NOT customer-activatable until a future release decision. The
-    platform-owner company (Company.is_platform_owner) is exempt from
-    this gate for its own UAT/reference activation - see
+    and NOT activatable by anyone - for any company, including HTC
+    Global - until a future release decision. CR-04 originally exempted
+    the platform-owner company from this gate for its own UAT/reference
+    activation; CR-06 (Production Method Release-Gate Enforcement and
+    Platform-Owner Bypass Removal, 2026-08-11) removed that exemption
+    after a UAT finding showed it let unreleased methods get written
+    into live plant configuration - see
+    helpers.method_activatable_by_customer and
     pages/30_Production_Methods.py."""
 
     __tablename__ = "production_methods"

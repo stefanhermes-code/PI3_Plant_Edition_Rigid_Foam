@@ -16,13 +16,14 @@ This page:
    this method), and Recipes (RecipeVersion rows under those grades). Kept
    deliberately concise per CR-01 - no per-run/per-sample counts here, that
    detail lives on the operational pages themselves.
-3. Gates which methods a customer/company user may activate at all, per
-   Charlie's Phase 1 maturity/release table (CR-04 step 6, 2026-08-10 -
-   "Database Reset and Clean UAT Baseline" instruction): only is_released
-   methods (PM-100 only, at this baseline) are activatable via this
-   checkbox for a real customer. The platform-owner company is exempt, so
-   it can still activate any method for its own UAT/reference content -
-   see helpers.method_activatable_by_customer.
+3. Gates which methods any user may activate at all, per Charlie's Phase 1
+   maturity/release table: only is_released methods (PM-100 only, at this
+   baseline) are activatable via this checkbox. CR-04 step 6 (2026-08-10)
+   originally exempted the platform-owner company from this gate; CR-06
+   (2026-08-11) removed that exemption after a UAT finding showed it let a
+   Platform Admin write unreleased methods into live plant configuration -
+   every plant, including HTC Global's own, is gated identically now. See
+   helpers.method_activatable_by_customer.
 
 REMOVED 2026-08-10 (CR-04 step 6, per Charlie's explicit instruction to
 remove the global Operating Context concept from the application
@@ -113,14 +114,16 @@ existing_rows_by_method = {
     .all()
 }
 activated_ids = {mid for mid, row in existing_rows_by_method.items() if row.active}
-is_platform_owner = user["is_platform_owner"]
 
 if not all_methods:
     st.info("No controlled Production Methods are defined yet.")
 else:
     for method in all_methods:
         already_active = method.id in activated_ids
-        can_activate = method_activatable_by_customer(method, is_platform_owner)
+        # CR-06 (2026-08-11): no is_platform_owner exception here anymore -
+        # see helpers.method_activatable_by_customer's docstring. HTC
+        # Global's own plants are gated exactly like a customer's.
+        can_activate = method_activatable_by_customer(method)
         checked = st.checkbox(
             f"{method.name} ({method.controlled_id})",
             value=already_active,

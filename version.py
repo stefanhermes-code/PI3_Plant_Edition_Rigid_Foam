@@ -2982,4 +2982,78 @@ against both an empty schema and a schema seeded with the exact 4-template
 set - zero exceptions.
 """
 
-APP_VERSION = "0.26.0"
+VERSION_0_27_0_NOTES = """
+CR-06 (Production Method Release-Gate Enforcement and Platform-Owner
+Bypass Removal), implemented 2026-08-11 per Charlie's instruction document
+(PI3_Rigid_Foam_Phase_1_CR06_Production_Method_Release_Gate_Enforcement_
+and_Platform_Owner_Bypass_Removal_for_UAT.docx). Opened from a UAT finding
+during the CR-05 walkthrough: a Platform Admin could activate unreleased
+Production Methods (PM-200/PM-300/PM-400) for both HTC Global's own plant
+and a real customer's plant, because CR-04's release-gate implementation
+(v0.25.0) explicitly exempted the platform-owner company from the gate.
+That conflated two separate controls - Platform Admin's cross-company
+ADMINISTRATION scope vs. a Production Method's release LIFECYCLE status -
+letting unreleased functionality get written into live plant
+configuration. This batch separates them again: release status is now the
+sole eligibility condition for activation, for every company including
+HTC Global's own, with no role-based exception anywhere in the decision.
+
+1. helpers.method_activatable_by_customer(): the is_platform_owner
+   parameter is removed from the function signature entirely (not
+   defaulted off - a caller passing one now gets a hard TypeError), so no
+   future call site can silently reintroduce the bypass. The function is
+   now `bool(method.is_released)`, full stop.
+2. pages/30_Production_Methods.py: the call site no longer computes or
+   passes is_platform_owner to the gate at all (the now-dead local
+   variable was removed). Both the checkbox's disabled state and the
+   actual write path (`if checked and can_activate and ...`) derive from
+   the same can_activate value, so the fix closes the gap in the UI and
+   the save path simultaneously - there was never a second, separate
+   write-path check to miss.
+3. Live Supabase data reconciliation (rigid_foam.plant_production_methods):
+   found exactly the UAT finding, reproduced - HTC Global's plant had an
+   active PM-200 link; PTU's (real customer) plant had active PM-200,
+   PM-300, AND PM-400 links. Only PM-100 is actually released. Before-
+   change inventory captured for all 6 links; the 4 invalid ones
+   deactivated (active=false, not row-deleted - preserves audit history,
+   the same soft-toggle convention this page's own checkbox already
+   uses for a customer unchecking a method). PM-100's 2 valid activations
+   (HTC Global, PTU) were untouched. One dependency found and evaluated:
+   PTU has a real Machine record ("Spray Foam Unit") tagged to PM-400 via
+   Machine.production_method_id - no FoamGrade/Recipe/ProductionRun
+   depends on it, so it was left in place untouched (Machine.
+   production_method_id is independent equipment metadata, not itself
+   gated by the plant-level activation flag) and is flagged here per
+   CR-06's own instruction to identify (not necessarily remove) any
+   dependent data before cleanup. Post-reconciliation integrity check:
+   zero active plant_production_methods rows point to an unreleased
+   method, project-wide.
+4. Docstring accuracy updates (no behavior change): db.py's
+   ProductionMethod class and pages/30's own module docstring both
+   described the now-removed platform-owner exemption as current fact;
+   corrected to describe the CR-06 baseline and its own history.
+5. tests/test_cr04_pm_release_gating.py rewritten in place for CR-06 (the
+   file name is kept for git history continuity - see its own module
+   docstring): the two CR-04 tests asserting the platform-owner bypass
+   (deliberately reversed, not a regression) are replaced with 7 tests -
+   released/unreleased activatable checks with no role parameter at all;
+   a TypeError guard proving the bypass parameter was actually removed
+   from the signature, not just ignored; Company Admin gated on their own
+   plant; Platform Admin gated on the platform-owner company's OWN plant
+   (the core regression guard); Platform Admin gated when viewing a
+   CUSTOMER company's plant (the exact UAT scenario, using tenant_scope.
+   company_picker's single-company auto-lock so no selectbox needs
+   driving); and a later-released method becoming activatable for every
+   role with no exception.
+
+Verified via py_compile on every touched file, a full regression run (95
+passed, 0 failed - 92 pre-existing/CR-05 + 7 new, net +3 after replacing
+the 2 old CR-04 tests - same benign pre-existing numpy RuntimeWarnings as
+every prior batch), and an AppTest smoke/evidence pass of the Production
+Methods page under three sessions (Platform Admin on HTC Global's own
+plant; Company Admin on a customer's own plant; Platform Admin viewing a
+customer's plant) - all three show PM-100 activatable and PM-200 disabled
+with the explanatory caption, zero exceptions.
+"""
+
+APP_VERSION = "0.27.0"

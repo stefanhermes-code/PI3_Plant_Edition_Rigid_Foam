@@ -312,18 +312,29 @@ def activated_methods_for_plant(session, plant_id):
     )
 
 
-def method_activatable_by_customer(method, is_platform_owner):
-    """CR-04 step 6 (Charlie's "Database Reset and Clean UAT Baseline"
-    instruction, 2026-08-10): only Production Methods with is_released=True
-    may be activated by a real customer/company user via the Production
-    Methods page checkboxes - at the Phase 1 baseline that's PM-100 only,
-    per Charlie's maturity/release table (see ProductionMethod's own
-    docstring in db.py). The platform-owner company (Company.is_platform_owner,
-    e.g. HTC Global) is exempt from this gate, since it needs to activate any
-    method - released or not - to build its own UAT/reference content ahead
-    of a future release decision. A pure function (no DB/session access) so
-    it's trivial to unit-test both branches directly."""
-    return bool(is_platform_owner or method.is_released)
+def method_activatable_by_customer(method):
+    """Only Production Methods with is_released=True may be activated for a
+    plant - at the Phase 1 baseline that's PM-100 only, per Charlie's
+    maturity/release table (see ProductionMethod's own docstring in db.py).
+    A pure function (no DB/session access) so it's trivial to unit-test.
+
+    CR-04 step 6 (2026-08-10) originally exempted the platform-owner company
+    (e.g. HTC Global) from this gate entirely, via an is_platform_owner
+    parameter, so it could activate any method - released or not - to build
+    its own UAT/reference content ahead of a future release decision. CR-06
+    (Production Method Release-Gate Enforcement and Platform-Owner Bypass
+    Removal, 2026-08-11) reverses that: a UAT finding showed a Platform
+    Admin could activate unreleased Production Methods (PM-200/PM-300) for
+    both HTC Global and a customer plant, writing unreleased functionality
+    into live company/plant configuration. Platform Admin's cross-company
+    ADMINISTRATION scope (which companies/plants it can manage) is a
+    separate control from a Production Method's release LIFECYCLE status
+    (whether it's eligible for activation anywhere) - conflating the two
+    was the defect. The is_platform_owner parameter is removed entirely
+    (not just defaulted off) so no caller can silently reintroduce the
+    bypass; every plant, including HTC Global's own, is now gated purely by
+    method.is_released with no role-based exception."""
+    return bool(method.is_released)
 
 
 def production_method_label(record):
