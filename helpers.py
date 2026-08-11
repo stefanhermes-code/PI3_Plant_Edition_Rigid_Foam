@@ -24,6 +24,7 @@ from db import (
     ProductFamily,
     ProductionMethod,
     ProductionRun,
+    RawMaterialCategory,
     RecipeVersion,
     get_session,
 )
@@ -792,6 +793,54 @@ def recipe_component_sort_index(role_text, raw_material_name=""):
     stable to preserve each category's original relative order."""
     category = recipe_component_category(role_text, raw_material_name)
     return RECIPE_COMPONENT_CATEGORY_ORDER.index(category)
+
+
+def raw_material_categories(session):
+    """CR-08 (Raw Material Category and Subcategory Taxonomy Alignment,
+    2026-08-11): the active, controlled top-level Category list - rows in
+    raw_material_categories with active=True and parent_category_id IS
+    NULL, ordered per their sort_order (see db.RAW_MATERIAL_TAXONOMY).
+    Deliberately excludes every pre-CR-08 row (active=False) - see
+    db.RawMaterialCategory's own docstring for why those are deprecated in
+    place rather than deleted."""
+    return (
+        session.query(RawMaterialCategory)
+        .filter(RawMaterialCategory.active.is_(True), RawMaterialCategory.parent_category_id.is_(None))
+        .order_by(RawMaterialCategory.sort_order)
+        .all()
+    )
+
+
+def raw_material_subcategories(session, category_id):
+    """The active, controlled Subcategory rows under one Category
+    (parent_category_id == category_id). Returns [] if category_id is
+    None - callers use this to know "no Category picked yet" rather than
+    accidentally showing every Subcategory across every Category."""
+    if not category_id:
+        return []
+    return (
+        session.query(RawMaterialCategory)
+        .filter(RawMaterialCategory.active.is_(True), RawMaterialCategory.parent_category_id == category_id)
+        .order_by(RawMaterialCategory.sort_order)
+        .all()
+    )
+
+
+def raw_material_category_label(rm):
+    """Display label for a RawMaterial's controlled classification, e.g.
+    "Polyol / Sucrose-initiated polyether". Falls back to the legacy
+    free-text category (rm.category) for any row that hasn't been
+    reclassified into the new taxonomy yet (subcategory_id still NULL,
+    e.g. the two CR-08 reconciliation exceptions flagged for Charlie/
+    Stefan review - see the CR-08 closeout package), and to "—" if neither
+    is set."""
+    cat_name = rm.material_category.name if rm.material_category else None
+    sub_name = rm.material_subcategory.name if rm.material_subcategory else None
+    if cat_name and sub_name:
+        return f"{cat_name} / {sub_name}"
+    if cat_name:
+        return cat_name
+    return rm.category or "—"
 
 
 def delete_with_confirm(label, on_confirm, key_prefix, extra_warning=""):

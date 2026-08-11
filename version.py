@@ -3182,4 +3182,122 @@ use, so grade targets and Quality results can be compared like-for-like.
    specs for the same (grade, property) pair, so all 114 pass unchanged.
 """
 
-APP_VERSION = "0.28.0"
+VERSION_0_29_0_NOTES = """
+CR-08 (Raw Material Category and Subcategory Taxonomy Alignment),
+implemented 2026-08-11 per Charlie's instruction document
+(PI3_Rigid_Foam_Phase_1_CR08_Raw_Material_Category_and_Subcategory_
+Taxonomy_Alignment_for_UAT.docx). Opened from a UAT finding on Raw
+Materials category selection: the app still used the inherited Flexible
+Foam RAW_MATERIAL_CATEGORIES free-text vocabulary (Polyol/Isocyanate/
+Blowing agent/.../Other), with no Subcategory concept at all, no
+enforcement against typos/near-duplicates, and no way to distinguish
+Water vs. Hydrocarbon vs. HFO/HCFO blowing agents or gel/blow/delayed/PIR
+catalysts - all explicitly required for rigid-foam formulation review.
+
+1. Foundation: replaced the free-text vocabulary with one controlled
+   Category -> Subcategory taxonomy (10 Categories, 40 Subcategories -
+   Polyol, Isocyanate, Blowing Agent, Catalyst, Surfactant/Foam
+   Stabilizer, Flame Retardant, Crosslinker/Chain Modifier, Functional
+   Additive, Filler/Solid Additive, Other) exactly matching CR-08 section
+   4, added as db.RAW_MATERIAL_TAXONOMY. RAW_MATERIAL_CATEGORIES (the old
+   flat list) is deprecated in place - kept only so any code still
+   reading RawMaterial.category's legacy free text keeps working; no
+   longer read or written anywhere in the active UI.
+2. db.py schema: extended RawMaterialCategory (previously a flat
+   Category-only lookup) into a self-referencing adjacency list -
+   parent_category_id (NULL = Category, set = Subcategory under that
+   Category), active, and is_exception_only (True only on the single
+   "Other" Subcategory row) - rather than introducing a second parallel
+   lookup table, since this satisfies CR-08's parent-child requirement
+   with the simplest normalized structure and lets the existing
+   RawMaterial.category_id FK keep pointing at the same table. Added
+   RawMaterial.subcategory_id (new FK into the same table) alongside the
+   existing category_id; both relationships now require explicit
+   foreign_keys= since there are two FKs into one target table.
+   Parent-child validity (a Subcategory must belong to the chosen
+   Category) is enforced in the page's write path, not a DB constraint -
+   a same-table two-column parent check isn't expressible without a
+   trigger, inconsistent with this project's established app-level-
+   validation preference (documented on RawMaterial.subcategory_id's own
+   comment).
+3. pages/14_Raw_Materials.py: added _category_subcategory_picker(), a
+   dependent Category -> Subcategory selectbox pair rendered OUTSIDE any
+   st.form (same reason as the pre-existing supplier picker) so choosing
+   a Category immediately narrows the Subcategory choices on the same
+   rerun; a mandatory description text_input appears only when the chosen
+   Subcategory is the "Other" exception row, prepended into notes as
+   "[Other: ...]" on save. Wired into all three write paths - Manual
+   entry, Add from TDS (pre-filled from PI3's best-effort taxonomy guess,
+   via a new _match_taxonomy_text case-insensitive exact-name matcher; an
+   unmatched guess just leaves the picker unset rather than accepting
+   free text), and Edit (pre-filled from the material's current
+   category_id/subcategory_id). CSV/Excel import now matches each row's
+   category/subcategory text columns against the controlled taxonomy the
+   same way; rows with no exact match on either column are bucketed into
+   a "needs review" list and NOT imported, rather than silently importing
+   them unclassified or coercing them to "Other". The Raw Materials list
+   now displays "Category / Subcategory" (via a new helpers.
+   raw_material_category_label()) and the multiselect filter works off
+   that combined label.
+4. ai_assistant.py: extract_raw_material_from_tds()'s prompt and returned
+   dict now request/return both category and subcategory (against the
+   full controlled taxonomy, not the old flat list) - still just PI3's
+   best-effort guess; the caller always re-validates against real
+   controlled rows.
+5. pages/3_Recipe_Version_Record.py: _match_or_create_raw_material() (the
+   unattended inline-creation helper used when a recipe component names a
+   material not yet in the Raw Materials list) no longer hardcodes the
+   legacy category="Other" free text - it now lands on the single
+   controlled "Other"/"Other" exception pair and flags the new row's
+   notes for later manual classification, since this code path has no
+   user-facing form to ask for a real Category/Subcategory and no product
+   knowledge to classify from beyond a typed name. Its two raw-material
+   display format_func lambdas now use raw_material_category_label()
+   instead of the removed free-text field.
+6. helpers.py: added raw_material_categories() (active top-level Category
+   list), raw_material_subcategories(session, category_id) (active
+   Subcategory list filtered to one parent), and
+   raw_material_category_label() ("Category / Subcategory" display
+   string, falling back to legacy free text or "—" for an unclassified
+   material).
+7. Existing-data reconciliation: all 40 pre-CR-08 raw_material_categories
+   rows deprecated in place (active=False, never deleted - same
+   precedent as CR-07's target_density/target_hardness); 50 new active
+   rows seeded (10 Categories + 40 Subcategories, RMC2-* controlled_ids,
+   a "band of 100 per Category" sort_order convention so the seeded
+   content can be checked against CR-08 section 4 line-for-line). All 5
+   live raw_materials rows reconciled: 3 unambiguously classified from
+   real product-chemistry knowledge (Lupranate M20 -> Isocyanate/
+   Polymeric MDI, DABCO DC 193 -> Surfactant/Foam Stabilizer/Silicone
+   surfactant, Cyclopentane -> Blowing Agent/Hydrocarbon), 2 left
+   Category-only with Subcategory flagged for manual review rather than
+   guessed (Lupranol 3300's exact polyol subtype, POLYCAT 5's exact
+   catalyst subtype) - per CR-08's own "flag ambiguous records for review
+   rather than guessing" instruction. The dormant, UI-less
+   RawMaterialCatalogEntry research table's own free-text category data
+   was reviewed and found badly inconsistent but is out of CR-08's direct
+   scope (no live UI reads it) - flagged, not touched.
+8. Live Supabase migration (cr08_raw_material_category_subcategory_
+   taxonomy): added parent_category_id/active/is_exception_only to
+   raw_material_categories and subcategory_id to raw_materials. Confirmed
+   via information_schema and row counts afterward (40 legacy rows
+   deactivated, 50 new active rows, 5 raw_materials rows reconciled).
+9. tests/test_cr08_raw_material_taxonomy.py (new, 19 test items): the
+   taxonomy dict matches CR-08 section 4 exactly (10 Categories in order,
+   40 Subcategories total, Water/Hydrocarbon/HFO-HCFO and gel/blow/
+   delayed/PIR catalyst subtypes present, Polyol supports formulated/
+   system blends); exactly one Subcategory row is_exception_only; the
+   Category/Subcategory pickers filter correctly and never cross-offer a
+   Subcategory under the wrong parent; manual entry/edit round trips
+   persist the controlled ids correctly; RecipeComponent.raw_material_id
+   references survive a RawMaterial's reclassification unchanged; CSV
+   import matching is case-insensitive exact-match only (no fuzzy
+   matching of unknown text); the Add Raw Material form (AppTest) offers
+   the full controlled Category list with no free text and a Subcategory
+   list correctly filtered to the default Category. Full pre-existing
+   regression suite re-run afterward (133 total tests across all files,
+   up from 114) confirms no fallout from the RawMaterialCategory/
+   RawMaterial schema changes.
+"""
+
+APP_VERSION = "0.29.0"

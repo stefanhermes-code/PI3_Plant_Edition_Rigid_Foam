@@ -12,13 +12,16 @@ import streamlit as st
 import ai_assistant
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
-from db import RAW_MATERIAL_CATEGORIES, Company, RawMaterial, RecipeComponent, Supplier, get_session, init_db
+from db import Company, RawMaterial, RecipeComponent, Supplier, get_session, init_db
 from helpers import (
     clickable_table,
     csv_excel_uploader,
     delete_with_confirm,
     page_setup,
     parse_bool,
+    raw_material_categories,
+    raw_material_category_label,
+    raw_material_subcategories,
     render_data_table,
     render_function_action_intro,
     set_pending_banner,
@@ -97,7 +100,85 @@ def _ensure_supplier_exists(session, company_id, name):
 
 
 RAW_MATERIAL_REQUIRED_COLUMNS = ["name"]
-RAW_MATERIAL_OPTIONAL_COLUMNS = ["category", "default_supplier", "cost_per_kg", "notes", "active"]
+# CR-08 (2026-08-11): "category" (free text) is replaced by "category"/
+# "subcategory" text columns matched case-insensitively against the new
+# controlled taxonomy on import - see _match_taxonomy_text below. Column
+# name kept the same for "category" so existing supplier/ERP exports that
+# already have a "category" column keep working without a rename; a new
+# optional "subcategory" column is added alongside it.
+RAW_MATERIAL_OPTIONAL_COLUMNS = ["category", "subcategory", "default_supplier", "cost_per_kg", "notes", "active"]
+
+
+def _category_subcategory_picker(session, key_prefix, current_category_id=None, current_subcategory_id=None):
+    """CR-08 controlled Category -> Subcategory picker, outside any
+    st.form (same reason as _supplier_picker above: picking a Category
+    must immediately narrow the Subcategory choices on the same rerun,
+    which a selectbox inside a form can't do until submit). Returns
+    (category_row_or_None, subcategory_row_or_None, other_description).
+
+    other_description is only ever populated (and only ever required by
+    the caller) when the chosen Subcategory is the single CR-08 "Other"
+    exception row (is_exception_only=True) - see RawMaterialCategory's
+    own docstring.
+    """
+    categories = raw_material_categories(session)
+    cat_index = 0
+    if current_category_id:
+        cat_index = next((i for i, c in enumerate(categories) if c.id == current_category_id), 0)
+    category = st.selectbox(
+        "Category *", categories, index=cat_index if categories else 0,
+        format_func=lambda c: c.name, key=f"{key_prefix}_category",
+    ) if categories else None
+
+    subcategories = raw_material_subcategories(session, category.id if category else None)
+    sub_index = 0
+    if current_subcategory_id:
+        sub_index = next((i for i, s in enumerate(subcategories) if s.id == current_subcategory_id), 0)
+    subcategory = st.selectbox(
+        "Subcategory *", subcategories, index=sub_index if subcategories else 0,
+        format_func=lambda s: s.name, key=f"{key_prefix}_subcategory",
+    ) if subcategories else None
+
+    other_description = ""
+    if subcategory is not None and subcategory.is_exception_only:
+        other_description = st.text_input(
+            "Description (required for 'Other') *",
+            help="CR-08's controlled exception path: 'Other' has no further breakdown, so a "
+            "short description of what this material actually is is mandatory, and the record "
+            "stays visible for later master-data review.",
+            key=f"{key_prefix}_other_description",
+        )
+    return category, subcategory, other_description
+
+
+def _match_taxonomy_text(session, text):
+    """Case-insensitive exact-name match of free text (from a CSV import
+    row, or a TDS auto-extraction guess) against the active controlled
+    Category or Subcategory list. Returns (category_row_or_None,
+    subcategory_row_or_None) - if text matches a Subcategory name, its
+    parent Category is returned too. No fuzzy matching: CR-08 explicitly
+    excludes free-text entry, so an unmatched value must be flagged for
+    review, not guessed into the nearest-sounding controlled value."""
+    text = (text or "").strip()
+    if not text:
+        return None, None
+    from db import RawMaterialCategory as _RMC
+
+    sub = (
+        session.query(_RMC)
+        .filter(_RMC.active.is_(True), _RMC.parent_category_id.isnot(None))
+        .filter(_RMC.name.ilike(text))
+        .first()
+    )
+    if sub:
+        return sub.parent, sub
+    cat = (
+        session.query(_RMC)
+        .filter(_RMC.active.is_(True), _RMC.parent_category_id.is_(None))
+        .filter(_RMC.name.ilike(text))
+        .first()
+    )
+    return (cat, None) if cat else (None, None)
 
 page_setup("Raw Materials")
 init_db()
@@ -163,11 +244,15 @@ with tab_manual:
         add_supplier_choice = _supplier_picker(
             session, manual_target_company.id if manual_target_company else None, key_prefix="add_rawmat"
         )
+        # CR-08: Category -> Subcategory picker rendered outside the form
+        # (same reason as the supplier picker above), so choosing a
+        # Category immediately narrows the Subcategory choices.
+        add_category, add_subcategory, add_other_description = _category_subcategory_picker(
+            session, key_prefix="add_rawmat"
+        )
         with st.form("add_raw_material"):
             name = st.text_input("Raw material name *")
-            c1, c3 = st.columns(2)
-            category = c1.selectbox("Category", RAW_MATERIAL_CATEGORIES)
-            cost_per_kg = c3.number_input(
+            cost_per_kg = st.number_input(
                 "Cost per kg",
                 min_value=0.0,
                 step=0.01,
@@ -183,16 +268,24 @@ with tab_manual:
                     st.error("Raw material name is required.")
                 elif not manual_target_company:
                     st.error("Pick a company for this raw material.")
+                elif not add_category or not add_subcategory:
+                    st.error("Pick a Category and Subcategory for this raw material.")
+                elif add_subcategory.is_exception_only and not add_other_description.strip():
+                    st.error("A description is required when Subcategory is 'Other'.")
                 else:
                     _ensure_supplier_exists(session, manual_target_company.id, add_supplier_choice)
+                    final_notes = notes
+                    if add_subcategory.is_exception_only and add_other_description.strip():
+                        final_notes = f"[Other: {add_other_description.strip()}] {notes}".strip()
                     session.add(
                         RawMaterial(
                             company_id=manual_target_company.id,
                             name=name.strip(),
-                            category=category,
+                            category_id=add_category.id,
+                            subcategory_id=add_subcategory.id,
                             default_supplier=add_supplier_choice,
                             cost_per_kg=cost_per_kg or None,
-                            notes=notes,
+                            notes=final_notes,
                             active=active,
                         )
                     )
@@ -232,6 +325,7 @@ with tab_tds:
                     st.session_state["tds_extracted"] = {
                         "name": "",
                         "category": "",
+                        "subcategory": "",
                         "default_supplier": "",
                         "notes": tds_text[:2000],
                     }
@@ -246,14 +340,22 @@ with tab_tds:
             session, tds_target_company.id if tds_target_company else None,
             key_prefix="tds_rawmat", current_value=tds_extracted.get("default_supplier", ""),
         )
+        # CR-08: best-effort default from PI3's extracted category/subcategory
+        # guess (see ai_assistant.extract_raw_material_from_tds), matched
+        # against the controlled taxonomy - an unmatched guess just leaves
+        # the picker at its default rather than accepting free text.
+        _tds_cat_guess, _tds_sub_guess = _match_taxonomy_text(session, tds_extracted.get("category", ""))
+        if _tds_sub_guess is None:
+            _sub_guess_2 = _match_taxonomy_text(session, tds_extracted.get("subcategory", ""))[1]
+            if _sub_guess_2 is not None:
+                _tds_sub_guess = _sub_guess_2
+        t_category, t_subcategory, t_other_description = _category_subcategory_picker(
+            session, key_prefix="tds_rawmat",
+            current_category_id=_tds_cat_guess.id if _tds_cat_guess else None,
+            current_subcategory_id=_tds_sub_guess.id if _tds_sub_guess else None,
+        )
         with st.form("add_raw_material_from_tds"):
             t_name = st.text_input("Raw material name *", value=tds_extracted.get("name", ""))
-            tds_category = tds_extracted.get("category", "")
-            t_category = st.selectbox(
-                "Category",
-                RAW_MATERIAL_CATEGORIES,
-                index=RAW_MATERIAL_CATEGORIES.index(tds_category) if tds_category in RAW_MATERIAL_CATEGORIES else 0,
-            )
             t_cost = st.number_input(
                 "Cost per kg",
                 min_value=0.0,
@@ -268,16 +370,24 @@ with tab_tds:
                     st.error("Raw material name is required.")
                 elif not tds_target_company:
                     st.error("Pick a company for this raw material.")
+                elif not t_category or not t_subcategory:
+                    st.error("Pick a Category and Subcategory for this raw material.")
+                elif t_subcategory.is_exception_only and not t_other_description.strip():
+                    st.error("A description is required when Subcategory is 'Other'.")
                 else:
                     _ensure_supplier_exists(session, tds_target_company.id, t_supplier)
+                    final_t_notes = t_notes
+                    if t_subcategory.is_exception_only and t_other_description.strip():
+                        final_t_notes = f"[Other: {t_other_description.strip()}] {t_notes}".strip()
                     session.add(
                         RawMaterial(
                             company_id=tds_target_company.id,
                             name=t_name.strip(),
-                            category=t_category,
+                            category_id=t_category.id,
+                            subcategory_id=t_subcategory.id,
                             default_supplier=t_supplier,
                             cost_per_kg=t_cost or None,
-                            notes=t_notes,
+                            notes=final_t_notes,
                             active=t_active,
                         )
                     )
@@ -298,25 +408,50 @@ with tab_import:
         elif df is not None:
             existing_query = session.query(RawMaterial).filter(RawMaterial.company_id == import_target_company.id)
             existing_names = {m.name.strip().lower() for m in existing_query.all()}
-            good_rows, dup_rows = [], []
+            good_rows, dup_rows, review_rows = [], [], []
             for _, row in df.iterrows():
                 name_val = str(row.get("name", "") or "").strip()
                 if not name_val:
                     continue
                 if name_val.lower() in existing_names:
                     dup_rows.append(row)
-                else:
-                    good_rows.append(row)
-                    existing_names.add(name_val.lower())
+                    continue
+                # CR-08: the row's free-text category/subcategory columns are
+                # matched against the controlled taxonomy (exact name match,
+                # same rule as _match_taxonomy_text everywhere else on this
+                # page) - a row with no match on either column is bucketed
+                # into "needs review" and NOT imported, rather than silently
+                # importing it unclassified or coercing it to "Other".
+                cat_row, sub_row = _match_taxonomy_text(session, row.get("category", ""))
+                if sub_row is None:
+                    sub_row_2 = _match_taxonomy_text(session, row.get("subcategory", ""))[1]
+                    if sub_row_2 is not None:
+                        sub_row = sub_row_2
+                        cat_row = sub_row.parent
+                if cat_row is None or sub_row is None:
+                    review_rows.append(row)
+                    continue
+                good_rows.append((row, cat_row, sub_row))
+                existing_names.add(name_val.lower())
 
-            st.write(f"Rows ready to import: **{len(good_rows)}** | Rows flagged as duplicates: **{len(dup_rows)}**")
+            st.write(
+                f"Rows ready to import: **{len(good_rows)}** | "
+                f"Rows flagged as duplicates: **{len(dup_rows)}** | "
+                f"Rows needing manual review: **{len(review_rows)}**"
+            )
             if dup_rows:
                 st.warning("These rows match a raw material name already in the list and were skipped.")
                 render_data_table(pd.DataFrame(dup_rows), max_height="400px")
+            if review_rows:
+                st.warning(
+                    "These rows' category/subcategory text didn't match the controlled taxonomy exactly "
+                    "and were NOT imported. Fix the category/subcategory text (or add the material manually) "
+                    "and re-upload."
+                )
+                render_data_table(pd.DataFrame(review_rows), max_height="400px")
 
             if good_rows and st.button("Confirm import", key="confirm_rawmat_import"):
-                for row in good_rows:
-                    cat = str(row.get("category", "") or "").strip()
+                for row, cat_row, sub_row in good_rows:
                     cost_val = row.get("cost_per_kg")
                     supplier_val = str(row.get("default_supplier", "") or "").strip()
                     _ensure_supplier_exists(session, import_target_company.id, supplier_val)
@@ -324,7 +459,8 @@ with tab_import:
                         RawMaterial(
                             company_id=import_target_company.id,
                             name=str(row["name"]).strip(),
-                            category=cat if cat in RAW_MATERIAL_CATEGORIES else (cat or "Other"),
+                            category_id=cat_row.id,
+                            subcategory_id=sub_row.id,
                             default_supplier=supplier_val,
                             cost_per_kg=float(cost_val) if not pd.isna(cost_val) else None,
                             notes=str(row.get("notes", "") or ""),
@@ -483,7 +619,7 @@ else:
             {
                 **({"Company": m.company.name if m.company else "—"} if is_platform_owner else {}),
                 "Name": m.name,
-                "Category": m.category or "—",
+                "Category / Subcategory": raw_material_category_label(m),
                 "Default supplier": m.default_supplier or "",
                 "Cost/kg": m.cost_per_kg,
                 "Active": m.active,
@@ -497,7 +633,7 @@ else:
     c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
     name_filter = c1.text_input("Name contains", key="rawmat_filter_name")
     category_filter = c2.multiselect(
-        "Category", sorted(df["Category"].unique()), key="rawmat_filter_category"
+        "Category / Subcategory", sorted(df["Category / Subcategory"].unique()), key="rawmat_filter_category"
     )
     supplier_filter = c3.text_input("Supplier contains", key="rawmat_filter_supplier")
     active_filter = c4.selectbox("Active", ["All", "Yes", "No"], key="rawmat_filter_active")
@@ -507,7 +643,7 @@ else:
     if name_filter:
         mask &= df["Name"].str.contains(name_filter, case=False, na=False)
     if category_filter:
-        mask &= df["Category"].isin(category_filter)
+        mask &= df["Category / Subcategory"].isin(category_filter)
     if supplier_filter:
         mask &= df["Default supplier"].str.contains(supplier_filter, case=False, na=False)
     if active_filter == "Yes":
@@ -543,6 +679,13 @@ else:
                 session, selected.company_id, key_prefix=f"edit_rawmat_{selected.id}",
                 current_value=selected.default_supplier or "",
             )
+            # CR-08: Category -> Subcategory picker rendered outside the form,
+            # pre-filled from the material's current classification, same
+            # pattern/reason as Manual entry and Add-from-TDS above.
+            e_category, e_subcategory, e_other_description = _category_subcategory_picker(
+                session, key_prefix=f"edit_rawmat_{selected.id}",
+                current_category_id=selected.category_id, current_subcategory_id=selected.subcategory_id,
+            )
             with st.form(f"edit_rawmat_{selected.id}"):
                 if is_platform_owner:
                     e_company = st.selectbox(
@@ -553,14 +696,7 @@ else:
                 else:
                     e_company = company_filter
                 e_name = st.text_input("Raw material name *", value=selected.name, key=f"edit_rawmat_name_{selected.id}")
-                ec1, ec2 = st.columns(2)
-                e_category = ec1.selectbox(
-                    "Category",
-                    RAW_MATERIAL_CATEGORIES,
-                    index=RAW_MATERIAL_CATEGORIES.index(selected.category) if selected.category in RAW_MATERIAL_CATEGORIES else 0,
-                    key=f"edit_rawmat_category_{selected.id}",
-                )
-                e_cost = ec2.number_input(
+                e_cost = st.number_input(
                     "Cost per kg", min_value=0.0, step=0.01, value=float(selected.cost_per_kg or 0.0),
                     key=f"edit_rawmat_cost_{selected.id}",
                 )
@@ -569,15 +705,23 @@ else:
                 if st.form_submit_button("Save changes"):
                     if not e_name.strip():
                         st.error("Raw material name is required.")
+                    elif not e_category or not e_subcategory:
+                        st.error("Pick a Category and Subcategory for this raw material.")
+                    elif e_subcategory.is_exception_only and not e_other_description.strip():
+                        st.error("A description is required when Subcategory is 'Other'.")
                     else:
                         target_company_id = e_company.id if e_company else selected.company_id
                         _ensure_supplier_exists(session, target_company_id, e_supplier)
+                        final_e_notes = e_notes
+                        if e_subcategory.is_exception_only and e_other_description.strip():
+                            final_e_notes = f"[Other: {e_other_description.strip()}] {e_notes}".strip()
                         selected.company_id = target_company_id
                         selected.name = e_name.strip()
-                        selected.category = e_category
+                        selected.category_id = e_category.id
+                        selected.subcategory_id = e_subcategory.id
                         selected.default_supplier = e_supplier
                         selected.cost_per_kg = e_cost or None
-                        selected.notes = e_notes
+                        selected.notes = final_e_notes
                         selected.active = e_active
                         session.commit()
                         st.success("Raw material updated.")

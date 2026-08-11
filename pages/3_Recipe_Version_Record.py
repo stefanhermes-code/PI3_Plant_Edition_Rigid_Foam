@@ -61,6 +61,7 @@ from db import (
     APPROVAL_STATUSES,
     FoamGrade,
     RawMaterial,
+    RawMaterialCategory,
     RecipeComponent,
     RecipeVersion,
     ReferenceFormulation,
@@ -76,6 +77,7 @@ from helpers import (
     log_export_click,
     next_version_label,
     page_setup,
+    raw_material_category_label,
     recipe_component_sort_index,
     render_data_table,
     render_function_action_intro,
@@ -159,8 +161,33 @@ def _match_or_create_raw_material(name, supplier=None):
     match = match_query.first()
     if match:
         return match
+    # CR-08: this is an unattended inline creation (no form asking the user
+    # for a real Category/Subcategory), so it can never write free text into
+    # the now-controlled category_id/subcategory_id fields. It lands on the
+    # single controlled "Other"/"Other" exception pair (RMC2-1000/RMC2-1010)
+    # instead, with a note flagging it for later manual classification -
+    # same "flag rather than guess" rule CR-08 uses everywhere else, since
+    # this code path has no product knowledge to classify from beyond a name
+    # string typed into a recipe component.
+    other_category = (
+        session.query(RawMaterialCategory)
+        .filter(RawMaterialCategory.active.is_(True), RawMaterialCategory.parent_category_id.is_(None))
+        .filter(RawMaterialCategory.name.ilike("Other"))
+        .first()
+    )
+    other_subcategory = (
+        session.query(RawMaterialCategory)
+        .filter(RawMaterialCategory.active.is_(True), RawMaterialCategory.is_exception_only.is_(True))
+        .first()
+    )
     new_rm = RawMaterial(
-        company_id=active_company_id, name=name, category="Other", default_supplier=supplier or "", active=True
+        company_id=active_company_id,
+        name=name,
+        category_id=other_category.id if other_category else None,
+        subcategory_id=other_subcategory.id if other_subcategory else None,
+        default_supplier=supplier or "",
+        notes="[Other: auto-created from recipe component entry - needs manual Category/Subcategory review]",
+        active=True,
     )
     session.add(new_rm)
     session.flush()
@@ -960,7 +987,7 @@ else:
                     [None] + active_raw_materials,
                     format_func=lambda m: "— type a new one below —"
                     if m is None
-                    else (f"{m.name} ({m.category})" if m.category else m.name),
+                    else f"{m.name} ({raw_material_category_label(m)})",
                     key=f"rm_select_{v.id}",
                 )
                 with st.form(f"add_component_{v.id}"):
@@ -1024,7 +1051,7 @@ if not wu_materials:
 else:
     wu_material = st.selectbox(
         "Raw material", wu_materials,
-        format_func=lambda m: f"{m.name} ({m.category})" if m.category else m.name,
+        format_func=lambda m: f"{m.name} ({raw_material_category_label(m)})",
         key="where_used_material_select",
     )
     wu_data = reports.build_where_used_report_data(session, wu_material.id)

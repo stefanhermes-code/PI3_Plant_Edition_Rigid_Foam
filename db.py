@@ -174,6 +174,90 @@ RAW_MATERIAL_CATEGORIES = [
     "Additive",
     "Other",
 ]
+# CR-08 (Raw Material Category and Subcategory Taxonomy Alignment,
+# 2026-08-11): the list above is the Flexible Foam legacy vocabulary CR-08
+# was opened against - deprecated in place (kept only so any code that
+# still reads RawMaterial.category's free text keeps working; no longer
+# read or written by the active Add/Edit/import UI - see pages/14_Raw_
+# Materials.py and RawMaterial.category's own docstring in this file).
+#
+# RAW_MATERIAL_TAXONOMY below is CR-08's own replacement controlled table
+# (section 4), seeded into RawMaterialCategory as 10 Category rows (each
+# a dict key) plus their listed Subcategory rows (parent_category_id set
+# to that Category's row) - see seed_cr08_raw_material_taxonomy() further
+# down this file for how this dict is turned into actual rows/controlled_
+# ids. Order here is preserved as sort_order (Category bands of 100:
+# Polyol=100s, Isocyanate=200s, ... Other=1000s; each Subcategory numbered
+# band+10, band+20, ... in the order listed here, matching CR-08's own
+# table order exactly so a reviewer can check this dict against the CR
+# document line for line).
+RAW_MATERIAL_TAXONOMY = {
+    "Polyol": [
+        "Rigid polyether polyol",
+        "Sucrose-initiated polyether",
+        "Amine-initiated polyether",
+        "Sorbitol-initiated polyether",
+        "Polyester polyol",
+        "Formulated/system polyol blend",
+    ],
+    "Isocyanate": [
+        "Polymeric MDI",
+        "Modified pMDI",
+        "Prepolymer / system isocyanate",
+    ],
+    "Blowing Agent": [
+        "Water",
+        "Hydrocarbon",
+        "HFO / HCFO",
+        "Other physical blowing agent",
+    ],
+    "Catalyst": [
+        "Gel catalyst",
+        "Blow catalyst",
+        "Balanced catalyst",
+        "Delayed-action catalyst",
+        "PIR / trimerization catalyst",
+        "Metal catalyst",
+    ],
+    "Surfactant / Foam Stabilizer": [
+        "Silicone surfactant",
+        "Rigid-foam stabilizer",
+        "Emulsifying / stabilizing additive",
+    ],
+    "Flame Retardant": [
+        "Reactive flame retardant",
+        "Additive flame retardant",
+        "Phosphorus-based system",
+        "Other controlled flame-retardant system",
+    ],
+    "Crosslinker / Chain Modifier": [
+        "Crosslinker",
+        "Chain extender",
+        "Reactive modifier",
+    ],
+    "Functional Additive": [
+        "Nucleating agent",
+        "Adhesion promoter",
+        "Compatibilizer",
+        "Pigment / colorant",
+        "Scavenger",
+        "Anti-scorch additive",
+        "Processing aid",
+    ],
+    "Filler / Solid Additive": [
+        "Mineral filler",
+        "Particulate additive",
+        "Functional filler",
+    ],
+    # CR-08 section 4: "Controlled exception only. A description is
+    # mandatory and the record remains visible for later master-data
+    # review." Modeled as one Category with one Subcategory, both named
+    # "Other" - the Subcategory row is flagged is_exception_only=True (see
+    # RawMaterialCategory.is_exception_only) so the write path can require
+    # a non-blank description/notes whenever it's chosen, rather than
+    # exposing free-text Subcategory entry.
+    "Other": ["Other"],
+}
 
 ZONE_LABELS = ["Top", "Middle", "Bottom", "Whole sample / N/A"]
 
@@ -940,11 +1024,26 @@ class RawMaterial(Base):
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
     # --- WP3 additions (2026-08-06). Nullable, additive: category (free
-    # text above) is untouched and still what every existing page reads;
-    # category_id is the controlled-vocabulary equivalent (Charlie's RMC-*
-    # rows) for rigid-foam data going forward. source_id records where this
-    # material's master data (e.g. its TDS) came from.
+    # text above) is untouched but DEPRECATED IN PLACE as of CR-08
+    # (2026-08-11, see RawMaterialCategory's own docstring) - no longer
+    # read or written by the active Add/Edit/import UI. category_id is the
+    # controlled-vocabulary equivalent (Charlie's RMC-* rows); as of CR-08
+    # it points at a top-level Category row specifically (parent_category_id
+    # IS NULL). source_id records where this material's master data (e.g.
+    # its TDS) came from.
     category_id = Column(Integer, ForeignKey("raw_material_categories.id"))
+    # --- CR-08 addition (2026-08-11). Points at a Subcategory row
+    # (parent_category_id IS NOT NULL, and specifically a child of
+    # category_id above) - see RawMaterialCategory's docstring and CR-08
+    # section 7 ("Subcategory has a parent Category relationship and cannot
+    # be assigned outside that parent"). Parent-child validity is checked
+    # on every write path in pages/14_Raw_Materials.py (and the recipe
+    # page's inline material-creation helper); there is no plain two-column
+    # DB constraint that can express "subcategory_id's own parent_category_id
+    # must equal category_id" without a trigger, which would be
+    # inconsistent with this project's established preference for app-level
+    # validation over triggers (see cascades.py's own docstring precedent).
+    subcategory_id = Column(Integer, ForeignKey("raw_material_categories.id"))
     source_id = Column(Integer, ForeignKey("source_registers.id"))
 
     # --- WP5 Wave 1 additions (2026-08-07, Converged Joint Implementation
@@ -966,7 +1065,12 @@ class RawMaterial(Base):
     technical_validation_note = Column(Text)  # RMF-025, plant-specific validation evidence/limits
 
     company = relationship("Company")
-    material_category = relationship("RawMaterialCategory")
+    # Explicit foreign_keys required on both as of CR-08: category_id and
+    # subcategory_id are now two separate FKs into the same target table
+    # (raw_material_categories), which SQLAlchemy cannot disambiguate on
+    # its own.
+    material_category = relationship("RawMaterialCategory", foreign_keys=[category_id])
+    material_subcategory = relationship("RawMaterialCategory", foreign_keys=[subcategory_id])
     source = relationship("SourceRegister")
 
 
@@ -2428,7 +2532,38 @@ class RawMaterialCategory(Base):
     """Charlie's RMC-* vocabulary, e.g. "Polyol", "Isocyanate", "Blowing
     Agent", "Catalyst", "Surfactant", "Flame Retardant" - a controlled
     replacement for RawMaterial.category's free text (kept as-is for
-    flexible-foam/back-compat; see RawMaterial.category_id below)."""
+    flexible-foam/back-compat; see RawMaterial.category_id below).
+
+    CR-08 (Raw Material Category and Subcategory Taxonomy Alignment,
+    2026-08-11) extends this table to hold BOTH levels of a two-level
+    Category -> Subcategory hierarchy, rather than adding a second table.
+    A row with parent_category_id NULL is a top-level Category (e.g.
+    "Polyol"); a row with parent_category_id set is a Subcategory under
+    that Category (e.g. "Sucrose-initiated polyether", parented under
+    "Polyol"). This is a plain adjacency-list self-reference - the
+    simplest normalized structure that satisfies CR-08 section 7's "Each
+    active Raw Material references one valid controlled Category and one
+    valid controlled Subcategory... Subcategory has a parent Category
+    relationship and cannot be assigned outside that parent" without
+    introducing a second, parallel lookup table.
+
+    The ~40 rows imported before CR-08 (WP1/WP2's original 05_RM_Categories
+    pass, plus later waves' additions - see the reconciliation batch's own
+    changelog) mixed category- and subcategory-grain content under one
+    flat list with an informal sort_order banding convention that drifted
+    across import waves (e.g. hydrocarbon blowing agents ended up
+    interleaved with catalyst rows in the 300s band - not a hierarchy,
+    just adjacent numbers). Per CR-08's own framing ("Replace the
+    inherited... vocabulary... with one controlled Rigid Foam Category +
+    Subcategory taxonomy"), this is a full replacement, not an extension:
+    every pre-CR-08 row is deprecated in place (active set to False, never
+    deleted - same "deprecate in place" precedent as FoamGrade.
+    target_density/target_hardness in CR-07 and production_method_id
+    before it) and superseded by 50 new active rows (10 Categories + 40
+    Subcategories) implementing CR-08 section 4's controlled table
+    exactly. See RAW_MATERIAL_TAXONOMY in this file for the seeded
+    content and controlled_id numbering scheme.
+    """
 
     __tablename__ = "raw_material_categories"
 
@@ -2437,6 +2572,22 @@ class RawMaterialCategory(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text)
     sort_order = Column(Integer)
+    # --- CR-08 additions (2026-08-11). Both nullable/defaulted so every
+    # pre-CR-08 row keeps loading unchanged; see the class docstring above.
+    parent_category_id = Column(Integer, ForeignKey("raw_material_categories.id"))
+    active = Column(Boolean, default=True)
+    # CR-08 section 4's "Other" row: a controlled exception path, not a
+    # free-text escape hatch. True only on the single Subcategory row named
+    # "Other" (under the "Other" Category) - the write path requires a
+    # non-blank description/notes on the RawMaterial itself whenever this
+    # specific subcategory is chosen (enforced in pages/14, not the DB,
+    # matching this app's established pattern of app-level validation for
+    # conditional-required rules - see GradeSpecification's duplicate-block
+    # for the contrasting case where a plain DB constraint was the right
+    # tool instead).
+    is_exception_only = Column(Boolean, default=False)
+
+    parent = relationship("RawMaterialCategory", remote_side=[id])
 
 
 class UnitOfMeasure(Base):

@@ -75,7 +75,7 @@ import streamlit as st
 import analytics
 import audit_log
 import pi3_query_tool
-from db import RAW_MATERIAL_CATEGORIES, FoamGrade, PI3AIConnectionSetting, Plant, get_session
+from db import RAW_MATERIAL_TAXONOMY, FoamGrade, PI3AIConnectionSetting, Plant, get_session
 
 # Balances answer quality against cost for a fairly detailed, rule-heavy
 # system prompt (SYSTEM_PROMPT below has many formatting/structure
@@ -1117,10 +1117,15 @@ def extract_raw_material_from_tds(tds_text, sds_text=None):
     pages/14_Raw_Materials.py). An SDS's extracted text can optionally be
     passed alongside for supplementary hazard/handling notes.
 
-    Returns a dict with keys name, category, default_supplier, notes (each
-    a string, possibly empty if not found in the source text), or None
-    (with an st.error already shown) on failure, timeout, or if
-    OPENAI_API_KEY isn't set.
+    Returns a dict with keys name, category, subcategory, default_supplier,
+    notes (each a string, possibly empty if not found in the source text),
+    or None (with an st.error already shown) on failure, timeout, or if
+    OPENAI_API_KEY isn't set. category/subcategory are PI3's best-effort
+    guess at the CR-08 controlled taxonomy (RAW_MATERIAL_TAXONOMY) - the
+    caller (pages/14_Raw_Materials.py) still matches these against the
+    real controlled rows and falls back to an unset picker on no match,
+    since this extraction step must never be the thing that writes free
+    text into a controlled field.
 
     Deliberately does not use SYSTEM_PROMPT, is_configured(), or
     file_search: this is a one-off structured-extraction task on text
@@ -1138,18 +1143,24 @@ def extract_raw_material_from_tds(tds_text, sds_text=None):
         model = _get_secret("PI3_MODEL") or DEFAULT_MODEL
         instructions = (
             "You extract structured raw-material master data from a supplier "
-            "technical data sheet (TDS), for a polyurethane foam manufacturer's "
-            "raw material database. Respond with ONLY a single JSON object, no "
-            "other text and no markdown code fences, with exactly these keys: "
-            "\"name\" (the product's trade name), \"category\" (choose the "
-            f"single best fit from this exact list: {RAW_MATERIAL_CATEGORIES}), "
+            "technical data sheet (TDS), for a rigid polyurethane/PIR foam "
+            "manufacturer's raw material database. Respond with ONLY a single "
+            "JSON object, no other text and no markdown code fences, with "
+            "exactly these keys: \"name\" (the product's trade name), "
+            "\"category\" (choose the single best-fit top-level key from this "
+            f"exact controlled taxonomy: {list(RAW_MATERIAL_TAXONOMY.keys())}), "
+            "\"subcategory\" (choose the single best-fit value from that "
+            f"category's own list in this taxonomy: {RAW_MATERIAL_TAXONOMY}), "
             "\"default_supplier\" (the manufacturer or supplier name), and "
             "\"notes\" (a concise plain-text summary of the key specs a "
             "formulator would want at a glance: chemical type, appearance, and "
             "key numeric properties such as OH value, viscosity, density, "
             "NCO%, or functionality where present). Use an empty string for "
-            "any field you cannot determine from the source text. Do not "
-            "invent data that is not present in the source text."
+            "category/subcategory if nothing in the controlled taxonomy is a "
+            "reasonable fit - never invent a category/subcategory value "
+            "outside this taxonomy. Use an empty string for any other field "
+            "you cannot determine from the source text. Do not invent data "
+            "that is not present in the source text."
         )
         input_text = f"TECHNICAL DATA SHEET TEXT:\n{tds_text[:8000]}"
         if sds_text and sds_text.strip():
@@ -1173,6 +1184,7 @@ def extract_raw_material_from_tds(tds_text, sds_text=None):
         return {
             "name": str(data.get("name") or "").strip(),
             "category": str(data.get("category") or "").strip(),
+            "subcategory": str(data.get("subcategory") or "").strip(),
             "default_supplier": str(data.get("default_supplier") or "").strip(),
             "notes": str(data.get("notes") or "").strip(),
         }
