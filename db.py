@@ -644,6 +644,29 @@ class FoamGrade(Base):
     id = Column(Integer, primary_key=True)
     product_family_id = Column(Integer, ForeignKey("product_families.id"), nullable=False)
     grade_name = Column(String(200), nullable=False)
+    # target_density/target_hardness: DEPRECATED 2026-08-11 (CR-07, Product
+    # Grade Physical Property Target Architecture and Quality Alignment).
+    # These were flexible-foam-era fixed columns - every flexible grade has
+    # them, and the grade-naming code encoded them (e.g. "28170" = 28 kg/m3
+    # density, 170 N hardness at 40% ILD). CR-07's UAT finding: hardness
+    # (40% ILD) is Flexible Foam legacy content with no place in the
+    # approved Rigid Foam property architecture, and a single fixed density
+    # field is too restrictive since a Rigid Foam grade can be specified by
+    # any combination of controlled properties. Both fields are removed
+    # from the active Add/Edit Product Grade UI - GradeSpecification below
+    # (extended by CR-07 with target_type/class_value) is now the sole,
+    # dynamic, per-property target model for every grade, replacing this
+    # pair AND foam_grade_target_properties (see that class's own docstring)
+    # as the one property-target list a grade has. Columns are kept
+    # in place, unread by any active page, rather than dropped outright -
+    # same "deprecate in place" precedent as production_method_id above -
+    # because RF-COLDROOM-001's real target_density=38 predates CR-07 and
+    # cannot be safely auto-mapped to one of the four distinct Rigid Foam
+    # density properties (Apparent overall/Core/Free-rise/Minimum-fill
+    # density all read "density" with no further qualifier on the legacy
+    # column) without Charlie's own call on which one was meant - see the
+    # CR-07 closeout package's outstanding-items section. target_hardness
+    # (40% ILD) is never migrated, per CR-07's explicit instruction.
     target_density = Column(Float)
     target_hardness = Column(Float)  # Newtons, 40% ILD
     notes = Column(Text)
@@ -712,12 +735,25 @@ class FoamGrade(Base):
 # ---------------------------------------------------------------------------
 # 3b. foam_grade_target_properties
 #
-# Optional additional target specs for a foam grade beyond density/hardness
-# (resilience, tensile strength, compression set, ...), reusing the same
+# DEPRECATED 2026-08-11 (CR-07). Originally: optional additional target
+# specs for a foam grade beyond density/hardness (resilience, tensile
+# strength, compression set, ...), reusing the same
 # physical_property_definitions master list as physical_property_results so
 # names/units stay consistent app-wide. target_value is nullable on purpose:
 # a property can be listed as something this grade needs to meet before the
 # actual number is known/agreed.
+#
+# CR-07 (Product Grade Physical Property Target Architecture and Quality
+# Alignment) replaces this table's UI role entirely with GradeSpecification
+# below (extended by CR-07 with target_type/class_value): that model already
+# carried everything this one has (property_definition_id, a target value,
+# a unit) PLUS the target-type/method/condition/orientation context CR-07's
+# UAT finding requires and the live conformance engine (wp3_conformance.py)
+# already evaluates against - maintaining two parallel "other property
+# targets" lists on one grade was itself part of the defect. The table is
+# kept in place, unread by any active page, rather than dropped - live data
+# had zero rows in it at CR-07 time (see the CR-07 closeout package), so
+# there was nothing to migrate.
 # ---------------------------------------------------------------------------
 class FoamGradeTargetProperty(Base):
     __tablename__ = "foam_grade_target_properties"
@@ -2899,11 +2935,52 @@ class MachineDocument(Base):
 # "meets spec" for thermal conductivity depends on orientation and aging
 # condition, not just a single target number.
 # ---------------------------------------------------------------------------
-GRADE_SPEC_OPERATORS = ["<=", ">=", "=", "between"]
+GRADE_SPEC_OPERATORS = ["<=", ">=", "=", "between", "class"]
+
+# CR-07 (Product Grade Physical Property Target Architecture and Quality
+# Alignment, 2026-08-11) additions below. target_type is the CR's own
+# customer-facing controlled vocabulary (its acceptance criteria and field
+# table use these exact six words) - deliberately kept separate from
+# target_operator rather than replacing it, since target_operator/target_
+# value/lower_limit/upper_limit is what wp3_conformance.evaluate_specification
+# actually evaluates and every existing/seeded row (and every test) already
+# populates that pair; GRADE_SPEC_TARGET_TYPES is a UI-facing label on top,
+# translated to the matching operator by GRADE_SPEC_TARGET_TYPE_OPERATORS
+# below whenever the new Product Grade Property Targets UI (pages/2) writes
+# a row, so older code paths that only know target_operator keep working
+# unchanged. "Maximum" and "Maximum absolute" both evaluate as "<=" - the
+# "absolute" distinction is Charlie's own specification-authoring nuance
+# (a hard ceiling vs. an average-tolerance-style maximum), preserved as
+# data via target_type for traceability, not as a second evaluation rule.
+GRADE_SPEC_TARGET_TYPES = ["Nominal", "Minimum", "Maximum", "Maximum absolute", "Range", "Class"]
+
+GRADE_SPEC_TARGET_TYPE_OPERATORS = {
+    "Nominal": "=",
+    "Minimum": ">=",
+    "Maximum": "<=",
+    "Maximum absolute": "<=",
+    "Range": "between",
+    "Class": "class",
+}
 
 
 class GradeSpecification(Base):
     __tablename__ = "grade_specifications"
+    # CR-07 acceptance criterion: "Duplicate Product Grade + Property_ID
+    # combinations are blocked in both UI and write path." The UI blocks it
+    # structurally (a property already on the grade drops out of the "add
+    # property target" picker - see pages/2_Product_Family_Foam_Grade.py);
+    # this is the write-path backstop. A plain (not partial) unique
+    # constraint is correct here, not a WHERE-filtered index like
+    # RecipeVersion's ux_recipe_version_one_active_per_grade: standard SQL
+    # (both SQLite and Postgres) already treats NULL as distinct from every
+    # other NULL in a unique constraint, so rows with no property_definition_id
+    # (legacy/free-text specs, if any) never collide with each other - only
+    # two rows naming the SAME real property on the SAME grade are rejected,
+    # which is exactly the rule CR-07 asks for.
+    __table_args__ = (
+        UniqueConstraint("foam_grade_id", "property_definition_id", name="uq_grade_specification_grade_property"),
+    )
 
     id = Column(Integer, primary_key=True)
     foam_grade_id = Column(Integer, ForeignKey("foam_grades.id"), nullable=False)
@@ -2911,9 +2988,24 @@ class GradeSpecification(Base):
     property_method_id = Column(Integer, ForeignKey("physical_property_methods.id"))
     property_name = Column(String(200), nullable=False)  # snapshot text, auto-filled from the chosen definition
     target_operator = Column(String(20), default="<=")  # see GRADE_SPEC_OPERATORS
+    # CR-07 addition. Nullable: every pre-CR-07 row (WP3/WP5-seeded) has
+    # none and keeps evaluating exactly as before via target_operator alone
+    # - see GRADE_SPEC_TARGET_TYPES/GRADE_SPEC_TARGET_TYPE_OPERATORS above.
+    target_type = Column(String(30))
     target_value = Column(Float)
     lower_limit = Column(Float)  # used when target_operator == "between"
     upper_limit = Column(Float)  # used when target_operator == "between", or as the pass/fail ceiling for "<="
+    # CR-07 addition. Populated only when target_type == "Class" (e.g. a
+    # fire class "Class B") - a controlled/text value as CR-07 section 5
+    # requires, distinct from the numeric target_value/lower_limit/
+    # upper_limit trio above. Not evaluated by wp3_conformance today:
+    # PhysicalPropertyResult carries no text-valued actual result to
+    # compare it against (see that module's evaluate_specification, which
+    # correctly returns "nothing to compare" for target_operator == "class")
+    # - a Class target is specification-capture only until Quality gains a
+    # text-result capture path, called out as a known limitation in the
+    # CR-07 closeout package rather than silently pretended away.
+    class_value = Column(String(200))
     unit = Column(String(50))
     condition_id = Column(Integer, ForeignKey("test_conditions.id"))
     orientation_id = Column(Integer, ForeignKey("orientations.id"))
@@ -2923,6 +3015,8 @@ class GradeSpecification(Base):
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
     foam_grade = relationship("FoamGrade", back_populates="specifications")
+    property_definition = relationship("PhysicalPropertyDefinition")
+    property_method = relationship("PhysicalPropertyMethod")
     condition = relationship("TestCondition")
     orientation = relationship("Orientation")
     location = relationship("Location")

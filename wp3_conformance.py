@@ -106,6 +106,13 @@ def evaluate_specification(spec, actual_value):
         margin = min(actual_value - spec.lower_limit, spec.upper_limit - actual_value)
         return ("Pass" if passed else "Fail"), margin
 
+    # CR-07 (2026-08-11) addition: target_operator == "class" (a
+    # GradeSpecification with target_type == "Class", e.g. a fire class)
+    # falls through to here deliberately, same as any other operator this
+    # function doesn't recognize - see db.py's GradeSpecification.class_value
+    # docstring. There is no numeric actual_value to compare a text class
+    # against today, so "nothing to compare" (None, None) is the honest
+    # answer, not a special case requiring its own branch.
     return None, None
 
 

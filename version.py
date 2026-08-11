@@ -3056,4 +3056,130 @@ customer's plant) - all three show PM-100 activatable and PM-200 disabled
 with the explanatory caption, zero exceptions.
 """
 
-APP_VERSION = "0.27.0"
+VERSION_0_28_0_NOTES = """
+CR-07 (Product Grade Physical Property Target Architecture and Quality
+Alignment), implemented 2026-08-11 per Charlie's instruction document
+(PI3_Rigid_Foam_Phase_1_CR07_Product_Grade_Physical_Property_Target_
+Architecture_and_Quality_Alignment_for_UAT.docx). Opened from a UAT
+finding on Add Product Grade: the fixed "Target density (kg/m3)" and
+"Target hardness (N, 40% ILD)" fields hardcoded exactly two targets per
+grade, and the hardness field is Flexible Foam legacy content with no
+place in Rigid Foam's property architecture at all. Replaced both with a
+dynamic, unlimited "Product Grade Property Targets" list driven off the
+same controlled Physical Property Master that Quality results already
+use, so grade targets and Quality results can be compared like-for-like.
+
+1. Foundation: reused GradeSpecification (the WP3d normalized
+   property-target model - property_definition_id/property_method_id/
+   target_operator/target_value/lower_limit/upper_limit/unit/condition_id/
+   orientation_id/location_id/notes) rather than building a second,
+   competing model. It already carried every field CR-07 needs and is
+   already the exact table wp3_conformance.py's live conformance engine
+   reads - it simply had no UI to create/edit rows (only ever populated
+   by seed scripts/tests). FoamGradeTargetProperty (an earlier, simpler
+   "other target properties" table) is deprecated in place in its favor -
+   0 live rows, nothing to migrate.
+2. db.py: added GradeSpecification.target_type (CR-07's customer-facing
+   vocabulary - Nominal/Minimum/Maximum/Maximum absolute/Range/Class) and
+   .class_value (the text value for Class-type targets), plus
+   GRADE_SPEC_TARGET_TYPES and a GRADE_SPEC_TARGET_TYPE_OPERATORS mapping
+   that translates each target_type to the target_operator the
+   pre-existing evaluation engine actually reads (Nominal->"=",
+   Minimum->">=", Maximum/Maximum absolute->"<=", Range->"between",
+   Class->"class"). Added a real, enforced uniqueness constraint -
+   UniqueConstraint(foam_grade_id, property_definition_id) - blocking a
+   grade from carrying two targets for the same property, at the database
+   level, not just in the UI. FoamGrade.target_density/target_hardness
+   and FoamGradeTargetProperty are deprecated in place (columns/table kept,
+   unread by the active UI), matching this app's established
+   deprecate-in-place precedent (FoamGrade.production_method_id, WP4).
+3. pages/2_Product_Family_Foam_Grade.py: removed the two fixed number_input
+   fields from both Add and CSV-import construction paths. Added a new
+   "Product Grade Property Targets" section on Edit - existing targets as
+   expanders with per-row Save/Remove forms, plus an "Add a property
+   target" form whose Property picker excludes properties the grade
+   already has a target for (readmitted the moment that target is
+   removed) and is replaced with an explanatory message once every
+   controlled property is in use. Target-type choices and UOM choices are
+   both filtered live to what the selected property's own master data
+   allows (PhysicalPropertyDefinition.allowed_target_type, default_uom) -
+   no free-text UOM entry anywhere. The write path re-checks for a
+   duplicate (grade, property) pair immediately before insert, independent
+   of the picker already excluding it, so CR-07's "duplicate blocked in
+   the UI AND the write path" requirement holds even against a race. The
+   grade list table's old three fixed columns are replaced with one -
+   "Property targets": a live count of specifications - and Edit shows a
+   read-only legacy-value caption when a grade still carries a nonzero
+   legacy target_density/target_hardness value, rather than silently
+   hiding that history.
+4. cascades.py: found and fixed a real pre-existing gap while wiring
+   grade-deletion cleanup for the new targets - delete_foam_grade_cascade
+   bulk-deletes FoamGrade's dependent rows with session.query(...).delete(),
+   which bypasses the ORM-level cascade="all, delete-orphan" on
+   FoamGrade.specifications entirely (that cascade only fires on
+   session.delete(instance), never on a bulk query-delete). This means
+   GradeSpecification rows would have been silently orphaned on every
+   grade deletion since WP3d introduced the relationship, independent of
+   CR-07. Added an explicit bulk-delete of GradeSpecification scoped to
+   the grade before FoamGrade's own delete, and added "product grade
+   property target(s)" to foam_grade_dependency_counts so the existing
+   pre-delete dependency-count UI surfaces it like every other dependent
+   row type.
+5. Quality alignment: no new integration code needed - verified end-to-end
+   via a direct database test that a PhysicalPropertyResult and a
+   GradeSpecification sharing the same property_definition_id (plus
+   compatible method/condition/orientation/unit context) evaluate
+   correctly through the existing wp3_conformance.evaluate_specification/
+   compute_conformance_report, and that a result with no matching grade
+   target is not invalidated by that absence (compute_conformance_report
+   already treats "no spec for this property" as no target to fail).
+   Class-type targets are captured but deliberately not numerically
+   evaluated - evaluate_specification's target_operator == "class" falls
+   through to its existing final return None, None, since a Class target
+   has no numeric actual_value to compare against today (documented with
+   a comment, no functional change).
+6. Existing-data reconciliation: inventoried the one live grade
+   (RF-COLDROOM-001, id 7) - target_density=38 (non-placeholder),
+   target_hardness=NULL, 0 FoamGradeTargetProperty rows anywhere. Did
+   NOT auto-migrate the density value into a GradeSpecification row,
+   because 4 distinct controlled density properties exist (Apparent
+   overall/Core/Free-rise/Minimum-fill density) with no way to
+   disambiguate which one a bare legacy number represents - migrating a
+   guess would silently misrepresent the grade's real target. Per CR-07's
+   own instruction, never considered migrating target_hardness (40% ILD
+   is explicitly Flexible Foam legacy content). Surfaced the legacy value
+   read-only in the Edit UI instead and flagged it as an outstanding
+   exception in the CR-07 closeout package for Charlie/Stefan to resolve,
+   matching the CR-05 criterion-12 precedent of flagging rather than
+   guessing.
+7. Live Supabase migration (cr07_grade_specification_target_type_and_
+   uniqueness): added target_type/class_value columns and the
+   uq_grade_specification_grade_property unique constraint to
+   rigid_foam.grade_specifications. Confirmed via information_schema
+   afterward. No existing grade_specifications row (1 live row, Thermal
+   conductivity on the same grade) violated the new constraint.
+8. tests/test_cr07_grade_property_targets.py (new, 19 test items): Add
+   form has no fixed density/hardness fields; target-type vocabulary
+   matches CR-07's list; each of Nominal/Minimum/Maximum/Maximum
+   absolute/Range evaluates Pass/Fail correctly via its derived operator
+   (9 parametrized cases); Class targets are captured but not numerically
+   evaluated; duplicate (grade, property) targets are blocked at the DB
+   level; the available-properties picker excludes used properties and
+   readmits them after removal; a grade with every controlled property
+   used leaves nothing available to add; delete_foam_grade_cascade
+   removes GradeSpecification rows (regression guard for the cascades.py
+   fix above); foam_grade_dependency_counts includes property targets;
+   a Quality result sharing a grade target's property evaluates
+   correctly; a Quality result with no grade target is not invalidated.
+   Full pre-existing regression suite re-run afterward (114 total tests
+   across all files) confirms the new target_type/class_value columns and
+   the new unique constraint introduce no fallout in any test file that
+   directly constructs GradeSpecification rows (test_cr04_step7_
+   consolidated_walkthrough.py, test_wp4_unit_conversion.py, test_wp4_
+   rigid_lot_use_correlation.py, test_wp4_rigid_achievement_summary.py,
+   test_wp4_recipe_optimization_page_smoke.py, and gen_uat015_019_live_
+   pages.py's own fixtures) - none of their existing fixtures create two
+   specs for the same (grade, property) pair, so all 114 pass unchanged.
+"""
+
+APP_VERSION = "0.28.0"

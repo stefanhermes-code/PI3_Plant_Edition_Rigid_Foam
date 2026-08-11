@@ -11,7 +11,22 @@ from cascades import (
     foam_grade_dependency_counts,
     product_family_dependency_counts,
 )
-from db import FoamGrade, FoamGradeTargetProperty, Machine, PhysicalPropertyDefinition, Plant, ProductFamily, get_session, init_db
+from db import (
+    FoamGrade,
+    GRADE_SPEC_TARGET_TYPE_OPERATORS,
+    GRADE_SPEC_TARGET_TYPES,
+    GradeSpecification,
+    Machine,
+    Orientation,
+    PhysicalPropertyDefinition,
+    PhysicalPropertyMethod,
+    PhysicalPropertyUOM,
+    Plant,
+    ProductFamily,
+    TestCondition,
+    get_session,
+    init_db,
+)
 from helpers import (
     clickable_table,
     csv_excel_uploader,
@@ -29,13 +44,12 @@ from helpers import (
 from tenant_scope import apply_scope, clear_scope_cache, company_picker, family_ids_for_plants, plant_ids_for_company
 
 GRADE_REQUIRED_COLUMNS = ["product_family_id", "grade_name"]
-GRADE_OPTIONAL_COLUMNS = ["target_density", "target_hardness", "notes"]
-
-# Density and 40% IFD/hardness already have dedicated foam_grades columns
-# (every grade has them, and the grade-naming code itself encodes them) - so
-# they're excluded from the "other target properties" picker below to avoid
-# a grade carrying two different numbers for the same property.
-DENSITY_HARDNESS_PROPERTY_NAMES = {"density", "40% ifd / hardness"}
+# CR-07 (2026-08-11, Product Grade Physical Property Target Architecture and
+# Quality Alignment): target_density/target_hardness dropped from the CSV
+# import's optional columns along with the manual Add/Edit form fields below
+# - see db.py's FoamGrade docstring. A batch import shouldn't write into a
+# deprecated fixed field any more than the manual form should.
+GRADE_OPTIONAL_COLUMNS = ["notes"]
 
 page_setup("Product Family & Product Grade")
 init_db()
@@ -46,21 +60,23 @@ st.title("Product Family & Product Grade Profile")
 render_function_action_intro(
     function_text=(
         "This page organizes your product catalog on two levels: product families (a market "
-        "segment or application grouping under a plant, e.g. mattress comfort layer) and the "
-        "individual product grades within each family, each carrying its own target density and "
-        "target hardness (40% ILD), plus any other target physical properties worth specifying "
-        "(resilience, tensile strength, ...) even before the actual value is known. Every recipe "
-        "version, production run, and quality result recorded downstream is tied to one of these "
-        "product grades, so this is where a new grade starts its life in the system."
+        "segment or application grouping under a plant, e.g. cold-room panel core) and the "
+        "individual product grades within each family. Each grade carries its own Product Grade "
+        "Property Targets - a dynamic list you build from the same controlled Physical Property "
+        "Master Quality results are recorded against, so a grade can be specified by exactly the "
+        "properties that matter for it (thermal, mechanical, dimensional, fire, ...), with no fixed "
+        "field forcing every grade through the same two numbers. Every recipe version, production "
+        "run, and quality result recorded downstream is tied to one of these product grades, so this "
+        "is where a new grade starts its life in the system."
     ),
     action_text=(
         "Add a product family under the right plant first, then add each product grade under it one "
         "at a time, or bring in a batch through the CSV/Excel import tab if you're loading many "
-        "grades at once. Set target density and hardness on each grade so the Industrial "
-        "Intelligence pages have a target to compare actual results against, then use the 'other "
-        "target properties' list on the edit screen for anything beyond those two. Click a row in "
-        "either table to edit or delete it - deleting a product family or product grade cascades to "
-        "everything recorded under it, with the count shown before you confirm."
+        "grades at once. On the edit screen, use 'Add a property target' to pick a controlled "
+        "property and set its target type, value, and unit - repeat for every property this grade "
+        "needs to hit; a property already added drops out of the picker until you remove it. Click "
+        "a row in either table to edit or delete it - deleting a product family or product grade "
+        "cascades to everything recorded under it, with the count shown before you confirm."
     ),
 )
 session = get_session()
@@ -237,10 +253,14 @@ with tab_grade:
                         format_func=lambda m: f"{m.name} ({m.production_method.name if m.production_method else '—'})",
                         key="add_grade_machines",
                     ) if assignable_machines else []
+                    # CR-07 (2026-08-11): no Target density / Target hardness
+                    # fields here any more - see db.py's FoamGrade docstring.
+                    # A grade's property targets are added afterward, on the
+                    # edit screen's "Product Grade Property Targets" section,
+                    # from the same controlled Physical Property Master
+                    # Quality results use.
                     with st.form("add_grade"):
                         grade_name = st.text_input("Grade name / code *")
-                        target_density = st.number_input("Target density (kg/m3)", min_value=0.0, step=0.5)
-                        target_hardness = st.number_input("Target hardness (N, 40% ILD)", min_value=0.0, step=1.0)
                         notes = st.text_area("Notes")
                         submitted = st.form_submit_button("Save product grade")
                         if submitted:
@@ -250,16 +270,14 @@ with tab_grade:
                                 new_grade = FoamGrade(
                                     product_family_id=family.id,
                                     grade_name=grade_name,
-                                    target_density=target_density or None,
-                                    target_hardness=target_hardness or None,
                                     notes=notes,
                                 )
                                 new_grade.machines = list(assigned_machines)
                                 session.add(new_grade)
                                 session.commit()
                                 clear_scope_cache()
-                                st.success(f"Product grade '{grade_name}' added. Add any other target physical "
-                                           "properties from the table below.")
+                                st.success(f"Product grade '{grade_name}' added. Add its property targets "
+                                           "from the section below.")
                                 st.rerun()
 
         with tab_grade_import:
@@ -299,8 +317,6 @@ with tab_grade:
                                 FoamGrade(
                                     product_family_id=int(row["product_family_id"]),
                                     grade_name=str(row["grade_name"]).strip(),
-                                    target_density=row.get("target_density") if not pd.isna(row.get("target_density")) else None,
-                                    target_hardness=row.get("target_hardness") if not pd.isna(row.get("target_hardness")) else None,
                                     notes=str(row.get("notes", "") or ""),
                                 )
                             )
@@ -326,9 +342,11 @@ with tab_grade:
                     # see helpers.grade_production_method_label().
                     "Production Method": grade_production_method_label(grade),
                     "Production Units or Cells": len(grade.machines),
-                    "Target density (kg/m3)": grade.target_density,
-                    "Target hardness (N, 40% ILD)": grade.target_hardness,
-                    "Other target properties": len(grade.target_properties),
+                    # CR-07 (2026-08-11): one unified property-target count,
+                    # replacing the separate Target density/Target hardness
+                    # columns and the "Other target properties" count - see
+                    # db.py's FoamGrade/FoamGradeTargetProperty docstrings.
+                    "Property targets": len(grade.specifications),
                 }
                 for grade in grades
             ]
@@ -386,14 +404,6 @@ with tab_grade:
                         e_grade_name = st.text_input(
                             "Grade name / code *", value=selected_grade.grade_name, key=f"edit_grade_name_{selected_grade.id}"
                         )
-                        e_density = st.number_input(
-                            "Target density (kg/m3)", min_value=0.0, step=0.5,
-                            value=float(selected_grade.target_density or 0.0), key=f"edit_grade_density_{selected_grade.id}",
-                        )
-                        e_hardness = st.number_input(
-                            "Target hardness (N, 40% ILD)", min_value=0.0, step=1.0,
-                            value=float(selected_grade.target_hardness or 0.0), key=f"edit_grade_hardness_{selected_grade.id}",
-                        )
                         e_notes = st.text_area("Notes", value=selected_grade.notes or "", key=f"edit_grade_notes_{selected_grade.id}")
                         if st.form_submit_button("Save changes"):
                             if not e_grade_name.strip():
@@ -401,8 +411,6 @@ with tab_grade:
                             else:
                                 selected_grade.product_family_id = e_family.id
                                 selected_grade.grade_name = e_grade_name.strip()
-                                selected_grade.target_density = e_density or None
-                                selected_grade.target_hardness = e_hardness or None
                                 selected_grade.notes = e_notes
                                 # production_method_id intentionally left untouched -
                                 # deprecated, see db.py's FoamGrade model.
@@ -411,63 +419,280 @@ with tab_grade:
                                 st.success("Product grade updated.")
                                 st.rerun()
 
-                    st.markdown("**Other target physical properties**")
-                    st.caption(
-                        "Anything beyond density and hardness this grade needs to hit (resilience, "
-                        "tensile strength, ...). Leave 'Target value' blank if it's a property to track "
-                        "but the number isn't known/agreed yet. Edit the table directly, then save."
-                    )
-                    property_choices = sorted(
-                        p.name for p in property_defs if p.name.strip().lower() not in DENSITY_HARDNESS_PROPERTY_NAMES
-                    )
-                    target_props_df = (
-                        pd.DataFrame(
-                            [
-                                {
-                                    "Property": tp.property_name,
-                                    "Target value": tp.target_value,
-                                    "Unit": tp.unit or "",
-                                    "Notes": tp.notes or "",
-                                }
-                                for tp in selected_grade.target_properties
-                            ]
+                    # CR-07 (2026-08-11): a pre-CR-07 legacy target_density/
+                    # target_hardness value is surfaced read-only (never
+                    # editable, never migrated automatically - see db.py's
+                    # FoamGrade docstring) so it isn't silently lost from
+                    # view; re-enter it below as a proper property target
+                    # once the correct controlled density property is
+                    # confirmed.
+                    if selected_grade.target_density is not None or selected_grade.target_hardness is not None:
+                        legacy_bits = []
+                        if selected_grade.target_density is not None:
+                            legacy_bits.append(f"density {selected_grade.target_density:g} kg/m3")
+                        if selected_grade.target_hardness is not None:
+                            legacy_bits.append(f"hardness {selected_grade.target_hardness:g} N (40% ILD)")
+                        st.caption(
+                            "⚠️ Legacy value on file, pre-CR-07 (not part of the controlled specification below): "
+                            + ", ".join(legacy_bits)
+                            + ". Add it as a proper property target below once confirmed."
                         )
-                        if selected_grade.target_properties
-                        else pd.DataFrame(columns=["Property", "Target value", "Unit", "Notes"])
+
+                    st.markdown("**Product Grade Property Targets**")
+                    st.caption(
+                        "The controlled properties this grade must hit - each one sourced from the same "
+                        "Physical Property Master Quality results are recorded against, so PI3 can compare "
+                        "an actual result to this target automatically. A property already added here is "
+                        "removed from the picker below until you remove it."
                     )
-                    edited_props_df = st.data_editor(
-                        target_props_df,
-                        num_rows="dynamic",
-                        use_container_width=True,
-                        key=f"edit_target_properties_{selected_grade.id}",
-                        column_config={
-                            "Property": st.column_config.SelectboxColumn("Property", options=property_choices),
-                            "Target value": st.column_config.NumberColumn("Target value", step=0.1),
-                        },
+
+                    existing_specs = (
+                        session.query(GradeSpecification)
+                        .filter(GradeSpecification.foam_grade_id == selected_grade.id)
+                        .order_by(GradeSpecification.property_name)
+                        .all()
                     )
-                    if st.button("Save other target properties", key=f"save_target_properties_{selected_grade.id}"):
-                        defs_by_name = {p.name.strip().lower(): p for p in property_defs}
-                        session.query(FoamGradeTargetProperty).filter(
-                            FoamGradeTargetProperty.foam_grade_id == selected_grade.id
-                        ).delete(synchronize_session=False)
-                        for _, row in edited_props_df.iterrows():
-                            prop_name = str(row.get("Property") or "").strip()
-                            if not prop_name:
-                                continue
-                            prop_def = defs_by_name.get(prop_name.lower())
-                            session.add(
-                                FoamGradeTargetProperty(
-                                    foam_grade_id=selected_grade.id,
-                                    property_definition_id=prop_def.id if prop_def else None,
-                                    property_name=prop_name,
-                                    target_value=row.get("Target value") if pd.notna(row.get("Target value")) else None,
-                                    unit=str(row.get("Unit") or ""),
-                                    notes=str(row.get("Notes") or ""),
-                                )
+                    used_property_ids = {s.property_definition_id for s in existing_specs if s.property_definition_id}
+
+                    def _uom_choices_for_property(prop_def):
+                        rows = (
+                            session.query(PhysicalPropertyUOM)
+                            .filter(PhysicalPropertyUOM.property_definition_id == prop_def.id)
+                            .order_by(PhysicalPropertyUOM.sort_order)
+                            .all()
+                            if prop_def
+                            else []
+                        )
+                        labels = [r.unit_label for r in rows]
+                        if prop_def and prop_def.default_uom and prop_def.default_uom not in labels:
+                            labels.insert(0, prop_def.default_uom)
+                        return labels or ["—"]
+
+                    def _target_type_choices_for_property(prop_def):
+                        # CR-07: "Use the target type allowed for the
+                        # selected property" - Physical Property Master's own
+                        # allowed_target_type (e.g. "Minimum/Range") is a
+                        # slash-separated subset of GRADE_SPEC_TARGET_TYPES;
+                        # fall back to the full controlled list when a
+                        # property hasn't had this WP5 field populated yet,
+                        # rather than blocking target entry on missing
+                        # master-data richness.
+                        raw = (prop_def.allowed_target_type or "").strip() if prop_def else ""
+                        if not raw:
+                            return list(GRADE_SPEC_TARGET_TYPES)
+                        allowed = [part.strip() for part in raw.split("/") if part.strip()]
+                        ordered = [t for t in GRADE_SPEC_TARGET_TYPES if t in allowed]
+                        return ordered or list(GRADE_SPEC_TARGET_TYPES)
+
+                    def _render_target_value_inputs(target_type, key_prefix, defaults=None):
+                        """Returns (target_value, lower_limit, upper_limit, class_value)
+                        for the value input(s) matching this target type -
+                        CR-07 section 5: Range needs lower+upper, Class needs
+                        a text value, everything else needs one number."""
+                        defaults = defaults or {}
+                        if target_type == "Range":
+                            c1, c2 = st.columns(2)
+                            lo = c1.number_input(
+                                "Lower limit", step=0.1, value=float(defaults.get("lower_limit") or 0.0),
+                                key=f"{key_prefix}_lower",
                             )
-                        session.commit()
-                        st.success("Other target properties updated.")
-                        st.rerun()
+                            hi = c2.number_input(
+                                "Upper limit", step=0.1, value=float(defaults.get("upper_limit") or 0.0),
+                                key=f"{key_prefix}_upper",
+                            )
+                            return None, lo, hi, None
+                        if target_type == "Class":
+                            cv = st.text_input(
+                                "Class value (e.g. Class B)", value=defaults.get("class_value") or "",
+                                key=f"{key_prefix}_class",
+                            )
+                            return None, None, None, cv
+                        tv = st.number_input(
+                            "Target value", step=0.1, value=float(defaults.get("target_value") or 0.0),
+                            key=f"{key_prefix}_value",
+                        )
+                        return tv, None, None, None
+
+                    if not existing_specs:
+                        st.caption("No property targets added yet.")
+                    for spec in existing_specs:
+                        with st.expander(
+                            f"{spec.property_name}"
+                            f"{' — ' + spec.target_type if spec.target_type else ''}",
+                            expanded=False,
+                        ):
+                            prop_def = spec.property_definition
+                            type_choices = _target_type_choices_for_property(prop_def)
+                            uom_choices = _uom_choices_for_property(prop_def)
+                            methods_for_property = (
+                                session.query(PhysicalPropertyMethod)
+                                .filter(PhysicalPropertyMethod.property_definition_id == spec.property_definition_id)
+                                .order_by(PhysicalPropertyMethod.sort_order)
+                                .all()
+                                if spec.property_definition_id
+                                else []
+                            )
+                            conditions = session.query(TestCondition).order_by(TestCondition.sort_order).all()
+                            orientations = session.query(Orientation).order_by(Orientation.sort_order).all()
+
+                            with st.form(f"edit_spec_{spec.id}"):
+                                s_type = st.selectbox(
+                                    "Target type *", type_choices,
+                                    index=type_choices.index(spec.target_type) if spec.target_type in type_choices else 0,
+                                    key=f"spec_{spec.id}_type",
+                                )
+                                s_value, s_lower, s_upper, s_class = _render_target_value_inputs(
+                                    s_type, f"spec_{spec.id}",
+                                    defaults={
+                                        "target_value": spec.target_value, "lower_limit": spec.lower_limit,
+                                        "upper_limit": spec.upper_limit, "class_value": spec.class_value,
+                                    },
+                                )
+                                s_uom = st.selectbox(
+                                    "Unit of measure", uom_choices,
+                                    index=uom_choices.index(spec.unit) if spec.unit in uom_choices else 0,
+                                    key=f"spec_{spec.id}_uom",
+                                )
+                                s_method = st.selectbox(
+                                    "Test method (optional)", [None] + methods_for_property,
+                                    format_func=lambda m: "— not specified —" if m is None else m.method_code,
+                                    index=(
+                                        ([None] + methods_for_property).index(spec.property_method)
+                                        if spec.property_method in methods_for_property else 0
+                                    ),
+                                    key=f"spec_{spec.id}_method",
+                                )
+                                s_condition = st.selectbox(
+                                    "Condition (optional)", [None] + conditions,
+                                    format_func=lambda c: "— not specified —" if c is None else c.name,
+                                    index=(
+                                        ([None] + conditions).index(spec.condition)
+                                        if spec.condition in conditions else 0
+                                    ),
+                                    key=f"spec_{spec.id}_condition",
+                                )
+                                s_orientation = st.selectbox(
+                                    "Orientation (optional)", [None] + orientations,
+                                    format_func=lambda o: "— not specified —" if o is None else o.name,
+                                    index=(
+                                        ([None] + orientations).index(spec.orientation)
+                                        if spec.orientation in orientations else 0
+                                    ),
+                                    key=f"spec_{spec.id}_orientation",
+                                )
+                                s_notes = st.text_area("Notes", value=spec.notes or "", key=f"spec_{spec.id}_notes")
+                                c_save, c_remove = st.columns(2)
+                                save_clicked = c_save.form_submit_button("Save")
+                                remove_clicked = c_remove.form_submit_button("Remove this property target")
+                                if save_clicked:
+                                    spec.target_type = s_type
+                                    spec.target_operator = GRADE_SPEC_TARGET_TYPE_OPERATORS.get(s_type, "<=")
+                                    spec.target_value = s_value
+                                    spec.lower_limit = s_lower
+                                    spec.upper_limit = s_upper
+                                    spec.class_value = s_class
+                                    spec.unit = None if s_uom == "—" else s_uom
+                                    spec.property_method_id = s_method.id if s_method else None
+                                    spec.condition_id = s_condition.id if s_condition else None
+                                    spec.orientation_id = s_orientation.id if s_orientation else None
+                                    spec.notes = s_notes
+                                    session.commit()
+                                    st.success(f"{spec.property_name} target updated.")
+                                    st.rerun()
+                                if remove_clicked:
+                                    session.delete(spec)
+                                    session.commit()
+                                    st.success(f"{spec.property_name} target removed.")
+                                    st.rerun()
+
+                    available_properties = [p for p in property_defs if p.id not in used_property_ids]
+                    if not available_properties:
+                        st.caption(
+                            "Every controlled property already has a target on this grade - nothing left to add."
+                        )
+                    else:
+                        with st.expander("Add a property target", expanded=False):
+                            add_prop = st.selectbox(
+                                "Property *", available_properties,
+                                format_func=lambda p: f"⭐ {p.name}" if p.is_common else p.name,
+                                key=f"add_spec_property_{selected_grade.id}",
+                            )
+                            if add_prop:
+                                st.caption(f"{add_prop.what_it_measures or ''} — category: {add_prop.category or '—'}")
+                            add_type_choices = _target_type_choices_for_property(add_prop)
+                            add_uom_choices = _uom_choices_for_property(add_prop)
+                            add_methods = (
+                                session.query(PhysicalPropertyMethod)
+                                .filter(PhysicalPropertyMethod.property_definition_id == add_prop.id)
+                                .order_by(PhysicalPropertyMethod.sort_order)
+                                .all()
+                                if add_prop
+                                else []
+                            )
+                            add_conditions = session.query(TestCondition).order_by(TestCondition.sort_order).all()
+                            add_orientations = session.query(Orientation).order_by(Orientation.sort_order).all()
+
+                            with st.form(f"add_spec_{selected_grade.id}"):
+                                a_type = st.selectbox("Target type *", add_type_choices, key=f"add_spec_type_{selected_grade.id}")
+                                a_value, a_lower, a_upper, a_class = _render_target_value_inputs(
+                                    a_type, f"add_spec_{selected_grade.id}",
+                                )
+                                a_uom = st.selectbox("Unit of measure", add_uom_choices, key=f"add_spec_uom_{selected_grade.id}")
+                                a_method = st.selectbox(
+                                    "Test method (optional)", [None] + add_methods,
+                                    format_func=lambda m: "— not specified —" if m is None else m.method_code,
+                                    key=f"add_spec_method_{selected_grade.id}",
+                                )
+                                a_condition = st.selectbox(
+                                    "Condition (optional)", [None] + add_conditions,
+                                    format_func=lambda c: "— not specified —" if c is None else c.name,
+                                    key=f"add_spec_condition_{selected_grade.id}",
+                                )
+                                a_orientation = st.selectbox(
+                                    "Orientation (optional)", [None] + add_orientations,
+                                    format_func=lambda o: "— not specified —" if o is None else o.name,
+                                    key=f"add_spec_orientation_{selected_grade.id}",
+                                )
+                                a_notes = st.text_area("Notes", key=f"add_spec_notes_{selected_grade.id}")
+                                if st.form_submit_button("Add property target"):
+                                    # Write-path duplicate guard (CR-07
+                                    # acceptance criterion) - belt-and-
+                                    # suspenders alongside the DB's own
+                                    # uq_grade_specification_grade_property
+                                    # constraint and the picker above already
+                                    # excluding used properties.
+                                    already = (
+                                        session.query(GradeSpecification)
+                                        .filter(
+                                            GradeSpecification.foam_grade_id == selected_grade.id,
+                                            GradeSpecification.property_definition_id == add_prop.id,
+                                        )
+                                        .first()
+                                    )
+                                    if already:
+                                        st.error(f"{add_prop.name} already has a target on this grade.")
+                                    else:
+                                        session.add(
+                                            GradeSpecification(
+                                                foam_grade_id=selected_grade.id,
+                                                property_definition_id=add_prop.id,
+                                                property_method_id=a_method.id if a_method else None,
+                                                property_name=add_prop.name,
+                                                target_type=a_type,
+                                                target_operator=GRADE_SPEC_TARGET_TYPE_OPERATORS.get(a_type, "<="),
+                                                target_value=a_value,
+                                                lower_limit=a_lower,
+                                                upper_limit=a_upper,
+                                                class_value=a_class,
+                                                unit=None if a_uom == "—" else a_uom,
+                                                condition_id=a_condition.id if a_condition else None,
+                                                orientation_id=a_orientation.id if a_orientation else None,
+                                                notes=a_notes,
+                                            )
+                                        )
+                                        session.commit()
+                                        st.success(f"{add_prop.name} added as a property target.")
+                                        st.rerun()
 
                     counts = foam_grade_dependency_counts(session, selected_grade.id)
                     total_related = sum(counts.values())

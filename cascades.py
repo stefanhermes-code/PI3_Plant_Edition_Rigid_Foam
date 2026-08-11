@@ -21,6 +21,7 @@ from db import (
     FallplateSectionPosition,
     FoamGrade,
     FoamGradeTargetProperty,
+    GradeSpecification,
     Machine,
     OptimizationTrial,
     PhysicalPropertyResult,
@@ -296,6 +297,15 @@ def foam_grade_dependency_counts(session, foam_grade_id):
         .filter(FoamGradeTargetProperty.foam_grade_id == foam_grade_id)
         .count()
     )
+    # CR-07 (2026-08-11): grade_specifications is the real, active property-
+    # target list for a grade now (see db.py's FoamGradeTargetProperty
+    # docstring) - counted here so the delete-confirmation warning names it,
+    # same as every other dependent record type on this grade.
+    counts["product grade property target(s)"] = (
+        session.query(GradeSpecification)
+        .filter(GradeSpecification.foam_grade_id == foam_grade_id)
+        .count()
+    )
     run_ids = _run_ids_for_foam_grade(session, foam_grade_id)
     counts["production run(s)"] = len(run_ids)
     for run_id in run_ids:
@@ -329,6 +339,17 @@ def delete_foam_grade_cascade(session, foam_grade_id):
     session.query(RecipeVersion).filter(RecipeVersion.foam_grade_id == foam_grade_id).delete(synchronize_session=False)
     session.query(FoamGradeTargetProperty).filter(
         FoamGradeTargetProperty.foam_grade_id == foam_grade_id
+    ).delete(synchronize_session=False)
+    # CR-07 (2026-08-11): grade_specifications rows were never deleted here
+    # before this fix - a real gap, since this whole function uses bulk
+    # session.query(...).delete() calls that bypass FoamGrade.specifications'
+    # ORM-level cascade="all, delete-orphan" (that cascade only fires on
+    # session.delete(instance), never on a bulk-delete query like the one
+    # right below this that removes the FoamGrade row itself). Deleting a
+    # grade would otherwise leave its property-target rows orphaned in the
+    # database - CR-07 section 6 explicitly requires this cascade.
+    session.query(GradeSpecification).filter(
+        GradeSpecification.foam_grade_id == foam_grade_id
     ).delete(synchronize_session=False)
     # Production Method Hierarchy architecture change (2026-08-09): clear
     # this grade's Machine assignments (the foam_grade_machines join
