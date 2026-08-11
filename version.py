@@ -3300,4 +3300,28 @@ catalysts - all explicitly required for rigid-foam formulation review.
    RawMaterial schema changes.
 """
 
-APP_VERSION = "0.29.0"
+VERSION_0_29_1_NOTES = """
+v0.29.0 -> v0.29.1 (2026-08-11, CR-08 closeout correction - data only):
+Charlie issued CR-08's final technical acceptance ("CR-08 engineering
+implementation is accepted... No further application changes are
+required") together with the resolution of the two Subcategory-review
+flags raised in CR-08 section 7/note 7 above: Lupranol 3300 -> Polyol /
+Rigid polyether polyol, POLYCAT 5 -> Catalyst / Blow catalyst. Applied
+directly to the live rigid_foam.raw_materials table in Supabase - no
+schema, code, or test file touched, matching v0.12.1's own precedent for
+a data-only correction round-trip. raw_materials.id=49 (Lupranol 3300,
+category_id=41/Polyol) set to subcategory_id=51 (raw_material_categories
+RMC2-110, "Rigid polyether polyol", parent_category_id=41); raw_materials.
+id=51 (POLYCAT 5, category_id=44/Catalyst) set to subcategory_id=65
+(RMC2-420, "Blow catalyst", parent_category_id=44). Verified afterward via
+a direct join query (both rows now resolve a complete Category/Subcategory
+pair) and a table-wide count check (5/5 raw_materials rows now carry a
+non-null subcategory_id, confirming no other row was touched). This
+closes CR-08 with zero outstanding items - the CR08_Closeout_Package.docx
+section 6 (existing-data reconciliation) and section 10 (outstanding
+items) are updated to reflect both records as classified per Charlie's
+own explicit direction, not JC inference, and the package's status line
+now reflects CR-08 as technically accepted.
+"""
+
+APP_VERSION = "0.29.1"
