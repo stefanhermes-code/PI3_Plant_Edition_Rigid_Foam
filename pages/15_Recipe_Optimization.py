@@ -20,6 +20,7 @@ import pandas as pd
 import streamlit as st
 
 import ai_assistant
+import customer_presentation
 from access_control import can_use_page
 from analytics import (
     pass_rate,
@@ -391,7 +392,10 @@ if is_rigid:
                     "Excluded / Invalid / No result": (
                         f"{row['n_excluded_context']} / {row['n_invalid']} / {row['n_no_result']}"
                     ),
-                    "Note": row["production_release"] or "—",
+                    # CR-09 (2026-08-12): translated via customer_presentation
+                    # - see reports.py's matching Recipe Optimization Word
+                    # report fix for what's unchanged vs. what's translated.
+                    "Note": customer_presentation.customer_facing_release_note(row["production_release"]) or "—",
                 }
                 for row in achievement_summary
             ]
@@ -853,11 +857,20 @@ elif is_rigid:
         outcome_summary = "\n".join(outcome_lines) or "No quality test results recorded yet."
 
         if achievement_summary:
+            # CR-09 (2026-08-12): row["production_release"] used to be
+            # interpolated straight into this PI3 prompt - a raw internal
+            # code (e.g. "UAT_PASS_NO_RELEASE") that a PI3 response could
+            # then echo back to the customer verbatim. Translated via
+            # customer_presentation, same as every other customer-facing
+            # surface that reads this field.
             achieved_lines = [
                 f"{row['property_name']} ({_spec_context_text(row)}): avg actual {row['avg_actual']}, "
                 f"specification {_spec_limit_text(row)}, achieved={row['achieved']}, "
                 f"n={row['n']} runs under this recipe ({row['n_fail']} failed)"
-                + (f" - {row['production_release']}" if row["production_release"] else "")
+                + (
+                    f" - {customer_presentation.customer_facing_release_note(row['production_release'])}"
+                    if row["production_release"] else ""
+                )
                 for row in achievement_summary
             ]
             achieved_summary = "\n".join(achieved_lines)
@@ -884,8 +897,8 @@ elif is_rigid:
             "their own trial process, addressed directly to the target properties requested. "
             "Where you rely on a specific cost, diff, or correlation figure below, refer to it "
             "explicitly rather than restating the raw ingredient list. If a specification is "
-            "noted as not yet cleared for production release (UAT-only), say so rather than "
-            "treating it as production-approved.\n\n"
+            "noted as still under internal review and not yet cleared for production release, "
+            "say so rather than treating it as production-approved.\n\n"
             f"Product grade: {grade.grade_name}\n\n"
             f"Recipe versions and composition:\n{composition_summary}\n\n"
             f"Formulation cost by version:\n{cost_summary}\n\n"

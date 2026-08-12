@@ -40,14 +40,26 @@ removal, per Charlie's own instruction.
 Controlled-ID-to-customer-name mapping: ProductionMethod.name already IS the
 customer-facing name (e.g. "Discontinuous Factory Foaming"); controlled_id
 (e.g. "PM-100") is shown alongside it for traceability, matching the same
-existing pattern already used everywhere else in the app.  Per CR-01's
-explicit "keeps dev-phase numbers internal only" requirement, no
-Phase-1..7 label is ever shown here - the phase mapping is JC/Charlie's own
-internal engineering scoping reference and has no customer-facing purpose.
+existing pattern already used everywhere else in the app.
+
+CR-09 correction (2026-08-12, Remove Internal Development and UAT Leakage
+from Customer-Facing Application): this docstring used to claim, per
+CR-01's "keeps dev-phase numbers internal only" requirement, that no
+Phase-1..7 label was ever shown here - that claim was false. The
+not-yet-released caption below used to read the method's raw internal
+maturity_status string and literally say "Phase 1 offers Production
+Method PM-100 only.", a genuine regression CR-09's UAT audit caught. It
+now routes through customer_presentation.customer_facing_method_
+availability_note(), the single shared translation function every
+customer-facing surface in the app uses for this - see that module's
+docstring. The release gate itself (method.is_released,
+helpers.method_activatable_by_customer) is unchanged; only the caption
+shown when a method fails that gate is different.
 """
 
 import streamlit as st
 
+import customer_presentation
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
 from db import FoamGrade, Machine, Plant, PlantProductionMethod, RecipeVersion, get_session, init_db
@@ -75,8 +87,8 @@ render_function_action_intro(
     ),
     action_text=(
         "Pick a plant, then activate every Production Method it actually runs using the checkboxes "
-        "below. At Phase 1, only PM-100 (Discontinuous Factory Foaming) is released for customer "
-        "activation - the other methods are shown for visibility but stay disabled until released."
+        "below. Only Production Methods that have been released for customer activation can be "
+        "checked - the other methods are shown for visibility but stay disabled until released."
     ),
 )
 session = get_session()
@@ -131,10 +143,7 @@ else:
             disabled=not page_usable or (not can_activate and not already_active),
         )
         if not can_activate and not already_active:
-            st.caption(
-                f"Not yet released for customer activation ({method.maturity_status or 'not released'}) - "
-                "Phase 1 offers Production Method PM-100 only."
-            )
+            st.caption(customer_presentation.customer_facing_method_availability_note())
         existing_row = existing_rows_by_method.get(method.id)
         if checked and can_activate and not existing_row:
             session.add(PlantProductionMethod(plant_id=selected_plant.id, production_method_id=method.id, active=True))

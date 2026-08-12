@@ -157,9 +157,20 @@ def _assert_unreleased_gated_and_released_open(at, ids):
     assert unreleased_cb is not None, "Unreleased method's checkbox not found"
     assert released_cb.disabled is False, "PM-100 (released) must stay activatable"
     assert unreleased_cb.disabled is True, "An unreleased method must never be activatable, for any role"
+    # CR-09 (2026-08-12, Remove Internal Development and UAT Leakage from
+    # Customer-Facing Application): the caption text changed - it used to
+    # read "Not yet released for customer activation (<maturity_status>) -
+    # Phase 1 offers Production Method PM-100 only.", which leaked the raw
+    # internal maturity_status value and an internal rollout-phase number.
+    # It now comes from customer_presentation.customer_facing_method_
+    # availability_note() - see tests/test_cr09_customer_content_leakage.py
+    # for the dedicated leakage regression coverage. Assert on that
+    # function's actual text rather than the old internal-leaking string.
+    import customer_presentation
+    expected_caption = customer_presentation.customer_facing_method_availability_note()
     assert any(
-        "Not yet released for customer activation" in c.value for c in at.caption
-    ), "Expected an explanatory caption on the gated, unreleased method"
+        expected_caption in c.value for c in at.caption
+    ), "Expected the shared customer-facing availability caption on the gated, unreleased method"
 
 
 def test_company_admin_is_gated_on_their_own_customer_plant(seeded_customer_company):

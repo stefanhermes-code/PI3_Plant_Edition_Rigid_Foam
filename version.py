@@ -3364,4 +3364,76 @@ this is purely a content-accuracy correction with no user-facing or
 functional impact - no regression suite change needed, no page touched.
 """
 
-APP_VERSION = "0.29.2"
+VERSION_0_30_0_NOTES = """
+v0.29.2 -> v0.30.0 (2026-08-12, CR-09 - Remove Internal Development and
+UAT Leakage from Customer-Facing Application, Charlie's instruction):
+Charlie's UAT audit found internal engineering vocabulary - development-
+phase numbers, WP (work-package) identifiers, UAT/synthetic-dataset
+terminology, and raw maturity_status/production_release codes - leaking
+into customer-facing screens, generated Word reports, and PI3 prompt
+construction. Confirmed genuine (not a misread) at every site Charlie's
+CR named:
+
+- pages/30_Production_Methods.py: help text saying "At Phase 1, only
+  PM-100... is released for customer activation", and a caption showing
+  the raw maturity_status value plus "Phase 1 offers Production Method
+  PM-100 only." - the exact string in Charlie's own Trigger Finding.
+  The page's docstring had also been claiming, since CR-01, that no
+  phase label was ever shown here - false, and the regression this CR
+  fixes.
+- pages/21_Report.py: help text and the fifth report tab's label both
+  named "WP3" (a development work-package identifier). Renamed to
+  "Property Conformance Report" everywhere customer-visible, including
+  the downloaded file's name.
+- reports.py: a Plant/Period Summary Word report subtitle reading
+  "Synthetic UAT / Reference Dataset" verbatim; a Recipe Optimization
+  Word report's Note column and conclusions text carrying wp3_
+  conformance.production_release_status()'s raw code ("UAT_PASS_NO_
+  RELEASE") and the phrase "UAT-only"; the Property Conformance Word
+  report's own Note column (same raw code) and title (still said "WP3
+  Property Conformance Report"); and that same report's "Grade status"
+  row, which could show FoamGrade.status's raw "UAT_ONLY" code verbatim.
+- pages/15_Recipe_Optimization.py: the identical Note-column and PI3-
+  prompt leaks as reports.py's Recipe Optimization Word report (this
+  page builds that same data), plus a static PI3 prompt instruction
+  literally saying "(UAT-only)".
+
+Fix: a new dependency-free module, customer_presentation.py, is the
+SINGLE shared translation layer every one of the above call sites now
+routes through (CR-09 section 7, Acceptance Criterion #12 - one shared
+formatter, not per-page copies). It can't live in helpers.py, since
+helpers.py already imports reports.py and reports.py needs the same
+translations - a shared helper in either would be a circular import.
+customer_presentation.py has four functions: customer_facing_method_
+availability_note() (replaces the Production Methods caption),
+customer_facing_release_note() (translates production_release_status()
+codes), customer_facing_reference_dataset_label() (translates the
+synthetic-dataset flag), customer_facing_report_title() (translates
+"WP3 Property Conformance Report"), and customer_facing_grade_status_
+label() (translates FoamGrade.status's "UAT_ONLY").
+
+Explicitly unchanged, per Acceptance Criteria #1/#13/#14: wp3_
+conformance.production_release_status() and every backend conformance/
+achievement calculation that calls it; helpers.method_activatable_by_
+customer() and the release gate it implements (method.is_released);
+FoamGrade.status itself and every place it's used for actual logic (is_
+uat_only checks). Only the DISPLAY of these values changed - never their
+computation or the gating decisions built on them.
+
+New regression coverage: tests/test_cr09_customer_content_leakage.py -
+unit tests on every customer_presentation.py function; a live AppTest
+render of pages/30 and pages/21 scanning ALL rendered text for the
+forbidden markers ("WP3", "UAT", "Phase 1/2/3", "maturity_status",
+"production_release", "Synthetic", "UAT_ONLY", "UAT_PASS_NO_RELEASE");
+generated-.docx text scans (via python-docx) of both the Property
+Conformance Report and the Plant/Period Summary Report, built from
+fixtures that genuinely trigger the UAT-only/synthetic-dataset paths
+(not just asserting the translation functions look clean in isolation);
+and a monkeypatched-ai_assistant.ask_assistant() capture of the actual
+PI3 prompt string Recipe Optimization sends. tests/test_cr04_pm_release_
+gating.py's existing caption assertion was updated to match the new
+customer-safe text (the old assertion string was itself part of the
+leak this CR removes).
+"""
+
+APP_VERSION = "0.30.0"

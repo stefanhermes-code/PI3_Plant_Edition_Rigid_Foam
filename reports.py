@@ -212,6 +212,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+import customer_presentation
 from analytics import PHASE_SETTING_FIELDS, PHASE_SETTING_LABELS, recipe_version_cost
 from db import (
     CONFIDENCE_LEVELS,
@@ -591,9 +592,17 @@ def build_period_summary_data(
     # explicitly ("Synthetic UAT run", "Synthetic end-to-end data set") -
     # there is no dedicated is_synthetic column on ProductionRun (see
     # db.py), so that note text is the authoritative signal.
-    dataset_label = "Synthetic UAT / Reference Dataset" if any(
+    #
+    # CR-09 (2026-08-12): this used to build the customer-visible label
+    # text directly here ("Synthetic UAT / Reference Dataset" - both
+    # "Synthetic" and "UAT" are internal engineering terms). It now stores
+    # only the internal boolean signal; render_period_summary_report_docx
+    # generates the customer-safe label via customer_presentation.
+    # customer_facing_reference_dataset_label(), the single shared
+    # translation point for this flag.
+    is_reference_dataset = any(
         "synthetic" in (r.notes or "").lower() for r in runs
-    ) else None
+    )
 
     observations = (
         session.query(QualityObservation)
@@ -651,7 +660,7 @@ def build_period_summary_data(
         "production_method": production_method_label_text,
         "date_from": date_from,
         "date_to": date_to,
-        "dataset_label": dataset_label,
+        "is_reference_dataset": is_reference_dataset,
         "total_runs": len(runs),
         "pass_rate": pass_rate,
         "total_results_scored": total_scored,
@@ -697,8 +706,11 @@ def render_period_summary_docx(data):
     subtitle = f"{data['plant']} · {data['product_family']} · {data['date_from'] or 'earliest'} to {data['date_to'] or 'latest'}"
     if data.get("production_method") and data["production_method"] != "All methods":
         subtitle = f"{subtitle} · Production Method: {data['production_method']}"
-    if data.get("dataset_label"):
-        subtitle = f"{subtitle} · {data['dataset_label']}"
+    reference_dataset_label = customer_presentation.customer_facing_reference_dataset_label(
+        data.get("is_reference_dataset")
+    )
+    if reference_dataset_label:
+        subtitle = f"{subtitle} · {reference_dataset_label}"
     _docx_report_header(doc, "Plant / Period Summary Report", subtitle)
     issue_label = data.get("quality_issues_label", "Quality issues")
     # WP6-S09 fix (2026-08-09, per Charlie's WP6 sequence item 3, "correct
@@ -3328,7 +3340,12 @@ def build_rigid_recipe_optimization_report_data(
             "Excluded / Invalid / No result": (
                 f"{row['n_excluded_context']} / {row['n_invalid']} / {row['n_no_result']}"
             ),
-            "Note": row["production_release"] or "—",
+            # CR-09 (2026-08-12): this used to write row["production_release"]
+            # (wp3_conformance.production_release_status()'s raw internal
+            # code, e.g. "UAT_PASS_NO_RELEASE") straight into a customer
+            # report Note column. The backend value and the calculation
+            # producing it are unchanged - only how it's displayed here.
+            "Note": customer_presentation.customer_facing_release_note(row["production_release"]) or "—",
         })
         if row["achieved"] == "Yes":
             achieved_count += 1
@@ -3384,8 +3401,8 @@ def build_rigid_recipe_optimization_report_data(
         )
     if no_release_specs:
         conclusions.append(
-            f"{len(no_release_specs)} passing specification(s) are UAT-only and not yet cleared for "
-            f"production release: {', '.join(no_release_specs)}."
+            f"{len(no_release_specs)} passing specification(s) are still under internal review and "
+            f"not yet cleared for production release: {', '.join(no_release_specs)}."
         )
     if top_correlation_line:
         conclusions.append(top_correlation_line)
@@ -4375,8 +4392,12 @@ def build_wp3_conformance_report_data(session, foam_grade_id, production_run_id)
         note_parts = []
         if row.get("excluded_reason"):
             note_parts.append(row["excluded_reason"])
-        if row.get("production_release"):
-            note_parts.append(row["production_release"])
+        # CR-09 (2026-08-12): translated via customer_presentation, same as
+        # the Recipe Optimization achievement table above - see that
+        # function's docstring for what's unchanged vs. what's translated.
+        release_note = customer_presentation.customer_facing_release_note(row.get("production_release"))
+        if release_note:
+            note_parts.append(release_note)
         if row.get("unit_converted"):
             note_parts.append(f"converted from {row.get('as_recorded_value')} {row.get('as_recorded_unit')}")
 
@@ -4458,15 +4479,21 @@ def build_wp3_conformance_report_data(session, foam_grade_id, production_run_id)
 
 def render_wp3_conformance_report_docx(data):
     doc = Document()
+    # CR-09 (2026-08-12): title translated via customer_presentation -
+    # "WP3" is a development work-package identifier, not a customer-facing
+    # report name. See pages/21_Report.py's matching tab-label fix.
     _docx_report_header(
-        doc, f"WP3 Property Conformance Report — Run #{data['run_id']}",
+        doc, f"{customer_presentation.customer_facing_report_title('WP3 Property Conformance Report')} — Run #{data['run_id']}",
         f"{data['grade_name']} · {data['plant']} · Verdict: {data['overall_verdict']}",
     )
     _docx_heading(doc, "Manufacturing scope", size=12, color=_HTC_GREY, space_before=6)
     _docx_kv_table(doc, [
         ("Chemistry", data["chemistry"]), ("Production method", data["production_method"]),
         ("Application", data["application"]), ("Construction", data["construction"]),
-        ("Grade status", data["grade_status"]),
+        # CR-09 (2026-08-12): FoamGrade.status can be the internal
+        # "UAT_ONLY" lifecycle code (db.py) - translated here so it never
+        # reaches a customer report verbatim.
+        ("Grade status", customer_presentation.customer_facing_grade_status_label(data["grade_status"]) or "—"),
     ])
 
     _docx_heading(doc, "Run", size=12, color=_HTC_GREY, space_before=10)

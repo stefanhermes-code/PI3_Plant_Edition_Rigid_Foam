@@ -67,7 +67,7 @@ render_function_action_intro(
     function_text=(
         "Generates five standard report types - one production run's conformance record, a "
         "plant/period summary, a closed trial's formal writeup, one sample's certificate of "
-        "analysis, or one WP3 rigid-foam property's full conformance/analytics record - each "
+        "analysis, or one rigid-foam property's full conformance/analytics record - each "
         "with an in-app preview plus Word download. Every logged-in user can generate these; "
         "it's not gated behind PI3 connectivity."
     ),
@@ -78,7 +78,7 @@ render_function_action_intro(
         "if it didn't), the Plant/Period Summary for a broader review across a date range, the "
         "Trial Closeout Report once a customer or optimization trial is formally closed, the "
         "Sample Certificate of Analysis for one sample's full result-and-recipe traceability, "
-        "and the WP3 Property Conformance Report for a rigid-product grade specification's full "
+        "and the Property Conformance Report for a rigid-product grade specification's full "
         "method/unit/condition/orientation-aware verdict against one production run."
     ),
 )
@@ -96,7 +96,7 @@ scoped_optimization_trial_ids = optimization_trial_ids_for_company(session, acti
 
 tab_run, tab_period, tab_trial, tab_sample, tab_wp3 = st.tabs(
     ["Batch Release / Conformance Record", "Plant / Period Summary", "Trial Closeout Report",
-     "Sample Certificate of Analysis", "WP3 Property Conformance Report"]
+     "Sample Certificate of Analysis", "Property Conformance Report"]
 )
 
 # ---------------------------------------------------------------------------
@@ -488,8 +488,12 @@ with tab_wp3:
             render_data_table(pd.DataFrame(data["summary_rows"] or [{"—": "No evaluated results yet"}]))
 
             st.download_button(
+                # CR-09 (2026-08-12): customer-visible file_name no longer says
+                # "wp3" - the internal log_export_click event name (used only
+                # in PerformanceLog, an internal admin page) is left as-is,
+                # since that's internal-only scope, not customer-facing.
                 "Download Word", data=reports.render_wp3_conformance_report_docx(data),
-                file_name=f"run_{data['run_id']}_wp3_conformance_report.docx",
+                file_name=f"run_{data['run_id']}_property_conformance_report.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 key="wp3_conformance_docx",
                 on_click=log_export_click, args=("wp3_conformance_report_docx",),
