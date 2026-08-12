@@ -3574,4 +3574,95 @@ forbidden-marker leak, but worth a follow-up CR if a customer-facing "nan"
 in a PI3 answer is undesirable.
 """
 
-APP_VERSION = "0.31.1"
+VERSION_0_32_0_NOTES = """
+v0.32.0 - CR-11: Standardize Record Create, Edit/Delete and CSV/Excel
+Import Functions (per Charlie's CR-11 instruction doc, 2026-08-12, and
+Stefan's standing "do not leave any loose ends" direction). Every
+customer-facing record-creation page now exposes exactly three functions,
+in this order, with this exact wording: "Create <record>", "Edit/Delete
+<record>", "CSV/Excel import <records>" (no spaces around the slash,
+singular for Create/Edit-Delete, plural for import) - see helpers.
+cr11_function_tab_labels(), the single shared helper every page below
+calls so the wording can never drift page-to-page.
+
+Application-wide inventory (task #813) found 15 pages/tab-groups needing
+this treatment. 9 already had separate Create/Edit-Delete/Import surfaces
+that only needed relabeling/reordering onto the shared helper: Recipes
+(3), Physical Property Result/Quality Test Result (5), Quality Observation/
+Quality Issue (6), Customer Trials (11, incl. nested Sample sub-tabs),
+Optimization Trials (12, incl. nested Sample sub-tabs), Raw Materials (14,
+incl. nested Supplier sub-tabs), Production Run Trial Record (4, five
+independent record groups - Production Run, Setup Data, Stream Reading,
+Production Event, Runtime Data), Product Grades (2), and Production
+Equipment (31, wording changed to "Production Unit / Cell" per the app's
+existing Machine-to-"Production Unit or Cell" rename). 6 pages had only a
+single "Add" expander and no CSV/Excel import at all, and needed the full
+3-tab structure and a net-new import built from scratch, each mirroring an
+existing app-wide import convention rather than inventing a new one:
+Plant Installation Overview (1), Product Families (2), Expert Notes (20,
+new import pushes each row into PI3 exactly like the manual Create form
+does, via a shared _push_note_to_vector_store() helper extracted from the
+old inline logic), User Roles (24), User Accounts (25), Production
+Equipment (31).
+
+User Accounts' CSV/Excel import (25) is security-sensitive (bulk account
+creation) and was built to Stefan's explicit direction: same validation/
+permission pattern as every other import (email/role validation, the
+existing one-admin-per-company rule enforced against both existing DB rows
+and within the import batch itself, the subscription user-count cap
+enforced the same way), and every imported account gets a system-generated
+temporary password (shown once, never persisted in plaintext) plus a new
+mandatory forced-password-reset on first login. Schema: db.py's User
+gained must_reset_password (Boolean, default False) - never set by the
+manual Create-user form, only by the CSV/Excel import path. Enforcement:
+auth.require_login() checks it immediately after a successful login,
+before any other page content renders (_render_forced_password_reset()),
+so the gate applies platform-wide, not just on the User Accounts page
+itself; it clears on both the DB row and session_state once the user sets
+their own new password. Applied to the live Supabase rigid_foam schema
+(must_reset_password boolean default false) after explicit confirmation
+from Stefan - the initial apply_migration call was blocked by the Claude
+Code auto-mode classifier as a production-database-altering action, and
+per that block's own instruction not to route around it, was escalated to
+Stefan via AskUserQuestion rather than retried unilaterally; he approved
+"apply it now."
+
+New regression test files: tests/test_cr11_forced_password_reset.py (4
+tests exercising the real login-gate code path against a real page, not
+just the helper function in isolation - default-false on manual create,
+gate blocks page content and shows only the reset form, submitting a
+matching password clears the flag on both DB and session_state and
+unblocks the real page, mismatched passwords are rejected and the flag
+stays set) and tests/test_cr11_tab_wording_compliance.py (15 tests, one
+per page/tab-group, asserting the exact mandated label triplet renders in
+the exact mandated adjacent order - including the two nested-sub-tab
+pages, 11/12/14, where AppTest's at.tabs flattens a nested st.tabs() call
+in between its parent's own siblings; the outer group's triplet is
+checked with the nested group's own labels filtered out first, since a
+real user sees the nested tabs as a second tab bar one level down, not
+interleaved into the outer bar - and the five independent groups on page
+4, confirmed by direct probing to render with no cross-group
+interleaving).
+
+Two pre-existing bugs found and fixed while restructuring page 14 (Raw
+Materials) in an earlier commit within this batch, left over from an
+in-progress edit before a context-window compaction: a stray duplicate
+`with tab_suppliers:` line, and a missing cr11_function_tab_labels import
+- both caught before any test ran (py_compile failed first on the former;
+the latter was caught by inspection).
+
+Deliberate exclusions from this CR, to be documented with full reasoning
+in the closeout package (task #817): pages/30_Production_Methods.py
+(activates existing controlled-vocabulary rows, creates no new record);
+every access_control.PLATFORM_ONLY_KEYS admin page (Companies,
+Subscription Types, PI3 Connectivity, Default User Roles, Performance,
+Pilot Analysis); and the non-record-creation analysis/report pages
+(15-19, 21).
+
+Full regression suite: 171 passed (156 pre-existing + 15 new tab-wording
+tests), 0 failed, same 4 pre-existing unrelated numpy divide-by-zero
+warnings (test_recipe_optimization_baseline.py, test_wp4_rigid_lot_use_
+correlation.py) present before this batch too.
+"""
+
+APP_VERSION = "0.32.0"
