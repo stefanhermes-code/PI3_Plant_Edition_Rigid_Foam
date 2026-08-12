@@ -4142,4 +4142,64 @@ Full regression suite: 325 passed, 2 skipped (323 pre-existing + 2 new;
 same pre-existing Flexible-Foam-sibling-app-not-present skips, unchanged).
 """
 
-APP_VERSION = "0.33.6"
+VERSION_0_33_7_NOTES = """
+v0.33.6 -> v0.33.7 (2026-08-12, CR-13, per Charlie's
+"CR13_Split_Suppliers_into_Standalone_Page.docx" - the first of three
+newly-queued CRs, processed in numeric order after CR-11 and CR-12 closed).
+
+What changed: Supplier management (Create, Edit/Delete, CSV/Excel import)
+moved off the nested "Suppliers" tab inside pages/14_Raw_Materials.py onto
+a new standalone page, pages/32_Suppliers.py, with its own "suppliers"
+access_control.py page_key - independent of the "raw_materials" key both
+record types previously shared under one `page_usable` variable. The new
+page is registered in app_rigid_foam.py's formulation_pages, immediately
+after Raw Materials and still inside the existing "Formulations" nav
+section (CR-13 section 7 explicitly defers any section-label/regroup
+decision to a later navigation CR).
+
+What did NOT change: pages/14_Raw_Materials.py keeps its
+_supplier_picker/_supplier_names/_ensure_supplier_exists helpers and its
+"Default supplier" dropdown on every Raw Material Create/Edit/TDS form -
+RawMaterial.default_supplier is a text snapshot, not a foreign key, so
+every existing Raw Material <-> Supplier relationship keeps resolving by
+name with zero data migration. A live-data check against Supabase's
+rigid_foam.role_page_permissions found zero rows referencing
+"raw_materials" for any role, so there was no existing Raw-Materials-
+scoped restriction to carry over onto the new "suppliers" key - every role
+gets full access to the new page by default, the same "no row = full
+access" default every other net-new page in the catalog gets.
+
+Tests: tests/test_cr13_suppliers_standalone_page.py (11 new tests) -
+standalone page registration in access_control.PAGE_CATALOG and
+app_rigid_foam.py's formulation_pages (source-grepped, not imported
+directly - app_rigid_foam.py calls st.navigation() at import time, unsafe
+outside AppTest, same established technique as
+tests/test_cr10_product_family_grade_split.py's own sidebar-order test),
+the exact CR-11 three-tab wording/order, Supplier create/edit/delete
+persistence and safeguards, CSV/Excel import validation (valid row +
+duplicate-name rejection), a rename-cascades-to-RawMaterial.default_
+supplier test proving the cross-page relationship survived the split, a
+Raw-Materials-side test confirming its "Default supplier" picker still
+resolves the moved Supplier record, a view-only-role delete-block test
+against the NEW "suppliers" page_key, and a two-company scoping test
+proving tenant isolation on the new page independent of whatever isolation
+Raw Materials already had. tests/test_cr11_functional_evidence_group_c.py's
+Supplier-specific tests (Group C.3b create/edit/delete/import, plus the
+correction-v2 view-only-delete-block and import-validation-rejection
+tests) were removed from that file with a pointer comment to this one,
+since they tested behavior against pages/14_Raw_Materials.py that no
+longer exists. tests/test_cr11_tab_wording_compliance.py's combined
+Raw-Material-and-Supplier test was split into
+test_raw_materials_tabs (Raw Material triplet + Add from TDS only) and a
+new test_raw_materials_no_suppliers_tab proving the old tab/triplet is
+gone.
+
+Full regression suite: 334 passed, 0 new failures (325 pre-existing + 11
+new via test_cr13_suppliers_standalone_page.py, net +9 after removing 6
+stale Supplier-on-Raw-Materials tests and adding 2 replacement tab-wording
+tests in the two files above). The 2 pre-existing Flexible-Foam-sibling-
+app-not-present skips are conditional on a sibling checkout directory and
+were not observed in this run's environment - unrelated to this change.
+"""
+
+APP_VERSION = "0.33.7"

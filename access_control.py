@@ -179,12 +179,25 @@ ADMIN_ROLE_NAMES = frozenset({"company admin", "platform admin"})
 # gets full access to both new pages by default, same as it had on the old
 # combined one (see access_control.py module docstring point 3, "no row =
 # full access").
+#
+# CR-13 (Split Suppliers into a Standalone Page), implemented 2026-08-12:
+# "suppliers" is a brand-new page_key - Supplier management used to share
+# the "raw_materials" page_key (a single `page_usable` variable gated both
+# the outer Raw Material group and the nested Supplier group on that one
+# page). A live-data check against Supabase's rigid_foam.role_page_
+# permissions before this change found zero rows referencing
+# "raw_materials" for any role, so there is no existing Raw-Materials-
+# scoped restriction that would need to carry over onto the new
+# "suppliers" key even if one existed - every role gets full access to the
+# new Suppliers page by default, same "no row = full access" default every
+# other net-new page in this catalog gets.
 PAGE_CATALOG = {
     "plant_overview": "Plants",
     "production_methods": "Production Methods",
     "product_families": "Product Families",
     "product_grades": "Product Grades",
     "raw_materials": "Raw Materials",
+    "suppliers": "Suppliers",
     "recipes": "Recipes",
     "production_run": "Production Runs",
     "quality_test_result": "Test Results",

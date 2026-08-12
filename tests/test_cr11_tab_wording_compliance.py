@@ -262,14 +262,31 @@ def test_optimization_trials_tabs(full_chain):
     assert "Sample Report" in labels
 
 
-def test_raw_materials_and_suppliers_tabs(full_chain):
+def test_raw_materials_tabs(full_chain):
+    """CR-13 (Split Suppliers into a Standalone Page), implemented
+    2026-08-12: pages/14_Raw_Materials.py no longer has a nested "Suppliers"
+    tab or Supplier sub-triplet - Supplier management moved to its own page
+    (see test_raw_materials_no_suppliers_tab below and
+    tests/test_cr13_suppliers_standalone_page.py for the moved page's own
+    wording/order test). Only the Raw Material triplet plus the page-
+    specific "Add from TDS" tab (task #813's explicitly allowed extra)
+    remain here."""
+    labels = _tab_labels("14_Raw_Materials.py")
+    _assert_triplet_adjacent(labels, "Raw Material")
+    assert "Add from TDS" in labels
+
+
+def test_raw_materials_no_suppliers_tab(full_chain):
+    """CR-13 acceptance criteria 2 and 10: the Raw Materials page must no
+    longer contain a Suppliers tab, nested Supplier management controls, or
+    any customer-facing presentation of Suppliers as a Raw Materials
+    sub-tab."""
     labels = _tab_labels("14_Raw_Materials.py")
     supplier_labels = set(cr11_function_tab_labels("Supplier"))
-    _assert_triplet_adjacent(labels, "Raw Material", ignore_labels=supplier_labels)
-    _assert_triplet_adjacent(labels, "Supplier")
-    # Page-specific extra tabs explicitly allowed to remain (task #813).
-    assert "Add from TDS" in labels
-    assert "Suppliers" in labels
+    assert "Suppliers" not in labels, "Raw Materials must no longer expose a 'Suppliers' tab after the CR-13 split"
+    assert not (supplier_labels & set(labels)), (
+        "Raw Materials must no longer expose the Supplier Create/Edit-Delete/Import triplet after the CR-13 split"
+    )
 
 
 # ---------------------------------------------------------------------------

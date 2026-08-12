@@ -952,163 +952,17 @@ def test_raw_material_csv_import_via_ui(seeded_company_with_taxonomy):
 
 
 # ---------------------------------------------------------------------------
-# Group C.3b - pages/14_Raw_Materials.py, NESTED record type Supplier
-# (inside the "Suppliers" tab)
+# Group C.3b - Supplier (formerly the nested "Suppliers" tab on THIS page)
+#
+# CR-13 (Split Suppliers into a Standalone Page), implemented 2026-08-12:
+# Supplier management moved off pages/14_Raw_Materials.py entirely, onto
+# its own pages/32_Suppliers.py with its own "suppliers" access_control
+# key. Every Supplier-specific test that used to live in this section
+# (create/edit/delete/import, view-only delete-block, invalid-row-
+# rejection) has moved to tests/test_cr13_suppliers_standalone_page.py,
+# rebuilt against the new page and page_key rather than left here pointing
+# at behavior that no longer exists on PAGE_RAWMAT.
 # ---------------------------------------------------------------------------
-
-@pytest.fixture()
-def seeded_company_for_supplier():
-    """One Company only, with no RawMaterialCategory/RawMaterial seeded -
-    the outer Raw Material Create tab's Category/Subcategory pickers
-    simply render as None (raw_material_categories() returns []) rather
-    than crashing, and the outer Edit/Delete tab shows "No raw materials
-    recorded yet." Used by the Supplier create and import tests below."""
-    db.init_db()
-    _reset_schema()
-    u = uuid.uuid4().hex[:8]
-    session = db.get_session()
-    company = db.Company(name=f"CR11c Supplier Co {u}", is_platform_owner=True)
-    session.add(company)
-    session.commit()
-    ids = {"company_id": company.id, "company_name": company.name}
-    session.close()
-    return ids
-
-
-@pytest.fixture()
-def seeded_supplier():
-    """One Company + one existing Supplier - the minimum needed to
-    exercise selection, edit, and delete on the nested Suppliers tab's own
-    Edit/Delete section unambiguously. Deliberately seeds no RawMaterial
-    row, so the outer Raw Material Edit/Delete tab (rendered in the same
-    script run regardless of which tab is visually selected) shows "No
-    raw materials recorded yet." instead of an edit form that would
-    otherwise also render a same-labeled "Save changes" button."""
-    db.init_db()
-    _reset_schema()
-    u = uuid.uuid4().hex[:8]
-    session = db.get_session()
-    company = db.Company(name=f"CR11c SupplierEdit Co {u}", is_platform_owner=True)
-    session.add(company)
-    session.flush()
-    supplier = db.Supplier(company_id=company.id, name=f"CR11c Supplier {u}", active=True)
-    session.add(supplier)
-    session.commit()
-    ids = {"company_id": company.id, "supplier_id": supplier.id, "supplier_name": supplier.name}
-    session.close()
-    return ids
-
-
-def test_supplier_create_via_form(seeded_company_for_supplier):
-    """Fills the real nested 'Add supplier' form inside the Suppliers
-    tab (Supplier name text_input) and clicks the real 'Add supplier'
-    submit button, then confirms the new row landed in the database -
-    direct evidence for the SECOND, independent record group living on
-    this same page, which CR-11 also relabeled (its Create/Edit-Delete/
-    Import sub-tabs) without changing its underlying behavior."""
-    ids = seeded_company_for_supplier
-    at = AppTest.from_file(PAGE_RAWMAT, default_timeout=30)
-    at.secrets["AUTH_DISABLED"] = True
-    at.run()
-    assert not at.exception, f"Unhandled exception loading Raw Materials: {at.exception}"
-
-    name_input = next(t for t in at.text_input if t.label == "Supplier name *" and t.key is None)
-    name_input.set_value("CR11-GroupC-New-Supplier")
-    save_btn = next(b for b in at.button if b.label == "Add supplier")
-    save_btn.click()
-    at.run()
-    assert not at.exception, f"Unhandled exception saving a new supplier: {at.exception}"
-
-    session = db.get_session()
-    created = (
-        session.query(db.Supplier)
-        .filter(db.Supplier.company_id == ids["company_id"], db.Supplier.name == "CR11-GroupC-New-Supplier")
-        .first()
-    )
-    assert created is not None, "New supplier was not persisted"
-    session.close()
-
-
-def test_supplier_selection_edit_and_delete_via_ui(seeded_supplier):
-    """Presets the NESTED supplier_table dataframe widget's OWN on_select
-    state to select row 0 before .run() - its own separate widget key
-    from the outer rawmat_table, confirming row-click selection is
-    genuinely drivable against the nested Supplier group independently of
-    the outer Raw Material group. Then edits the selected supplier's name
-    through the real 'Save changes' form and confirms it persisted, then
-    deletes it through the real confirm-checkbox + delete-button flow and
-    confirms it's gone."""
-    ids = seeded_supplier
-    at = AppTest.from_file(PAGE_RAWMAT, default_timeout=30)
-    at.secrets["AUTH_DISABLED"] = True
-    at.session_state["supplier_table"] = {"selection": {"rows": [0], "columns": []}}
-    at.run()
-    assert not at.exception, f"Unhandled exception with a preset table selection: {at.exception}"
-    assert at.session_state["supplier_selected_id"] == ids["supplier_id"], (
-        "Presetting the nested dataframe widget's own selection state should have selected the seeded supplier"
-    )
-
-    # --- Edit ---
-    name_input = next(t for t in at.text_input if t.key == f"edit_supplier_name_{ids['supplier_id']}")
-    name_input.set_value("CR11-GroupC-Edited-Supplier")
-    save_btn = next(b for b in at.button if b.label == "Save changes")
-    save_btn.click()
-    at.run()
-    assert not at.exception, f"Unhandled exception editing the supplier: {at.exception}"
-
-    session = db.get_session()
-    edited = session.get(db.Supplier, ids["supplier_id"])
-    assert edited.name == "CR11-GroupC-Edited-Supplier", "Edit did not persist to the database"
-    session.close()
-
-    # --- Delete ---
-    at.session_state["supplier_table"] = {"selection": {"rows": [0], "columns": []}}
-    at.run()
-    confirm_box = next(c for c in at.checkbox if c.key == f"supplier_{ids['supplier_id']}_confirm")
-    confirm_box.set_value(True)
-    at.run()
-    delete_btn = next(b for b in at.button if b.key == f"supplier_{ids['supplier_id']}_btn")
-    delete_btn.click()
-    at.run()
-    assert not at.exception, f"Unhandled exception deleting the supplier: {at.exception}"
-
-    session = db.get_session()
-    assert session.get(db.Supplier, ids["supplier_id"]) is None, "Delete did not remove the supplier"
-    session.close()
-
-
-def test_supplier_csv_import_via_ui(seeded_company_for_supplier):
-    """Drives the real, NESTED st.file_uploader (key='supplier_upload',
-    its own separate widget from the outer rawmat_upload) and the real
-    'Confirm import' button (key='confirm_supplier_import') - direct
-    evidence for the SECOND, independent record group's own import path
-    on this page, which CR-11 relabeled without changing its underlying
-    behavior."""
-    ids = seeded_company_for_supplier
-    at = AppTest.from_file(PAGE_RAWMAT, default_timeout=30)
-    at.secrets["AUTH_DISABLED"] = True
-    at.run()
-    assert not at.exception
-
-    csv_bytes = "name,notes\nCR11-GroupC-Imported-Supplier,from CSV\n".encode()
-    uploader = next(u for u in at.file_uploader if u.key == "supplier_upload")
-    uploader.set_value(("suppliers.csv", csv_bytes, "text/csv"))
-    at.run()
-    assert not at.exception, f"Unhandled exception after uploading the CSV: {at.exception}"
-
-    confirm_btn = next(b for b in at.button if b.key == "confirm_supplier_import")
-    confirm_btn.click()
-    at.run()
-    assert not at.exception, f"Unhandled exception confirming the import: {at.exception}"
-
-    session = db.get_session()
-    imported = (
-        session.query(db.Supplier)
-        .filter(db.Supplier.company_id == ids["company_id"], db.Supplier.name == "CR11-GroupC-Imported-Supplier")
-        .first()
-    )
-    assert imported is not None, "Imported supplier was not persisted"
-    session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1302,67 +1156,11 @@ def test_raw_material_view_only_role_cannot_delete_via_ui(view_only_role_fixture
     session.close()
 
 
-@pytest.fixture()
-def view_only_role_fixture_for_supplier(seeded_supplier):
-    """Same composition as view_only_role_fixture_for_rawmat above, built
-    on seeded_supplier instead of seeded_raw_material - still against
-    page_key "raw_materials" (verified from source: the nested Suppliers
-    tab's own Edit/Delete section is gated by the SAME `page_usable`
-    variable as the outer Raw Material group, not a separate
-    "suppliers"-named page_key)."""
-    ids = seeded_supplier
-    session = db.get_session()
-    role = db.Role(company_id=ids["company_id"], name="CR11c Supplier View Only", is_builtin=False)
-    session.add(role)
-    session.flush()
-    session.add(db.RolePagePermission(role_id=role.id, page_key="raw_materials", can_view=True, can_use=False))
-    session.commit()
-    out = dict(ids)
-    out["role_id"] = role.id
-    session.close()
-    return out
-
-
-def test_supplier_view_only_role_cannot_delete_via_ui(view_only_role_fixture_for_supplier):
-    """CR-11 correction v2, item 1 (Supplier): same evidence and reasoning
-    as the Raw Material test above, against the NESTED supplier_table/
-    Suppliers tab - its own separate widget key, independently proving the
-    same page_key ("raw_materials") blocks Delete for the second,
-    independent record group living on this page too."""
-    ids = view_only_role_fixture_for_supplier
-    session = db.get_session()
-    assert not access_control.can_use_page("raw_materials", role_id=ids["role_id"], session=session, is_super_admin=False)
-    session.close()
-
-    at = _run(
-        PAGE_RAWMAT,
-        session_state={
-            "role_id": ids["role_id"],
-            "is_super_admin": False,
-            "is_platform_owner": False,
-            "company_id": ids["company_id"],
-            "supplier_table": {"selection": {"rows": [0], "columns": []}},
-        },
-    )
-    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
-    assert at.session_state["supplier_selected_id"] == ids["supplier_id"], (
-        "Presetting the nested dataframe widget's own selection state should have selected the seeded supplier"
-    )
-
-    captions = " ".join(c.value for c in at.caption)
-    assert "view-only access" in captions.lower()
-    assert not any(c.key == f"supplier_{ids['supplier_id']}_confirm" for c in at.checkbox), (
-        "View-only role should not see the nested delete confirm checkbox"
-    )
-    assert not any(b.key == f"supplier_{ids['supplier_id']}_btn" for b in at.button), (
-        "View-only role should not see the nested delete button"
-    )
-
-    session = db.get_session()
-    assert session.get(db.Supplier, ids["supplier_id"]) is not None, (
-        "The seeded supplier must still exist - a view-only role must never be able to delete it"
-    )
-    session.close()
+# (CR-13, 2026-08-12: the Supplier view-only-delete-block test that used to
+# sit here against PAGE_RAWMAT's nested supplier_table has moved to
+# tests/test_cr13_suppliers_standalone_page.py, rebuilt against the new
+# "suppliers" page_key - see that file's own test_supplier_view_only_role_
+# cannot_delete_via_ui.)
 
 
 # ---------------------------------------------------------------------------
@@ -1425,78 +1223,11 @@ def test_raw_material_csv_import_validation_rejects_invalid_row(seeded_company_w
     session.close()
 
 
-@pytest.fixture()
-def seeded_company_with_existing_supplier():
-    """One Company + one existing Supplier - the minimum needed to exercise
-    the nested Supplier CSV/Excel import's own bad-row check (this
-    importer's only one, per pages/14_Raw_Materials.py's sub_import block:
-    a row whose name matches an existing supplier's name, case-
-    insensitively, is bucketed into dup_supplier_rows and never created;
-    blank names are silently skipped rather than flagged, so a name
-    collision is the only real "invalid row" case this importer has)."""
-    db.init_db()
-    _reset_schema()
-    u = uuid.uuid4().hex[:8]
-    session = db.get_session()
-    company = db.Company(name=f"CR11c SupplierImportBad Co {u}", is_platform_owner=True)
-    session.add(company)
-    session.flush()
-    supplier = db.Supplier(company_id=company.id, name=f"CR11c Existing Supplier {u}", active=True)
-    session.add(supplier)
-    session.commit()
-    ids = {"company_id": company.id, "supplier_id": supplier.id, "supplier_name": supplier.name}
-    session.close()
-    return ids
-
-
-def test_supplier_csv_import_validation_rejects_invalid_row(seeded_company_with_existing_supplier):
-    """Supplier is also not one of CR-11's six net-new importers (only
-    relabeled) - same correction-v2 rationale as the Raw Material test
-    above. Uploads one row whose name exactly matches the already-seeded
-    Supplier (the page's own dup_supplier_rows check) alongside one
-    genuinely new row, and confirms the duplicate is flagged/skipped
-    (never creating a second row with that name) while the new one
-    imports."""
-    ids = seeded_company_with_existing_supplier
-    at = AppTest.from_file(PAGE_RAWMAT, default_timeout=30)
-    at.secrets["AUTH_DISABLED"] = True
-    at.run()
-    assert not at.exception
-
-    csv_bytes = (
-        "name,notes\n"
-        f"{ids['supplier_name']},duplicate of an existing supplier\n"
-        "CR11-GroupC-New-Supplier-Valid,from CSV\n"
-    ).encode()
-    uploader = next(u for u in at.file_uploader if u.key == "supplier_upload")
-    uploader.set_value(("suppliers_bad.csv", csv_bytes, "text/csv"))
-    at.run()
-    assert not at.exception, f"Unhandled exception after uploading a duplicate-name CSV: {at.exception}"
-
-    warnings_text = " ".join(w.value for w in at.warning)
-    assert "already in the list" in warnings_text.lower(), (
-        "The real 'match a supplier name already in the list' duplicate warning should have fired"
-    )
-
-    confirm_btn = next(b for b in at.button if b.key == "confirm_supplier_import")
-    confirm_btn.click()
-    at.run()
-    assert not at.exception, f"Unhandled exception confirming the import: {at.exception}"
-
-    session = db.get_session()
-    matching_existing = (
-        session.query(db.Supplier)
-        .filter(db.Supplier.company_id == ids["company_id"], db.Supplier.name == ids["supplier_name"])
-        .all()
-    )
-    new_valid = (
-        session.query(db.Supplier)
-        .filter(db.Supplier.company_id == ids["company_id"], db.Supplier.name == "CR11-GroupC-New-Supplier-Valid")
-        .first()
-    )
-    assert len(matching_existing) == 1, "The duplicate-named row must not have created a second supplier with that name"
-    assert new_valid is not None, "The genuinely new row should have imported"
-    session.close()
+# (CR-13, 2026-08-12: the Supplier import-validation-rejects-invalid-row
+# test that used to sit here against PAGE_RAWMAT's nested supplier_upload
+# has moved to tests/test_cr13_suppliers_standalone_page.py, rebuilt
+# against the new standalone page - see that file's own
+# test_supplier_csv_import_validation_rejects_invalid_row.)
 
 
 def test_user_csv_import_validation_rejects_row_with_unknown_role(seeded_company_and_role_for_user_import):

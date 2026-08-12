@@ -420,8 +420,17 @@ production_method_pages = [
     ("product_grades", st.Page("pages/2_Product_Grades.py", title="Product Grades", icon="🏷️")),
 ]
 
+# CR-13 (Split Suppliers into a Standalone Page), implemented 2026-08-12:
+# "Suppliers" is added as its own direct entry, immediately after Raw
+# Materials and still inside this same "Formulations" section - CR-13
+# section 7 explicitly keeps the current section label unchanged for this
+# CR, deferring any broader section rename/regroup to a later navigation
+# decision. See pages/32_Suppliers.py's own module docstring for what
+# moved out of pages/14_Raw_Materials.py and what (the supplier picker)
+# deliberately stayed.
 formulation_pages = [
     ("raw_materials", st.Page("pages/14_Raw_Materials.py", title="Raw Materials", icon="🧴")),
+    ("suppliers", st.Page("pages/32_Suppliers.py", title="Suppliers", icon="🚚")),
     # CR-03 (Recipe Consolidation and Pending Review Status), implemented
     # 2026-08-10: the separate "Reference Formulations" nav entry/page is
     # removed per CR-03's target navigation table - imported scientific
