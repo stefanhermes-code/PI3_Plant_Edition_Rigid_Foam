@@ -21,15 +21,41 @@ visibility new companies' built-in role clones are seeded with is set on
 the separate Default User Roles page (platform-owner-only) - editing an
 existing company's roles here never affects that default, or any other
 company.
-"""
 
+CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
+Functions, 2026-08-12): this page used to be a single "Add custom role"
+expander followed by the roles table/edit panel, with no CSV/Excel import
+at all. Restructured into the mandated 3 tabs (Create/Edit-Delete/Import)
+via cr11_function_tab_labels("Role"). The net-new CSV/Excel import creates
+custom roles only (built-in roles are never created this way, same as the
+manual Create tab) with the same default page access every manually-added
+role gets (Full access on every page until an admin narrows it on the
+Edit/Delete tab) - importing bulk roles is a naming/description shortcut,
+not a shortcut around reviewing per-page access."""
+
+import pandas as pd
 import streamlit as st
 
 import audit_log
 from access_control import current_access_states, save_access_states
 from auth import current_user, logout_button, require_login, require_role
 from db import Company, Role, RolePagePermission, User, get_session, init_db
-from helpers import clickable_table, delete_with_confirm, page_access_grid, page_setup, render_function_action_intro
+from helpers import (
+    clickable_table,
+    cr11_function_tab_labels,
+    csv_excel_uploader,
+    dedupe_import_rows,
+    delete_with_confirm,
+    page_access_grid,
+    page_setup,
+    render_data_table,
+    render_function_action_intro,
+    set_pending_banner,
+    show_pending_banner,
+)
+
+ROLE_REQUIRED_COLUMNS = ["name"]
+ROLE_OPTIONAL_COLUMNS = ["description", "company_id"]
 
 page_setup("User Roles")
 init_db()
@@ -48,9 +74,11 @@ render_function_action_intro(
     ),
     action_text=(
         "Add a custom role if the built-in ones don't fit (e.g. a 'plant floor' role that can only "
-        "use Production Run and Quality screens). Click a role below to edit its per-page access, "
-        "or its name/description for custom roles - built-in roles can only have their page access "
-        "adjusted, not their name."
+        "use Production Run and Quality screens), or use CSV/Excel import to bulk-create several "
+        "custom roles by name/description at once - every imported role starts with Full access on "
+        "every page, same as a manually-added one, so review and narrow access afterward. Click a "
+        "role below to edit its per-page access, or its name/description for custom roles - "
+        "built-in roles can only have their page access adjusted, not their name."
     ),
 )
 session = get_session()
@@ -60,7 +88,9 @@ own_company_id = user["company_id"]
 
 companies = session.query(Company).order_by(Company.name).all() if is_platform_owner else []
 
-with st.expander("Add custom role", expanded=False):
+tab_create, tab_edit_delete, tab_import = st.tabs(cr11_function_tab_labels("Role"))
+
+with tab_create:
     with st.form("add_role"):
         name = st.text_input("Role name *")
         description = st.text_area("Description")
@@ -93,132 +123,204 @@ with st.expander("Add custom role", expanded=False):
                 st.success(f"Role '{name}' added.")
                 st.rerun()
 
-st.divider()
-if is_platform_owner:
-    # Only company-owned roles - the 3 global templates (company_id IS NULL)
-    # are edited exclusively on the Default User Roles page, never here.
-    roles = (
-        session.query(Role)
-        .filter(Role.company_id.isnot(None))
-        .order_by(Role.company_id, Role.name)
-        .all()
-    )
-else:
-    roles = (
-        session.query(Role)
-        .filter(Role.company_id == own_company_id)
-        .order_by(Role.name)
-        .all()
-    )
+with tab_import:
+    show_pending_banner("role_import_msg")
+    valid_company_ids = {c.id for c in companies} if is_platform_owner else {own_company_id}
+    rdf, rfilename = csv_excel_uploader(ROLE_REQUIRED_COLUMNS, ROLE_OPTIONAL_COLUMNS, key="role_upload")
+    if rdf is not None:
+        good_rows, bad_rows = [], []
+        for _, row in rdf.iterrows():
+            name_val = str(row.get("name", "") or "").strip()
+            company_val = row.get("company_id")
+            if is_platform_owner:
+                target_id = int(company_val) if pd.notna(company_val) else None
+                row_ok = bool(name_val) and target_id in valid_company_ids
+            else:
+                # Non-platform-owner admins can only create roles for their
+                # own company - any company_id column value is ignored (same
+                # as the manual Create tab, which never lets them pick one).
+                target_id = own_company_id
+                row_ok = bool(name_val)
+            if row_ok:
+                good_rows.append(row)
+            else:
+                bad_rows.append(row)
 
-if not roles:
-    st.info("No roles found.")
-else:
-    company_by_id = {c.id: c.name for c in (companies or session.query(Company).all())}
-    role_rows = [
-        {
-            "Name": r.name,
-            "Company": company_by_id.get(r.company_id, "—"),
-            "Built-in": "Yes" if r.is_builtin else "No",
-            "Users": session.query(User).filter(User.role_id == r.id).count(),
-        }
-        for r in roles
-    ]
-    st.caption("Click a role to edit its page access (and name/description, for custom roles).")
-    idx = clickable_table(role_rows, key="roles_table")
-    if idx is not None and idx < len(roles):
-        st.session_state["role_selected_id"] = roles[idx].id
+        st.write(f"Rows ready to import: **{len(good_rows)}** | Rows flagged/rejected: **{len(bad_rows)}**")
+        if bad_rows:
+            st.warning(
+                "Flagged rows have no role name, or (platform owner only) reference an unknown "
+                "company_id."
+            )
+            render_data_table(pd.DataFrame(bad_rows), max_height="300px")
+
+        if good_rows and st.button("Confirm import", key="confirm_role_import"):
+            existing_keys = {
+                (r.company_id, r.name.strip().lower())
+                for r in session.query(Role).filter(
+                    Role.company_id.in_(valid_company_ids) if is_platform_owner else Role.company_id == own_company_id
+                ).all()
+            }
+
+            def _row_company_id(row):
+                if is_platform_owner:
+                    return int(row["company_id"])
+                return own_company_id
+
+            new_rows, dup_rows = dedupe_import_rows(
+                good_rows, existing_keys,
+                key_func=lambda row: (_row_company_id(row), str(row["name"]).strip().lower()),
+            )
+            for row in new_rows:
+                target_company_id = _row_company_id(row)
+                new_role = Role(
+                    company_id=target_company_id,
+                    name=str(row["name"]).strip(),
+                    description=str(row.get("description", "") or ""),
+                    is_builtin=False,
+                )
+                session.add(new_role)
+                session.flush()
+                audit_log.log_role_change(
+                    session, target_type="role",
+                    change_summary=f"Created custom role '{new_role.name}' (CSV/Excel import)",
+                    changed_by_user_id=user["id"], company_id=target_company_id,
+                    target_id=new_role.id, target_label=new_role.name,
+                )
+            session.commit()
+            msg = f"Imported {len(new_rows)} role(s) from {rfilename}."
+            if dup_rows:
+                msg += f" Skipped {len(dup_rows)} row(s) already recorded for their company (likely a repeat click)."
+            set_pending_banner("role_import_msg", msg)
+            st.rerun()
+
+with tab_edit_delete:
+    st.divider()
+    if is_platform_owner:
+        # Only company-owned roles - the 3 global templates (company_id IS NULL)
+        # are edited exclusively on the Default User Roles page, never here.
+        roles = (
+            session.query(Role)
+            .filter(Role.company_id.isnot(None))
+            .order_by(Role.company_id, Role.name)
+            .all()
+        )
     else:
-        st.session_state.pop("role_selected_id", None)
+        roles = (
+            session.query(Role)
+            .filter(Role.company_id == own_company_id)
+            .order_by(Role.name)
+            .all()
+        )
 
-    selected_id = st.session_state.get("role_selected_id")
-    selected = next((r for r in roles if r.id == selected_id), None)
+    if not roles:
+        st.info("No roles found.")
+    else:
+        company_by_id = {c.id: c.name for c in (companies or session.query(Company).all())}
+        role_rows = [
+            {
+                "Name": r.name,
+                "Company": company_by_id.get(r.company_id, "—"),
+                "Built-in": "Yes" if r.is_builtin else "No",
+                "Users": session.query(User).filter(User.role_id == r.id).count(),
+            }
+            for r in roles
+        ]
+        st.caption("Click a role to edit its page access (and name/description, for custom roles).")
+        idx = clickable_table(role_rows, key="roles_table")
+        if idx is not None and idx < len(roles):
+            st.session_state["role_selected_id"] = roles[idx].id
+        else:
+            st.session_state.pop("role_selected_id", None)
 
-    if selected:
-        st.markdown(f"**Edit role: {selected.name}**")
-        if selected.is_builtin:
-            st.caption("Built-in role - name and description can't be changed, but page visibility can.")
-        with st.form(f"edit_role_{selected.id}"):
-            e_name = st.text_input(
-                "Role name *", value=selected.name, disabled=selected.is_builtin, key=f"edit_role_name_{selected.id}"
-            )
-            e_description = st.text_area(
-                "Description", value=selected.description or "", disabled=selected.is_builtin,
-                key=f"edit_role_desc_{selected.id}",
-            )
-            if st.form_submit_button("Save name/description"):
-                if selected.is_builtin:
-                    st.info("Built-in role - nothing to save here, see page visibility below.")
-                elif not e_name.strip():
-                    st.error("Role name is required.")
-                else:
-                    changes = []
-                    if e_name.strip() != selected.name:
-                        changes.append(f"name: '{selected.name}' → '{e_name.strip()}'")
-                    if e_description != (selected.description or ""):
-                        changes.append("description updated")
-                    selected.name = e_name.strip()
-                    selected.description = e_description
-                    if changes:
+        selected_id = st.session_state.get("role_selected_id")
+        selected = next((r for r in roles if r.id == selected_id), None)
+
+        if selected:
+            st.markdown(f"**Edit role: {selected.name}**")
+            if selected.is_builtin:
+                st.caption("Built-in role - name and description can't be changed, but page visibility can.")
+            with st.form(f"edit_role_{selected.id}"):
+                e_name = st.text_input(
+                    "Role name *", value=selected.name, disabled=selected.is_builtin, key=f"edit_role_name_{selected.id}"
+                )
+                e_description = st.text_area(
+                    "Description", value=selected.description or "", disabled=selected.is_builtin,
+                    key=f"edit_role_desc_{selected.id}",
+                )
+                if st.form_submit_button("Save name/description"):
+                    if selected.is_builtin:
+                        st.info("Built-in role - nothing to save here, see page visibility below.")
+                    elif not e_name.strip():
+                        st.error("Role name is required.")
+                    else:
+                        changes = []
+                        if e_name.strip() != selected.name:
+                            changes.append(f"name: '{selected.name}' → '{e_name.strip()}'")
+                        if e_description != (selected.description or ""):
+                            changes.append("description updated")
+                        selected.name = e_name.strip()
+                        selected.description = e_description
+                        if changes:
+                            audit_log.log_role_change(
+                                session, target_type="role",
+                                change_summary=f"Updated role '{selected.name}': " + "; ".join(changes),
+                                changed_by_user_id=user["id"], company_id=selected.company_id,
+                                target_id=selected.id, target_label=selected.name,
+                            )
+                        session.commit()
+                        st.success("Role updated.")
+                        st.rerun()
+
+            st.markdown("**Page access** — Hidden, View only, or Full access, per page.")
+            current_states = current_access_states(session, selected.id)
+            with st.form(f"edit_role_pages_{selected.id}"):
+                selections = page_access_grid(current_states, key_prefix=f"perm_{selected.id}")
+                if st.form_submit_button("Save page access"):
+                    changed_pages = [
+                        f"{page_key}: {current_states.get(page_key, 'Full access')} → {new_state}"
+                        for page_key, new_state in selections.items()
+                        if current_states.get(page_key, "Full access") != new_state
+                    ]
+                    save_access_states(session, selected.id, selections)
+                    if changed_pages:
                         audit_log.log_role_change(
-                            session, target_type="role",
-                            change_summary=f"Updated role '{selected.name}': " + "; ".join(changes),
+                            session, target_type="permission",
+                            change_summary=f"Updated page access for role '{selected.name}': " + "; ".join(changed_pages),
                             changed_by_user_id=user["id"], company_id=selected.company_id,
                             target_id=selected.id, target_label=selected.name,
                         )
                     session.commit()
-                    st.success("Role updated.")
+                    st.success("Page access updated.")
                     st.rerun()
 
-        st.markdown("**Page access** — Hidden, View only, or Full access, per page.")
-        current_states = current_access_states(session, selected.id)
-        with st.form(f"edit_role_pages_{selected.id}"):
-            selections = page_access_grid(current_states, key_prefix=f"perm_{selected.id}")
-            if st.form_submit_button("Save page access"):
-                changed_pages = [
-                    f"{page_key}: {current_states.get(page_key, 'Full access')} → {new_state}"
-                    for page_key, new_state in selections.items()
-                    if current_states.get(page_key, "Full access") != new_state
-                ]
-                save_access_states(session, selected.id, selections)
-                if changed_pages:
+            users_with_role = session.query(User).filter(User.role_id == selected.id).count()
+            if selected.is_builtin:
+                st.caption("Built-in roles can't be deleted.")
+            elif users_with_role:
+                st.caption(
+                    f"{users_with_role} user(s) currently have this role - reassign them before deleting it."
+                )
+            else:
+                def _do_delete_role(_session=session, _id=selected.id, _name=selected.name, _company_id=selected.company_id):
                     audit_log.log_role_change(
-                        session, target_type="permission",
-                        change_summary=f"Updated page access for role '{selected.name}': " + "; ".join(changed_pages),
-                        changed_by_user_id=user["id"], company_id=selected.company_id,
-                        target_id=selected.id, target_label=selected.name,
+                        _session, target_type="role",
+                        change_summary=f"Deleted custom role '{_name}'",
+                        changed_by_user_id=user["id"], company_id=_company_id,
+                        target_id=_id, target_label=_name,
                     )
-                session.commit()
-                st.success("Page access updated.")
-                st.rerun()
+                    _session.query(RolePagePermission).filter(RolePagePermission.role_id == _id).delete(
+                        synchronize_session=False
+                    )
+                    _session.query(Role).filter(Role.id == _id).delete(synchronize_session=False)
+                    _session.commit()
+                    st.session_state.pop("role_selected_id", None)
 
-        users_with_role = session.query(User).filter(User.role_id == selected.id).count()
-        if selected.is_builtin:
-            st.caption("Built-in roles can't be deleted.")
-        elif users_with_role:
-            st.caption(
-                f"{users_with_role} user(s) currently have this role - reassign them before deleting it."
-            )
-        else:
-            def _do_delete_role(_session=session, _id=selected.id, _name=selected.name, _company_id=selected.company_id):
-                audit_log.log_role_change(
-                    _session, target_type="role",
-                    change_summary=f"Deleted custom role '{_name}'",
-                    changed_by_user_id=user["id"], company_id=_company_id,
-                    target_id=_id, target_label=_name,
+                delete_with_confirm(
+                    f"role '{selected.name}'", _do_delete_role, key_prefix=f"role_{selected.id}",
+                    extra_warning="No user currently has this role - deleting it is safe.",
                 )
-                _session.query(RolePagePermission).filter(RolePagePermission.role_id == _id).delete(
-                    synchronize_session=False
-                )
-                _session.query(Role).filter(Role.id == _id).delete(synchronize_session=False)
-                _session.commit()
+
+            if st.button("Clear selection", key="clear_role_selection"):
                 st.session_state.pop("role_selected_id", None)
-
-            delete_with_confirm(
-                f"role '{selected.name}'", _do_delete_role, key_prefix=f"role_{selected.id}",
-                extra_warning="No user currently has this role - deleting it is safe.",
-            )
-
-        if st.button("Clear selection", key="clear_role_selection"):
-            st.session_state.pop("role_selected_id", None)
-            st.rerun()
+                st.rerun()

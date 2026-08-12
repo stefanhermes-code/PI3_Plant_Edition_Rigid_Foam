@@ -467,6 +467,17 @@ class User(Base):
     # RolePagePermission rows say. Reserve it for the platform owner's own
     # trusted staff, not customers' admins.
     is_super_admin = Column(Boolean, default=False)
+    # CR-11 (2026-08-12), per user direction on the User Accounts CSV/Excel
+    # import: a bulk-imported account must reset its password on first
+    # login rather than keep using the system-generated temporary one an
+    # admin distributed out of the import results table. Never set by the
+    # manual Create-user form (an admin setting a password there is
+    # presumed to hand it to the person directly, same as before this CR) -
+    # only pages/25_User_Accounts.py's CSV/Excel import tab sets this True;
+    # auth.require_login() enforces it immediately after a successful
+    # login, before any other page content renders, and clears it once the
+    # user sets their own new password.
+    must_reset_password = Column(Boolean, default=False)
     last_login_at = Column(DateTime)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 

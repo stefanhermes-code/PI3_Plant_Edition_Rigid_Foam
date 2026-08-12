@@ -29,10 +29,25 @@ db.py's User docstring and access_control.can_use_page). Deliberately not
 offered for any other company: it's an escape hatch reserved for HTC's own
 trusted staff, not something a customer's admin should ever be able to
 grant to one of their own users.
-"""
+
+CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
+Functions, 2026-08-12): this page used to be a single "Add user" expander
+followed by the users table/edit panel, with no CSV/Excel import at all.
+Restructured into the mandated 3 tabs (Create/Edit-Delete/Import) via
+cr11_function_tab_labels("User"). Per user direction on this specific CR
+(security-sensitive, bulk account creation): the net-new CSV/Excel import
+uses the exact same validation/permission pattern as every other import on
+this page (company scope, subscription user-limit check, one-admin-per-
+company rule), but every imported account gets a system-generated
+temporary password and User.must_reset_password=True, so it must set its
+own password on first login (enforced by auth.require_login() - see that
+module's docstring) rather than keep using a value that passed through a
+spreadsheet."""
 
 import datetime as dt
+import secrets as secrets_module
 
+import pandas as pd
 import streamlit as st
 from sqlalchemy import func
 
@@ -40,7 +55,21 @@ import audit_log
 from access_control import ADMIN_ROLE_NAMES
 from auth import current_user, hash_password, logout_button, require_login, require_role
 from db import Company, Role, User, get_session, init_db
-from helpers import clickable_table, delete_with_confirm, page_setup, render_function_action_intro
+from helpers import (
+    clickable_table,
+    cr11_function_tab_labels,
+    csv_excel_uploader,
+    delete_with_confirm,
+    page_setup,
+    parse_bool,
+    render_data_table,
+    render_function_action_intro,
+    set_pending_banner,
+    show_pending_banner,
+)
+
+USER_REQUIRED_COLUMNS = ["email", "role"]
+USER_OPTIONAL_COLUMNS = ["display_name", "temp_password", "valid_from", "valid_until", "active"]
 
 page_setup("User Accounts")
 init_db()
@@ -59,7 +88,10 @@ render_function_action_intro(
     action_text=(
         "Add a user for your company, pick their role, and optionally set a validity window. "
         "Adding a new user is blocked once your company's subscription's user limit is reached - "
-        "upgrade the subscription (Companies page) or deactivate an unused account first."
+        "upgrade the subscription (Companies page) or deactivate an unused account first. Use "
+        "CSV/Excel import to bulk-create several accounts at once by email and role name - each "
+        "imported account gets a system-generated temporary password (shown once, right after "
+        "import, for you to distribute) and must set its own password the first time it logs in."
     ),
 )
 session = get_session()
@@ -127,7 +159,9 @@ max_users = subscription.max_users if subscription else None
 current_count = _active_user_count(company_filter.id)
 limit_reached = max_users is not None and current_count >= max_users
 
-with st.expander("Add user", expanded=False):
+tab_create, tab_edit_delete, tab_import = st.tabs(cr11_function_tab_labels("User"))
+
+with tab_create:
     if limit_reached:
         st.warning(
             f"{company_filter.name} is at its subscription's user limit ({max_users} active users). "
@@ -188,176 +222,279 @@ with st.expander("Add user", expanded=False):
                 st.success(f"User '{email_clean}' added.")
                 st.rerun()
 
-st.divider()
-users = (
-    session.query(User)
-    .filter(User.company_id == company_filter.id)
-    .order_by(User.username)
-    .all()
-)
-if not users:
-    st.info(f"No user accounts yet for {company_filter.name}.")
-else:
-    user_rows = [
-        {
-            "Email": u.email,
-            "Display name": u.display_name or "",
-            "Role": u.role.name if u.role else "—",
-            "Active": "Yes" if u.active else "No",
-            **({"Super admin": "Yes" if u.is_super_admin else ""} if company_filter.is_platform_owner else {}),
-            "Valid from": u.valid_from or "—",
-            "Valid until": u.valid_until or "—",
-            "Last login": u.last_login_at,
-        }
-        for u in users
-    ]
-    st.caption(f"{len(users)} user(s) at {company_filter.name}. Click a row to edit.")
-    idx = clickable_table(user_rows, key="users_table")
-    if idx is not None:
-        st.session_state["user_selected_id"] = users[idx].id
-    else:
-        st.session_state.pop("user_selected_id", None)
-
-    selected_id = st.session_state.get("user_selected_id")
-    selected = next((u for u in users if u.id == selected_id), None)
-
-    if selected:
-        st.markdown(f"**Edit user: {selected.email}**")
-        roles_for_edit = _roles_for_company(selected.company_id)
-        with st.form(f"edit_user_{selected.id}"):
-            e_email = st.text_input(
-                "Email address * (used to log in)", value=selected.email, key=f"edit_user_email_{selected.id}"
-            )
-            e_display = st.text_input(
-                "Display name", value=selected.display_name or "", key=f"edit_user_disp_{selected.id}"
-            )
-            e_role = st.selectbox(
-                "Role *", roles_for_edit,
-                index=next((i for i, r in enumerate(roles_for_edit) if r.id == selected.role_id), 0),
-                format_func=lambda r: r.name, key=f"edit_user_role_{selected.id}",
-            )
-            e_new_password = st.text_input(
-                "Reset password (leave blank to keep current)", type="password", key=f"edit_user_pw_{selected.id}"
-            )
-            c1, c2 = st.columns(2)
-            e_valid_from = c1.date_input(
-                "Valid from (optional)", value=selected.valid_from, key=f"edit_user_vf_{selected.id}"
-            )
-            e_valid_until = c2.date_input(
-                "Valid until (optional)", value=selected.valid_until, key=f"edit_user_vu_{selected.id}"
-            )
-            e_active = st.checkbox("Active", value=selected.active, key=f"edit_user_active_{selected.id}")
-            e_super_admin = selected.is_super_admin
-            if company_filter.is_platform_owner:
-                e_super_admin = st.checkbox(
-                    "Super admin (bypasses every page/role restriction app-wide - HTC staff only)",
-                    value=selected.is_super_admin, key=f"edit_user_super_{selected.id}",
-                )
-            if st.form_submit_button("Save changes"):
-                e_email_clean = e_email.strip().lower()
-                role_is_admin = e_role.name.strip().lower() in ADMIN_ROLE_NAMES
-                existing_admin = (
-                    _existing_active_admin(selected.company_id, exclude_user_id=selected.id)
-                    if (role_is_admin and e_active) else None
-                )
-                duplicate_email = (
-                    session.query(User)
-                    .filter(User.email == e_email_clean, User.id != selected.id)
-                    .first()
-                )
-                if not e_email_clean:
-                    st.error("Email address is required.")
-                elif duplicate_email:
-                    st.error(f"Email '{e_email_clean}' is already in use.")
-                elif existing_admin:
-                    st.error(
-                        f"{company_filter.name} already has an administrator "
-                        f"({existing_admin.display_name or existing_admin.email}, role '{existing_admin.role.name}') - "
-                        "a company can only have one. Change the existing admin's role or deactivate them first."
-                    )
-                else:
-                    changes = []
-                    old_role = next((r for r in roles_for_edit if r.id == selected.role_id), None)
-                    if e_email_clean != selected.email:
-                        changes.append(f"email: '{selected.email}' → '{e_email_clean}'")
-                    if e_role.id != selected.role_id:
-                        changes.append(f"role: '{old_role.name if old_role else '—'}' → '{e_role.name}'")
-                    if e_active != selected.active:
-                        changes.append(f"active: {selected.active} → {e_active}")
-                    if e_super_admin != selected.is_super_admin:
-                        changes.append(f"super admin: {selected.is_super_admin} → {e_super_admin}")
-                    if (e_valid_from or None) != selected.valid_from:
-                        changes.append(f"valid from: {selected.valid_from or '—'} → {e_valid_from or '—'}")
-                    if (e_valid_until or None) != selected.valid_until:
-                        changes.append(f"valid until: {selected.valid_until or '—'} → {e_valid_until or '—'}")
-                    if e_new_password:
-                        changes.append("password reset")
-
-                    selected.email = e_email_clean
-                    selected.username = e_email_clean
-                    selected.display_name = e_display
-                    selected.role_id = e_role.id
-                    selected.valid_from = e_valid_from or None
-                    selected.valid_until = e_valid_until or None
-                    selected.active = e_active
-                    selected.is_super_admin = e_super_admin
-                    if e_new_password:
-                        selected.password_hash = hash_password(e_new_password)
-                    if changes:
-                        audit_log.log_role_change(
-                            session, target_type="user",
-                            change_summary=f"Updated user '{e_email_clean}': " + "; ".join(changes),
-                            changed_by_user_id=user["id"], company_id=selected.company_id,
-                            target_id=selected.id, target_label=e_email_clean,
-                        )
-                    session.commit()
-                    st.success("User updated.")
-                    st.rerun()
-
-        def _do_delete_user(_session=session, _id=selected.id, _username=selected.username, _company_id=selected.company_id):
-            audit_log.log_role_change(
-                _session, target_type="user",
-                change_summary=f"Deleted user '{_username}'",
-                changed_by_user_id=user["id"], company_id=_company_id,
-                target_id=_id, target_label=_username,
-            )
-            _session.query(User).filter(User.id == _id).delete(synchronize_session=False)
-            _session.commit()
-            st.session_state.pop("user_selected_id", None)
-
-        # Historical records (production runs, approvals, ...) reference
-        # a user by free-text name, not a real users.id foreign key, so
-        # there's no cascade/orphan risk to check the way there is for
-        # Companies/Subscription Types/User Roles (see
-        # PI3_Gaps_and_Ambiguities.docx, finding 2.3). The two real footguns
-        # unique to THIS page are blocked explicitly instead: deleting the
-        # account you're currently logged in as, and deleting the last
-        # remaining active super admin (which would leave no one able to
-        # bypass role restrictions platform-wide to fix the mistake).
-        is_self = selected.id == st.session_state.get("user_id")
-        is_last_super_admin = selected.is_super_admin and (
-            session.query(User)
-            .filter(User.is_super_admin.is_(True), User.active.is_(True), User.id != selected.id)
-            .count()
-            == 0
+with tab_import:
+    show_pending_banner("user_import_msg")
+    creds_to_show = st.session_state.pop("user_import_credentials", None)
+    if creds_to_show:
+        st.warning(
+            "Temporary passwords - shown once, right now. Copy these down before leaving this "
+            "page; each account must set its own password on first login."
         )
-        if is_self:
-            st.warning(
-                "You can't delete the account you're currently logged in as. Deactivate it instead, "
-                "or have another admin delete it."
-            )
-        elif is_last_super_admin:
-            st.warning(
-                "This is the only active super admin account - deleting it would leave no one with "
-                "unrestricted platform-owner access. Promote another user to super admin first, or "
-                "deactivate this one instead."
-            )
-        else:
-            delete_with_confirm(
-                f"user '{selected.username}'", _do_delete_user, key_prefix=f"user_{selected.id}",
-                extra_warning="This is a leaf record — deleting it has no other effects. Consider deactivating instead if you want to keep a record they once had access.",
-            )
+        render_data_table(pd.DataFrame(creds_to_show), max_height="300px")
 
-        if st.button("Clear selection", key="clear_user_selection"):
+    if limit_reached:
+        st.warning(
+            f"{company_filter.name} is at its subscription's user limit ({max_users} active users). "
+            "Upgrade the subscription or deactivate an unused account before importing more."
+        )
+    else:
+        role_by_lower_name = {r.name.strip().lower(): r for r in roles_for_add}
+        existing_emails = {e for (e,) in session.query(User.email).all()}
+        udf, ufilename = csv_excel_uploader(USER_REQUIRED_COLUMNS, USER_OPTIONAL_COLUMNS, key="user_upload")
+        if udf is not None:
+            remaining_capacity = (max_users - current_count) if max_users is not None else None
+            good_rows, bad_rows = [], []
+            seen_emails_in_batch = set()
+            admin_claimed_in_batch = _existing_active_admin(company_filter.id) is not None
+            active_count_in_batch = 0
+            for _, row in udf.iterrows():
+                email_val = str(row.get("email", "") or "").strip().lower()
+                role_val = str(row.get("role", "") or "").strip().lower()
+                matched_role = role_by_lower_name.get(role_val)
+                active_val = True if pd.isna(row.get("active")) else parse_bool_cell(row.get("active"))
+                row_is_admin = matched_role is not None and matched_role.name.strip().lower() in ADMIN_ROLE_NAMES
+                reason = None
+                if not email_val:
+                    reason = "no email"
+                elif email_val in existing_emails or email_val in seen_emails_in_batch:
+                    reason = "email already in use (existing account or repeated in this file)"
+                elif matched_role is None:
+                    reason = f"role '{row.get('role', '')}' not found for {company_filter.name}"
+                elif row_is_admin and active_val and admin_claimed_in_batch:
+                    reason = "would create a second active administrator for this company"
+                elif remaining_capacity is not None and active_val and active_count_in_batch >= remaining_capacity:
+                    reason = "over the subscription's remaining active-user capacity"
+
+                if reason:
+                    bad_row = dict(row)
+                    bad_row["_reason"] = reason
+                    bad_rows.append(bad_row)
+                    continue
+
+                seen_emails_in_batch.add(email_val)
+                if row_is_admin and active_val:
+                    admin_claimed_in_batch = True
+                if active_val:
+                    active_count_in_batch += 1
+                good_rows.append((row, email_val, matched_role, active_val))
+
+            st.write(f"Rows ready to import: **{len(good_rows)}** | Rows flagged/rejected: **{len(bad_rows)}**")
+            if bad_rows:
+                st.warning("Flagged rows - see the _reason column for why each was skipped.")
+                render_data_table(pd.DataFrame(bad_rows), max_height="300px")
+
+            if good_rows and st.button("Confirm import", key="confirm_user_import"):
+                created_creds = []
+                for row, email_val, matched_role, active_val in good_rows:
+                    temp_password = str(row.get("temp_password", "") or "").strip()
+                    if not temp_password:
+                        temp_password = secrets_module.token_urlsafe(9)
+                    valid_from_val = pd.to_datetime(row.get("valid_from"), errors="coerce")
+                    valid_until_val = pd.to_datetime(row.get("valid_until"), errors="coerce")
+                    new_user = User(
+                        company_id=company_filter.id,
+                        email=email_val,
+                        username=email_val,
+                        password_hash=hash_password(temp_password),
+                        display_name=str(row.get("display_name", "") or "") or email_val,
+                        role_id=matched_role.id,
+                        active=active_val,
+                        valid_from=valid_from_val.date() if pd.notna(valid_from_val) else None,
+                        valid_until=valid_until_val.date() if pd.notna(valid_until_val) else None,
+                        must_reset_password=True,
+                    )
+                    session.add(new_user)
+                    session.flush()
+                    audit_log.log_role_change(
+                        session, target_type="user",
+                        change_summary=f"Created user '{email_val}' with role '{matched_role.name}' (CSV/Excel import)",
+                        changed_by_user_id=user["id"], company_id=company_filter.id,
+                        target_id=new_user.id, target_label=email_val,
+                    )
+                    created_creds.append({"Email": email_val, "Temporary password": temp_password})
+                session.commit()
+                st.session_state["user_import_credentials"] = created_creds
+                set_pending_banner("user_import_msg", f"Imported {len(created_creds)} user account(s) from {ufilename}.")
+                st.rerun()
+
+with tab_edit_delete:
+    st.divider()
+    users = (
+        session.query(User)
+        .filter(User.company_id == company_filter.id)
+        .order_by(User.username)
+        .all()
+    )
+    if not users:
+        st.info(f"No user accounts yet for {company_filter.name}.")
+    else:
+        user_rows = [
+            {
+                "Email": u.email,
+                "Display name": u.display_name or "",
+                "Role": u.role.name if u.role else "—",
+                "Active": "Yes" if u.active else "No",
+                **({"Super admin": "Yes" if u.is_super_admin else ""} if company_filter.is_platform_owner else {}),
+                "Must reset password": "Yes" if u.must_reset_password else "",
+                "Valid from": u.valid_from or "—",
+                "Valid until": u.valid_until or "—",
+                "Last login": u.last_login_at,
+            }
+            for u in users
+        ]
+        st.caption(f"{len(users)} user(s) at {company_filter.name}. Click a row to edit.")
+        idx = clickable_table(user_rows, key="users_table")
+        if idx is not None:
+            st.session_state["user_selected_id"] = users[idx].id
+        else:
             st.session_state.pop("user_selected_id", None)
-            st.rerun()
+
+        selected_id = st.session_state.get("user_selected_id")
+        selected = next((u for u in users if u.id == selected_id), None)
+
+        if selected:
+            st.markdown(f"**Edit user: {selected.email}**")
+            roles_for_edit = _roles_for_company(selected.company_id)
+            with st.form(f"edit_user_{selected.id}"):
+                e_email = st.text_input(
+                    "Email address * (used to log in)", value=selected.email, key=f"edit_user_email_{selected.id}"
+                )
+                e_display = st.text_input(
+                    "Display name", value=selected.display_name or "", key=f"edit_user_disp_{selected.id}"
+                )
+                e_role = st.selectbox(
+                    "Role *", roles_for_edit,
+                    index=next((i for i, r in enumerate(roles_for_edit) if r.id == selected.role_id), 0),
+                    format_func=lambda r: r.name, key=f"edit_user_role_{selected.id}",
+                )
+                e_new_password = st.text_input(
+                    "Reset password (leave blank to keep current)", type="password", key=f"edit_user_pw_{selected.id}"
+                )
+                c1, c2 = st.columns(2)
+                e_valid_from = c1.date_input(
+                    "Valid from (optional)", value=selected.valid_from, key=f"edit_user_vf_{selected.id}"
+                )
+                e_valid_until = c2.date_input(
+                    "Valid until (optional)", value=selected.valid_until, key=f"edit_user_vu_{selected.id}"
+                )
+                e_active = st.checkbox("Active", value=selected.active, key=f"edit_user_active_{selected.id}")
+                e_super_admin = selected.is_super_admin
+                if company_filter.is_platform_owner:
+                    e_super_admin = st.checkbox(
+                        "Super admin (bypasses every page/role restriction app-wide - HTC staff only)",
+                        value=selected.is_super_admin, key=f"edit_user_super_{selected.id}",
+                    )
+                if selected.must_reset_password:
+                    st.caption(
+                        "This account still must reset its password on next login (from CSV/Excel "
+                        "import). Setting a new password here clears that requirement."
+                    )
+                if st.form_submit_button("Save changes"):
+                    e_email_clean = e_email.strip().lower()
+                    role_is_admin = e_role.name.strip().lower() in ADMIN_ROLE_NAMES
+                    existing_admin = (
+                        _existing_active_admin(selected.company_id, exclude_user_id=selected.id)
+                        if (role_is_admin and e_active) else None
+                    )
+                    duplicate_email = (
+                        session.query(User)
+                        .filter(User.email == e_email_clean, User.id != selected.id)
+                        .first()
+                    )
+                    if not e_email_clean:
+                        st.error("Email address is required.")
+                    elif duplicate_email:
+                        st.error(f"Email '{e_email_clean}' is already in use.")
+                    elif existing_admin:
+                        st.error(
+                            f"{company_filter.name} already has an administrator "
+                            f"({existing_admin.display_name or existing_admin.email}, role '{existing_admin.role.name}') - "
+                            "a company can only have one. Change the existing admin's role or deactivate them first."
+                        )
+                    else:
+                        changes = []
+                        old_role = next((r for r in roles_for_edit if r.id == selected.role_id), None)
+                        if e_email_clean != selected.email:
+                            changes.append(f"email: '{selected.email}' → '{e_email_clean}'")
+                        if e_role.id != selected.role_id:
+                            changes.append(f"role: '{old_role.name if old_role else '—'}' → '{e_role.name}'")
+                        if e_active != selected.active:
+                            changes.append(f"active: {selected.active} → {e_active}")
+                        if e_super_admin != selected.is_super_admin:
+                            changes.append(f"super admin: {selected.is_super_admin} → {e_super_admin}")
+                        if (e_valid_from or None) != selected.valid_from:
+                            changes.append(f"valid from: {selected.valid_from or '—'} → {e_valid_from or '—'}")
+                        if (e_valid_until or None) != selected.valid_until:
+                            changes.append(f"valid until: {selected.valid_until or '—'} → {e_valid_until or '—'}")
+                        if e_new_password:
+                            changes.append("password reset")
+
+                        selected.email = e_email_clean
+                        selected.username = e_email_clean
+                        selected.display_name = e_display
+                        selected.role_id = e_role.id
+                        selected.valid_from = e_valid_from or None
+                        selected.valid_until = e_valid_until or None
+                        selected.active = e_active
+                        selected.is_super_admin = e_super_admin
+                        if e_new_password:
+                            selected.password_hash = hash_password(e_new_password)
+                            selected.must_reset_password = False
+                        if changes:
+                            audit_log.log_role_change(
+                                session, target_type="user",
+                                change_summary=f"Updated user '{e_email_clean}': " + "; ".join(changes),
+                                changed_by_user_id=user["id"], company_id=selected.company_id,
+                                target_id=selected.id, target_label=e_email_clean,
+                            )
+                        session.commit()
+                        st.success("User updated.")
+                        st.rerun()
+
+            def _do_delete_user(_session=session, _id=selected.id, _username=selected.username, _company_id=selected.company_id):
+                audit_log.log_role_change(
+                    _session, target_type="user",
+                    change_summary=f"Deleted user '{_username}'",
+                    changed_by_user_id=user["id"], company_id=_company_id,
+                    target_id=_id, target_label=_username,
+                )
+                _session.query(User).filter(User.id == _id).delete(synchronize_session=False)
+                _session.commit()
+                st.session_state.pop("user_selected_id", None)
+
+            # Historical records (production runs, approvals, ...) reference
+            # a user by free-text name, not a real users.id foreign key, so
+            # there's no cascade/orphan risk to check the way there is for
+            # Companies/Subscription Types/User Roles (see
+            # PI3_Gaps_and_Ambiguities.docx, finding 2.3). The two real footguns
+            # unique to THIS page are blocked explicitly instead: deleting the
+            # account you're currently logged in as, and deleting the last
+            # remaining active super admin (which would leave no one able to
+            # bypass role restrictions platform-wide to fix the mistake).
+            is_self = selected.id == st.session_state.get("user_id")
+            is_last_super_admin = selected.is_super_admin and (
+                session.query(User)
+                .filter(User.is_super_admin.is_(True), User.active.is_(True), User.id != selected.id)
+                .count()
+                == 0
+            )
+            if is_self:
+                st.warning(
+                    "You can't delete the account you're currently logged in as. Deactivate it instead, "
+                    "or have another admin delete it."
+                )
+            elif is_last_super_admin:
+                st.warning(
+                    "This is the only active super admin account - deleting it would leave no one with "
+                    "unrestricted platform-owner access. Promote another user to super admin first, or "
+                    "deactivate this one instead."
+                )
+            else:
+                delete_with_confirm(
+                    f"user '{selected.username}'", _do_delete_user, key_prefix=f"user_{selected.id}",
+                    extra_warning="This is a leaf record — deleting it has no other effects. Consider deactivating instead if you want to keep a record they once had access.",
+                )
+
+            if st.button("Clear selection", key="clear_user_selection"):
+                st.session_state.pop("user_selected_id", None)
+                st.rerun()

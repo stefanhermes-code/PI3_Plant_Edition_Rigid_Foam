@@ -155,6 +155,7 @@ def _start_db_session(session, user):
     st.session_state["company_id"] = user.company_id
     st.session_state["is_platform_owner"] = bool(user.company and user.company.is_platform_owner)
     st.session_state["is_super_admin"] = bool(user.is_super_admin)
+    st.session_state["must_reset_password"] = bool(user.must_reset_password)
     user.last_login_at = dt.datetime.utcnow()
     audit_log.log_login_event(
         session, "login_success", username_attempted=user.username,
@@ -202,6 +203,40 @@ def _log_page_view():
         pass
 
 
+def _render_forced_password_reset():
+    """Blocking gate for an account created via CSV/Excel import
+    (User.must_reset_password) - see db.py's User docstring. Renders a
+    mandatory 'set a new password' form and nothing else; the caller
+    (require_login()) st.stop()s right after this returns, so no page
+    content is reachable with the temporary import password still active.
+    The AUTH_DISABLED dev bypass and legacy secrets.toml sessions never set
+    must_reset_password in the first place, so they never reach this."""
+    st.title("PI3 Plant Edition - Rigid Foam")
+    st.warning(
+        "This account was created from a bulk import and is still using its temporary "
+        "password. Set a new password to continue."
+    )
+    with st.form("forced_password_reset"):
+        new_password = st.text_input("New password *", type="password")
+        confirm_password = st.text_input("Confirm new password *", type="password")
+        submitted = st.form_submit_button("Set password and continue")
+        if submitted:
+            if not new_password:
+                st.error("Enter a new password.")
+            elif new_password != confirm_password:
+                st.error("Passwords don't match.")
+            else:
+                session = get_session()
+                db_user = session.query(User).filter(User.id == st.session_state.get("user_id")).first()
+                if db_user:
+                    db_user.password_hash = hash_password(new_password)
+                    db_user.must_reset_password = False
+                    session.commit()
+                st.session_state["must_reset_password"] = False
+                st.success("Password updated.")
+                st.rerun()
+
+
 def require_login():
     """Render a login form if the user is not authenticated. Stops execution
     of the calling page until login succeeds.
@@ -234,6 +269,9 @@ def require_login():
         return
 
     if st.session_state.get("authenticated"):
+        if st.session_state.get("must_reset_password"):
+            _render_forced_password_reset()
+            st.stop()
         _log_page_view()
         return
 
