@@ -15,6 +15,7 @@ from auth import current_user, logout_button, require_login
 from db import Company, RawMaterial, RecipeComponent, Supplier, get_session, init_db
 from helpers import (
     clickable_table,
+    cr11_function_tab_labels,
     csv_excel_uploader,
     delete_with_confirm,
     page_setup,
@@ -107,7 +108,8 @@ RAW_MATERIAL_REQUIRED_COLUMNS = ["name"]
 # already have a "category" column keep working without a rename; a new
 # optional "subcategory" column is added alongside it.
 RAW_MATERIAL_OPTIONAL_COLUMNS = ["category", "subcategory", "default_supplier", "cost_per_kg", "notes", "active"]
-
+SUPPLIER_REQUIRED_COLUMNS = ["name"]
+SUPPLIER_OPTIONAL_COLUMNS = ["notes"]
 
 def _category_subcategory_picker(session, key_prefix, current_category_id=None, current_subcategory_id=None):
     """CR-08 controlled Category -> Subcategory picker, outside any
@@ -232,11 +234,18 @@ def _target_company(key):
     return st.selectbox("Company *", all_companies, format_func=lambda c: c.name, key=key)
 
 
-tab_manual, tab_tds, tab_import, tab_suppliers = st.tabs(
-    ["Manual entry", "Add from TDS", "CSV / Excel import", "Suppliers"]
+# CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
+# Functions, 2026-08-12): the mandatory 3 (Create/Edit-Delete/Import) for
+# the Raw Material record type now come first via
+# cr11_function_tab_labels(), in the required order; "Add from TDS" (an
+# extra, page-specific creation path) and "Suppliers" (a second record
+# type living on this same page) follow as additional tabs, which the
+# CR explicitly allows.
+tab_create, tab_edit_delete, tab_import, tab_tds, tab_suppliers = st.tabs(
+    [*cr11_function_tab_labels("Raw Material"), "Add from TDS", "Suppliers"]
 )
 
-with tab_manual:
+with tab_create:
     if not page_usable:
         st.caption("View-only access - adding a raw material is restricted for your role.")
     else:
@@ -476,281 +485,332 @@ with tab_suppliers:
         "Master list of suppliers offered in the 'Default supplier' dropdown above. Keeping this list "
         "curated avoids near-duplicate entries (e.g. 'Jiahua' vs a mistyped 'Yiahua') across raw materials."
     )
-    if not page_usable:
-        st.caption("View-only access - adding a supplier is restricted for your role.")
-    else:
-        supplier_target_company = _target_company("add_supplier_company")
-        with st.form("add_supplier"):
-            new_supplier_name = st.text_input("Supplier name *")
-            new_supplier_notes = st.text_area("Notes", help="Optional - e.g. the actual distributor purchases go through.")
-            if st.form_submit_button("Add supplier"):
-                if not new_supplier_name.strip():
-                    st.error("Supplier name is required.")
-                elif not supplier_target_company:
-                    st.error("Pick a company for this supplier.")
-                elif (
-                    session.query(Supplier)
-                    .filter(Supplier.name == new_supplier_name.strip(), Supplier.company_id == supplier_target_company.id)
-                    .first()
-                ):
-                    st.error(f"'{new_supplier_name.strip()}' is already in the list.")
-                else:
-                    session.add(
-                        Supplier(
-                            company_id=supplier_target_company.id,
-                            name=new_supplier_name.strip(),
-                            notes=new_supplier_notes,
+    sub_create, sub_edit_delete, sub_import = st.tabs(cr11_function_tab_labels("Supplier"))
+    with sub_create:
+        if not page_usable:
+            st.caption("View-only access - adding a supplier is restricted for your role.")
+        else:
+            supplier_target_company = _target_company("add_supplier_company")
+            with st.form("add_supplier"):
+                new_supplier_name = st.text_input("Supplier name *")
+                new_supplier_notes = st.text_area("Notes", help="Optional - e.g. the actual distributor purchases go through.")
+                if st.form_submit_button("Add supplier"):
+                    if not new_supplier_name.strip():
+                        st.error("Supplier name is required.")
+                    elif not supplier_target_company:
+                        st.error("Pick a company for this supplier.")
+                    elif (
+                        session.query(Supplier)
+                        .filter(Supplier.name == new_supplier_name.strip(), Supplier.company_id == supplier_target_company.id)
+                        .first()
+                    ):
+                        st.error(f"'{new_supplier_name.strip()}' is already in the list.")
+                    else:
+                        session.add(
+                            Supplier(
+                                company_id=supplier_target_company.id,
+                                name=new_supplier_name.strip(),
+                                notes=new_supplier_notes,
+                            )
                         )
+                        session.commit()
+                        st.success(f"Supplier '{new_supplier_name}' added.")
+                        st.rerun()
+    with sub_edit_delete:
+        st.divider()
+        suppliers_query = session.query(Supplier)
+        if company_filter is not None:
+            suppliers_query = suppliers_query.filter(Supplier.company_id == company_filter.id)
+        suppliers = suppliers_query.order_by(Supplier.name).all()
+        if not suppliers:
+            st.info("No suppliers recorded yet.")
+        else:
+            supplier_df = pd.DataFrame(
+                [
+                    {
+                        **({"Company": s.company.name if s.company else "—"} if is_platform_owner else {}),
+                        "Name": s.name,
+                        "Notes": s.notes or "",
+                        "Active": s.active,
+                    }
+                    for s in suppliers
+                ]
+            )
+            st.caption(f"{len(suppliers)} supplier(s). Click a row to edit or delete.")
+            sidx = clickable_table(supplier_df.to_dict("records"), key="supplier_table")
+            if sidx is not None and sidx < len(suppliers):
+                st.session_state["supplier_selected_id"] = suppliers[sidx].id
+            else:
+                st.session_state.pop("supplier_selected_id", None)
+
+            sel_supplier_id = st.session_state.get("supplier_selected_id")
+            sel_supplier = next((s for s in suppliers if s.id == sel_supplier_id), None)
+
+            if sel_supplier:
+                st.subheader(f"Edit: {sel_supplier.name}")
+                if not page_usable:
+                    st.caption("View-only access - editing and deleting is restricted for your role.")
+                else:
+                    with st.form(f"edit_supplier_{sel_supplier.id}"):
+                        if is_platform_owner:
+                            es_company = st.selectbox(
+                                "Company *", all_companies,
+                                index=next((i for i, c in enumerate(all_companies) if c.id == sel_supplier.company_id), 0),
+                                format_func=lambda c: c.name, key=f"edit_supplier_company_{sel_supplier.id}",
+                            )
+                        else:
+                            es_company = company_filter
+                        es_name = st.text_input("Supplier name *", value=sel_supplier.name, key=f"edit_supplier_name_{sel_supplier.id}")
+                        es_notes = st.text_area("Notes", value=sel_supplier.notes or "", key=f"edit_supplier_notes_{sel_supplier.id}")
+                        es_active = st.checkbox("Active", value=sel_supplier.active, key=f"edit_supplier_active_{sel_supplier.id}")
+                        if st.form_submit_button("Save changes"):
+                            if not es_name.strip():
+                                st.error("Supplier name is required.")
+                            else:
+                                old_name = sel_supplier.name
+                                old_company_id = sel_supplier.company_id
+                                sel_supplier.company_id = es_company.id if es_company else sel_supplier.company_id
+                                sel_supplier.name = es_name.strip()
+                                sel_supplier.notes = es_notes
+                                sel_supplier.active = es_active
+                                if old_name != sel_supplier.name:
+                                    # Keep existing raw materials (same company) pointed
+                                    # at this supplier consistent with the rename, since
+                                    # default_supplier is a text snapshot, not an FK.
+                                    session.query(RawMaterial).filter(
+                                        RawMaterial.default_supplier == old_name,
+                                        RawMaterial.company_id == old_company_id,
+                                    ).update({"default_supplier": sel_supplier.name}, synchronize_session="fetch")
+                                session.commit()
+                                st.success("Supplier updated.")
+                                st.rerun()
+
+                    linked_rawmats = (
+                        session.query(RawMaterial)
+                        .filter(
+                            RawMaterial.default_supplier == sel_supplier.name,
+                            RawMaterial.company_id == sel_supplier.company_id,
+                        )
+                        .count()
                     )
+                    if linked_rawmats:
+                        warning = (
+                            f"{linked_rawmats} raw material(s) currently list this as their default supplier. "
+                            "Deleting it only removes it from the dropdown - those raw materials keep the supplier "
+                            "name as free text."
+                        )
+                    else:
+                        warning = "No raw materials currently use this supplier - deleting it is safe."
+
+                    def _do_delete_supplier(_session=session, _id=sel_supplier.id):
+                        _session.query(Supplier).filter(Supplier.id == _id).delete(synchronize_session=False)
+                        _session.commit()
+                        st.session_state.pop("supplier_selected_id", None)
+
+                    delete_with_confirm(
+                        sel_supplier.name, _do_delete_supplier, key_prefix=f"supplier_{sel_supplier.id}", extra_warning=warning
+                    )
+
+                if st.button("Clear selection", key="clear_supplier_selection"):
+                    st.session_state.pop("supplier_selected_id", None)
+                    st.rerun()
+    with sub_import:
+        # CR-11: net-new Supplier CSV/Excel import (this record type had
+        # none before) - same shape/validation pattern as every other
+        # import on this page.
+        if not page_usable:
+            st.caption("View-only access - importing suppliers is restricted for your role.")
+        else:
+            import_supplier_company = _target_company("import_supplier_company")
+            show_pending_banner("supplier_import_msg")
+            sdf, sfilename = csv_excel_uploader(SUPPLIER_REQUIRED_COLUMNS, SUPPLIER_OPTIONAL_COLUMNS, key="supplier_upload")
+            if sdf is not None and not import_supplier_company:
+                st.error("Pick a company above before importing.")
+            elif sdf is not None:
+                existing_supplier_query = session.query(Supplier).filter(Supplier.company_id == import_supplier_company.id)
+                existing_supplier_names = {s.name.strip().lower() for s in existing_supplier_query.all()}
+                new_supplier_rows, dup_supplier_rows = [], []
+                for _, srow in sdf.iterrows():
+                    sname_val = str(srow.get("name", "") or "").strip()
+                    if not sname_val:
+                        continue
+                    if sname_val.lower() in existing_supplier_names:
+                        dup_supplier_rows.append(srow)
+                        continue
+                    new_supplier_rows.append(srow)
+                    existing_supplier_names.add(sname_val.lower())
+
+                st.write(
+                    f"Rows ready to import: **{len(new_supplier_rows)}** | "
+                    f"Rows flagged as duplicates: **{len(dup_supplier_rows)}**"
+                )
+                if dup_supplier_rows:
+                    st.warning("These rows match a supplier name already in the list and were skipped.")
+                    render_data_table(pd.DataFrame(dup_supplier_rows), max_height="400px")
+
+                if new_supplier_rows and st.button("Confirm import", key="confirm_supplier_import"):
+                    for srow in new_supplier_rows:
+                        session.add(
+                            Supplier(
+                                company_id=import_supplier_company.id,
+                                name=str(srow["name"]).strip(),
+                                notes=str(srow.get("notes", "") or ""),
+                            )
+                        )
                     session.commit()
-                    st.success(f"Supplier '{new_supplier_name}' added.")
+                    set_pending_banner(
+                        "supplier_import_msg", f"Imported {len(new_supplier_rows)} supplier(s) from {sfilename}."
+                    )
                     st.rerun()
 
+with tab_edit_delete:
     st.divider()
-    suppliers_query = session.query(Supplier)
+    st.subheader("Raw materials")
+
+    materials_query = session.query(RawMaterial)
     if company_filter is not None:
-        suppliers_query = suppliers_query.filter(Supplier.company_id == company_filter.id)
-    suppliers = suppliers_query.order_by(Supplier.name).all()
-    if not suppliers:
-        st.info("No suppliers recorded yet.")
+        materials_query = materials_query.filter(RawMaterial.company_id == company_filter.id)
+    materials = materials_query.order_by(RawMaterial.name).all()
+    if not materials:
+        st.info("No raw materials recorded yet.")
     else:
-        supplier_df = pd.DataFrame(
+        df = pd.DataFrame(
             [
                 {
-                    **({"Company": s.company.name if s.company else "—"} if is_platform_owner else {}),
-                    "Name": s.name,
-                    "Notes": s.notes or "",
-                    "Active": s.active,
+                    **({"Company": m.company.name if m.company else "—"} if is_platform_owner else {}),
+                    "Name": m.name,
+                    "Category / Subcategory": raw_material_category_label(m),
+                    "Default supplier": m.default_supplier or "",
+                    "Cost/kg": m.cost_per_kg,
+                    "Active": m.active,
+                    "Notes": m.notes or "",
                 }
-                for s in suppliers
+                for m in materials
             ]
         )
-        st.caption(f"{len(suppliers)} supplier(s). Click a row to edit or delete.")
-        sidx = clickable_table(supplier_df.to_dict("records"), key="supplier_table")
-        if sidx is not None and sidx < len(suppliers):
-            st.session_state["supplier_selected_id"] = suppliers[sidx].id
+
+        st.caption("Filter by column:")
+        c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
+        name_filter = c1.text_input("Name contains", key="rawmat_filter_name")
+        category_filter = c2.multiselect(
+            "Category / Subcategory", sorted(df["Category / Subcategory"].unique()), key="rawmat_filter_category"
+        )
+        supplier_filter = c3.text_input("Supplier contains", key="rawmat_filter_supplier")
+        active_filter = c4.selectbox("Active", ["All", "Yes", "No"], key="rawmat_filter_active")
+        notes_filter = st.text_input("Notes contains", key="rawmat_filter_notes")
+
+        mask = pd.Series(True, index=df.index)
+        if name_filter:
+            mask &= df["Name"].str.contains(name_filter, case=False, na=False)
+        if category_filter:
+            mask &= df["Category / Subcategory"].isin(category_filter)
+        if supplier_filter:
+            mask &= df["Default supplier"].str.contains(supplier_filter, case=False, na=False)
+        if active_filter == "Yes":
+            mask &= df["Active"]
+        elif active_filter == "No":
+            mask &= ~df["Active"]
+        if notes_filter:
+            mask &= df["Notes"].str.contains(notes_filter, case=False, na=False)
+
+        filtered_materials = [m for m, keep in zip(materials, mask) if keep]
+        filtered_df = df[mask]
+
+        st.caption(
+            f"Showing {len(filtered_df)} of {len(df)} raw material(s). "
+            "Click a row to edit (and optionally delete) that material."
+        )
+        idx = clickable_table(filtered_df.to_dict("records"), key="rawmat_table")
+        if idx is not None and idx < len(filtered_materials):
+            st.session_state["rawmat_selected_id"] = filtered_materials[idx].id
         else:
-            st.session_state.pop("supplier_selected_id", None)
+            st.session_state.pop("rawmat_selected_id", None)
 
-        sel_supplier_id = st.session_state.get("supplier_selected_id")
-        sel_supplier = next((s for s in suppliers if s.id == sel_supplier_id), None)
+        selected_id = st.session_state.get("rawmat_selected_id")
+        selected = next((m for m in materials if m.id == selected_id), None)
 
-        if sel_supplier:
-            st.subheader(f"Edit: {sel_supplier.name}")
+        if selected:
+            st.divider()
+            st.subheader(f"Edit: {selected.name}")
             if not page_usable:
                 st.caption("View-only access - editing and deleting is restricted for your role.")
             else:
-                with st.form(f"edit_supplier_{sel_supplier.id}"):
+                e_supplier = _supplier_picker(
+                    session, selected.company_id, key_prefix=f"edit_rawmat_{selected.id}",
+                    current_value=selected.default_supplier or "",
+                )
+                # CR-08: Category -> Subcategory picker rendered outside the form,
+                # pre-filled from the material's current classification, same
+                # pattern/reason as Manual entry and Add-from-TDS above.
+                e_category, e_subcategory, e_other_description = _category_subcategory_picker(
+                    session, key_prefix=f"edit_rawmat_{selected.id}",
+                    current_category_id=selected.category_id, current_subcategory_id=selected.subcategory_id,
+                )
+                with st.form(f"edit_rawmat_{selected.id}"):
                     if is_platform_owner:
-                        es_company = st.selectbox(
+                        e_company = st.selectbox(
                             "Company *", all_companies,
-                            index=next((i for i, c in enumerate(all_companies) if c.id == sel_supplier.company_id), 0),
-                            format_func=lambda c: c.name, key=f"edit_supplier_company_{sel_supplier.id}",
+                            index=next((i for i, c in enumerate(all_companies) if c.id == selected.company_id), 0),
+                            format_func=lambda c: c.name, key=f"edit_rawmat_company_{selected.id}",
                         )
                     else:
-                        es_company = company_filter
-                    es_name = st.text_input("Supplier name *", value=sel_supplier.name, key=f"edit_supplier_name_{sel_supplier.id}")
-                    es_notes = st.text_area("Notes", value=sel_supplier.notes or "", key=f"edit_supplier_notes_{sel_supplier.id}")
-                    es_active = st.checkbox("Active", value=sel_supplier.active, key=f"edit_supplier_active_{sel_supplier.id}")
+                        e_company = company_filter
+                    e_name = st.text_input("Raw material name *", value=selected.name, key=f"edit_rawmat_name_{selected.id}")
+                    e_cost = st.number_input(
+                        "Cost per kg", min_value=0.0, step=0.01, value=float(selected.cost_per_kg or 0.0),
+                        key=f"edit_rawmat_cost_{selected.id}",
+                    )
+                    e_notes = st.text_area("Notes", value=selected.notes or "", key=f"edit_rawmat_notes_{selected.id}")
+                    e_active = st.checkbox("Active", value=selected.active, key=f"edit_rawmat_active_{selected.id}")
                     if st.form_submit_button("Save changes"):
-                        if not es_name.strip():
-                            st.error("Supplier name is required.")
+                        if not e_name.strip():
+                            st.error("Raw material name is required.")
+                        elif not e_category or not e_subcategory:
+                            st.error("Pick a Category and Subcategory for this raw material.")
+                        elif e_subcategory.is_exception_only and not e_other_description.strip():
+                            st.error("A description is required when Subcategory is 'Other'.")
                         else:
-                            old_name = sel_supplier.name
-                            old_company_id = sel_supplier.company_id
-                            sel_supplier.company_id = es_company.id if es_company else sel_supplier.company_id
-                            sel_supplier.name = es_name.strip()
-                            sel_supplier.notes = es_notes
-                            sel_supplier.active = es_active
-                            if old_name != sel_supplier.name:
-                                # Keep existing raw materials (same company) pointed
-                                # at this supplier consistent with the rename, since
-                                # default_supplier is a text snapshot, not an FK.
-                                session.query(RawMaterial).filter(
-                                    RawMaterial.default_supplier == old_name,
-                                    RawMaterial.company_id == old_company_id,
-                                ).update({"default_supplier": sel_supplier.name}, synchronize_session="fetch")
+                            target_company_id = e_company.id if e_company else selected.company_id
+                            _ensure_supplier_exists(session, target_company_id, e_supplier)
+                            final_e_notes = e_notes
+                            if e_subcategory.is_exception_only and e_other_description.strip():
+                                final_e_notes = f"[Other: {e_other_description.strip()}] {e_notes}".strip()
+                            selected.company_id = target_company_id
+                            selected.name = e_name.strip()
+                            selected.category_id = e_category.id
+                            selected.subcategory_id = e_subcategory.id
+                            selected.default_supplier = e_supplier
+                            selected.cost_per_kg = e_cost or None
+                            selected.notes = final_e_notes
+                            selected.active = e_active
                             session.commit()
-                            st.success("Supplier updated.")
+                            st.success("Raw material updated.")
                             st.rerun()
 
-                linked_rawmats = (
-                    session.query(RawMaterial)
-                    .filter(
-                        RawMaterial.default_supplier == sel_supplier.name,
-                        RawMaterial.company_id == sel_supplier.company_id,
-                    )
-                    .count()
+                linked_components = (
+                    session.query(RecipeComponent).filter(RecipeComponent.raw_material_id == selected.id).count()
                 )
-                if linked_rawmats:
+                if linked_components:
                     warning = (
-                        f"{linked_rawmats} raw material(s) currently list this as their default supplier. "
-                        "Deleting it only removes it from the dropdown - those raw materials keep the supplier "
-                        "name as free text."
+                        f"{linked_components} recipe component(s) reference this raw material. Deleting it will unlink "
+                        "them (their component name/role stays, but the raw-material link is cleared) rather than "
+                        "deleting those recipe components."
                     )
                 else:
-                    warning = "No raw materials currently use this supplier - deleting it is safe."
+                    warning = "No recipe components reference this raw material — deleting it is safe."
 
-                def _do_delete_supplier(_session=session, _id=sel_supplier.id):
-                    _session.query(Supplier).filter(Supplier.id == _id).delete(synchronize_session=False)
+                def _do_delete_rawmat(_session=session, _id=selected.id):
+                    _session.query(RecipeComponent).filter(RecipeComponent.raw_material_id == _id).update(
+                        {"raw_material_id": None}, synchronize_session="fetch"
+                    )
+                    _session.query(RawMaterial).filter(RawMaterial.id == _id).delete(synchronize_session=False)
                     _session.commit()
-                    st.session_state.pop("supplier_selected_id", None)
+                    st.session_state.pop("rawmat_selected_id", None)
 
                 delete_with_confirm(
-                    sel_supplier.name, _do_delete_supplier, key_prefix=f"supplier_{sel_supplier.id}", extra_warning=warning
+                    selected.name, _do_delete_rawmat, key_prefix=f"rawmat_{selected.id}", extra_warning=warning
                 )
 
-            if st.button("Clear selection", key="clear_supplier_selection"):
-                st.session_state.pop("supplier_selected_id", None)
-                st.rerun()
-
-st.divider()
-st.subheader("Raw materials")
-
-materials_query = session.query(RawMaterial)
-if company_filter is not None:
-    materials_query = materials_query.filter(RawMaterial.company_id == company_filter.id)
-materials = materials_query.order_by(RawMaterial.name).all()
-if not materials:
-    st.info("No raw materials recorded yet.")
-else:
-    df = pd.DataFrame(
-        [
-            {
-                **({"Company": m.company.name if m.company else "—"} if is_platform_owner else {}),
-                "Name": m.name,
-                "Category / Subcategory": raw_material_category_label(m),
-                "Default supplier": m.default_supplier or "",
-                "Cost/kg": m.cost_per_kg,
-                "Active": m.active,
-                "Notes": m.notes or "",
-            }
-            for m in materials
-        ]
-    )
-
-    st.caption("Filter by column:")
-    c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
-    name_filter = c1.text_input("Name contains", key="rawmat_filter_name")
-    category_filter = c2.multiselect(
-        "Category / Subcategory", sorted(df["Category / Subcategory"].unique()), key="rawmat_filter_category"
-    )
-    supplier_filter = c3.text_input("Supplier contains", key="rawmat_filter_supplier")
-    active_filter = c4.selectbox("Active", ["All", "Yes", "No"], key="rawmat_filter_active")
-    notes_filter = st.text_input("Notes contains", key="rawmat_filter_notes")
-
-    mask = pd.Series(True, index=df.index)
-    if name_filter:
-        mask &= df["Name"].str.contains(name_filter, case=False, na=False)
-    if category_filter:
-        mask &= df["Category / Subcategory"].isin(category_filter)
-    if supplier_filter:
-        mask &= df["Default supplier"].str.contains(supplier_filter, case=False, na=False)
-    if active_filter == "Yes":
-        mask &= df["Active"]
-    elif active_filter == "No":
-        mask &= ~df["Active"]
-    if notes_filter:
-        mask &= df["Notes"].str.contains(notes_filter, case=False, na=False)
-
-    filtered_materials = [m for m, keep in zip(materials, mask) if keep]
-    filtered_df = df[mask]
-
-    st.caption(
-        f"Showing {len(filtered_df)} of {len(df)} raw material(s). "
-        "Click a row to edit (and optionally delete) that material."
-    )
-    idx = clickable_table(filtered_df.to_dict("records"), key="rawmat_table")
-    if idx is not None and idx < len(filtered_materials):
-        st.session_state["rawmat_selected_id"] = filtered_materials[idx].id
-    else:
-        st.session_state.pop("rawmat_selected_id", None)
-
-    selected_id = st.session_state.get("rawmat_selected_id")
-    selected = next((m for m in materials if m.id == selected_id), None)
-
-    if selected:
-        st.divider()
-        st.subheader(f"Edit: {selected.name}")
-        if not page_usable:
-            st.caption("View-only access - editing and deleting is restricted for your role.")
-        else:
-            e_supplier = _supplier_picker(
-                session, selected.company_id, key_prefix=f"edit_rawmat_{selected.id}",
-                current_value=selected.default_supplier or "",
-            )
-            # CR-08: Category -> Subcategory picker rendered outside the form,
-            # pre-filled from the material's current classification, same
-            # pattern/reason as Manual entry and Add-from-TDS above.
-            e_category, e_subcategory, e_other_description = _category_subcategory_picker(
-                session, key_prefix=f"edit_rawmat_{selected.id}",
-                current_category_id=selected.category_id, current_subcategory_id=selected.subcategory_id,
-            )
-            with st.form(f"edit_rawmat_{selected.id}"):
-                if is_platform_owner:
-                    e_company = st.selectbox(
-                        "Company *", all_companies,
-                        index=next((i for i, c in enumerate(all_companies) if c.id == selected.company_id), 0),
-                        format_func=lambda c: c.name, key=f"edit_rawmat_company_{selected.id}",
-                    )
-                else:
-                    e_company = company_filter
-                e_name = st.text_input("Raw material name *", value=selected.name, key=f"edit_rawmat_name_{selected.id}")
-                e_cost = st.number_input(
-                    "Cost per kg", min_value=0.0, step=0.01, value=float(selected.cost_per_kg or 0.0),
-                    key=f"edit_rawmat_cost_{selected.id}",
-                )
-                e_notes = st.text_area("Notes", value=selected.notes or "", key=f"edit_rawmat_notes_{selected.id}")
-                e_active = st.checkbox("Active", value=selected.active, key=f"edit_rawmat_active_{selected.id}")
-                if st.form_submit_button("Save changes"):
-                    if not e_name.strip():
-                        st.error("Raw material name is required.")
-                    elif not e_category or not e_subcategory:
-                        st.error("Pick a Category and Subcategory for this raw material.")
-                    elif e_subcategory.is_exception_only and not e_other_description.strip():
-                        st.error("A description is required when Subcategory is 'Other'.")
-                    else:
-                        target_company_id = e_company.id if e_company else selected.company_id
-                        _ensure_supplier_exists(session, target_company_id, e_supplier)
-                        final_e_notes = e_notes
-                        if e_subcategory.is_exception_only and e_other_description.strip():
-                            final_e_notes = f"[Other: {e_other_description.strip()}] {e_notes}".strip()
-                        selected.company_id = target_company_id
-                        selected.name = e_name.strip()
-                        selected.category_id = e_category.id
-                        selected.subcategory_id = e_subcategory.id
-                        selected.default_supplier = e_supplier
-                        selected.cost_per_kg = e_cost or None
-                        selected.notes = final_e_notes
-                        selected.active = e_active
-                        session.commit()
-                        st.success("Raw material updated.")
-                        st.rerun()
-
-            linked_components = (
-                session.query(RecipeComponent).filter(RecipeComponent.raw_material_id == selected.id).count()
-            )
-            if linked_components:
-                warning = (
-                    f"{linked_components} recipe component(s) reference this raw material. Deleting it will unlink "
-                    "them (their component name/role stays, but the raw-material link is cleared) rather than "
-                    "deleting those recipe components."
-                )
-            else:
-                warning = "No recipe components reference this raw material — deleting it is safe."
-
-            def _do_delete_rawmat(_session=session, _id=selected.id):
-                _session.query(RecipeComponent).filter(RecipeComponent.raw_material_id == _id).update(
-                    {"raw_material_id": None}, synchronize_session="fetch"
-                )
-                _session.query(RawMaterial).filter(RawMaterial.id == _id).delete(synchronize_session=False)
-                _session.commit()
+            if st.button("Clear selection", key="clear_rawmat_selection"):
                 st.session_state.pop("rawmat_selected_id", None)
-
-            delete_with_confirm(
-                selected.name, _do_delete_rawmat, key_prefix=f"rawmat_{selected.id}", extra_warning=warning
-            )
-
-        if st.button("Clear selection", key="clear_rawmat_selection"):
-            st.session_state.pop("rawmat_selected_id", None)
-            st.rerun()
+                st.rerun()
