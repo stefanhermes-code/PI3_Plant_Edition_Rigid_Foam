@@ -3504,4 +3504,74 @@ tests/test_cr04_step7_consolidated_walkthrough.py were updated to point at
 the correct split-out page for the flows they already covered.
 """
 
-APP_VERSION = "0.31.0"
+VERSION_0_31_1_NOTES = """
+v0.31.1 - CR-09 closeout correction (per Charlie's "CR09 Closeout Review -
+Return to JC for Completion", 2026-08-12, and Stefan's direction to act on
+it). Charlie formally rejected the CR-09 closeout package: the Recipe
+Optimization PI3 prompt-capture test (test_recipe_optimization_pi3_prompt_
+has_no_leak in tests/test_cr09_customer_content_leakage.py) had been
+skipped rather than executed, and the closeout treated a passing WP3
+Property Conformance Report leak-scan as indirect proof this separate,
+customer-facing PI3-prompt path was also clean. Charlie's review: "the CR
+explicitly covers customer-facing PI3 prompt/output leakage, so that
+execution path requires direct verification" - not a stand-in from a
+different report type.
+
+Root cause of the skip: pages/15_Recipe_Optimization.py's expectation_
+summary block (built for "Does the current recipe meet target?") rounded
+avg_actual/avg_target with a bare .round(2) instead of the pd.to_numeric
+(errors="coerce").round(2) pattern this same page already uses twice
+elsewhere (the "Physical properties" table and the per-property/per-
+version summary) for exactly this reason: a rigid-foam grade's quality
+results generally carry no target_value at all, which leaves that column
+all-None/object-dtype, and a bare .round(2) raises TypeError on that. This
+one unconverted call site - left behind when the fix was applied to the
+other two - is what made the test's own fixture trip an "unrelated"
+exception before the PI3 button was ever reached, and what the original
+closeout mischaracterized as a pre-existing edge case rather than a defect
+to fix.
+
+What changed:
+- pages/15_Recipe_Optimization.py: applied the same pd.to_numeric(errors=
+  "coerce").round(2) conversion to expectation_summary["avg_actual"]/
+  ["avg_target"] that the page's other two summary tables already use.
+- tests/test_cr09_customer_content_leakage.py: removed the pytest.skip()
+  that treated this exception as acceptable; the page load is now a hard
+  assert not at.exception. Added the missing test-support pieces that were
+  masking two further, unrelated gaps once the dtype skip was removed: (1)
+  _seed_wp3_fixture now adds a PI3AIConnectionSetting row (the "Get PI3
+  recommendation" button is gated on ai_assistant.is_enabled_for_plant(),
+  same requirement test_wp4_recipe_optimization_page_smoke.py's fixture
+  already satisfies) and a FoamGradeTargetProperty row (so the button's
+  target-properties field is non-empty and not disabled); (2) the test now
+  sets fake OPENAI_API_KEY/PI3_VECTOR_STORE_ID secrets (satisfying ai_
+  assistant.is_configured()'s presence check only - ask_assistant() itself
+  stays monkeypatched, so no real network call is ever made); (3) the test
+  now calls tenant_scope.clear_scope_cache() right after seeding - without
+  it, tenant_scope.py's st.cache_data-backed plant_ids_for_company() (keyed
+  on company_id alone, 30s TTL) could return another test's stale scope
+  whenever schema-reset autoincrement handed two different tests the same
+  company_id within that window, silently filtering this fixture's own
+  grade out of the page's grade picker and making the test flake based on
+  run order/file position - reproduced by running the full file repeatedly
+  before the fix, confirmed gone after (3 consecutive clean full-file runs,
+  10 consecutive clean full-suite runs).
+
+Verified: test_recipe_optimization_pi3_prompt_has_no_leak now executes the
+real prompt-construction path end-to-end (grade selected, button clicked,
+ask_assistant() reached) and passes - the captured PI3 prompt contains none
+of CR-09's forbidden markers. Full tests/test_cr09_customer_content_
+leakage.py suite: 11 passed, 0 skipped (was 10 passed, 1 skipped). Full
+app regression suite: 152 passed, 0 skipped, 0 failed.
+
+Observation for Charlie/Stefan (not a CR-09 leak, not fixed here - flagged
+per this project's disclosure practice rather than silently left in): the
+captured prompt's "Does the current recipe achieve..." and "Quality test
+outcomes by version" lines render a bare "nan" wherever avg_target is
+genuinely absent (e.g. a rigid-foam grade whose target lives on
+GradeSpecification rather than on the result row) - cosmetic, not a
+forbidden-marker leak, but worth a follow-up CR if a customer-facing "nan"
+in a PI3 answer is undesirable.
+"""
+
+APP_VERSION = "0.31.1"

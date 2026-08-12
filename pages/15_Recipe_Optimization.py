@@ -495,8 +495,20 @@ else:
             )
             .reset_index()
         )
-        expectation_summary["avg_actual"] = expectation_summary["avg_actual"].round(2)
-        expectation_summary["avg_target"] = expectation_summary["avg_target"].round(2)
+        # pd.to_numeric(..., errors="coerce") rather than a bare .round(2) - same
+        # object-dtype hazard as the "Physical properties" table above and the
+        # per-property/per-version summary below (see their comments for why): a
+        # rigid-foam grade's PhysicalPropertyResult rows generally have no
+        # target_value at all, which makes this column all-None/object-dtype
+        # rather than float, and .round(2) raises TypeError on that. CR-09
+        # closeout correction (2026-08-12, per Charlie's "Return to JC for
+        # Completion" review): this exact bare-.round(2) call, left unconverted
+        # here while the same fix was already applied elsewhere on this page,
+        # was the root cause of test_recipe_optimization_pi3_prompt_has_no_leak
+        # skipping instead of executing - fixing it lets that test run the real
+        # prompt-construction path end-to-end instead of skipping around it.
+        expectation_summary["avg_actual"] = pd.to_numeric(expectation_summary["avg_actual"], errors="coerce").round(2)
+        expectation_summary["avg_target"] = pd.to_numeric(expectation_summary["avg_target"], errors="coerce").round(2)
         # Achieved? compares the AVERAGE actual value for this property (across all
         # runs made under the current recipe) against target +/- the industry
         # tolerance - the same compute_pass_fail() band used everywhere else in the

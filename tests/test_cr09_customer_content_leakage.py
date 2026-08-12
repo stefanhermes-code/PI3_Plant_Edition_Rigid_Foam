@@ -51,6 +51,7 @@ from streamlit.testing.v1 import AppTest
 
 import customer_presentation
 import db
+import tenant_scope
 import reports
 import wp3_conformance
 
@@ -271,6 +272,24 @@ def _seed_wp3_fixture(session):
         orientation_id=orientation.id, location_id=location.id, tested_at=run.run_date,
     )
     session.add(result); session.flush()
+    # Enabled here so test_recipe_optimization_pi3_prompt_has_no_leak's "Get PI3
+    # recommendation" button actually renders (ai_assistant.is_enabled_for_plant()
+    # gate) - the fake OPENAI_API_KEY/PI3_VECTOR_STORE_ID secrets set in that
+    # test's AppTest run only satisfy is_configured()'s presence check; the real
+    # OpenAI call is monkeypatched away, never a live network call. Same pattern
+    # as tests/test_wp4_recipe_optimization_page_smoke.py's seeded_rigid_only.
+    session.add(db.PI3AIConnectionSetting(plant_id=plant.id, pi3_ai_connectivity_enabled=True))
+    # A FoamGradeTargetProperty row (not just the GradeSpecification above) so
+    # the "Get PI3 recommendation" button's target_properties text area is
+    # non-empty and the button isn't disabled - this grade has no
+    # target_density/target_hardness set and its one PhysicalPropertyResult
+    # carries no target_value (rigid-style: the limit lives on
+    # GradeSpecification), so without this the button stays disabled and the
+    # test can never reach ask_assistant().
+    session.add(db.FoamGradeTargetProperty(
+        foam_grade_id=grade.id, property_definition_id=propdef.id,
+        property_name=propdef.name, target_value=0.024, unit="W/(m.K)",
+    ))
     session.commit()
     return grade.id, run.id
 
@@ -348,6 +367,18 @@ def test_period_summary_report_docx_translates_synthetic_dataset_flag(wp3_sessio
 def test_recipe_optimization_pi3_prompt_has_no_leak(wp3_session, monkeypatch):
     session = wp3_session
     grade_id, run_id = _seed_wp3_fixture(session)
+    # Discovered during the CR-09 closeout correction: tenant_scope.py's
+    # plant_ids_for_company()/family_ids_for_plants()/grade_ids_for_families()
+    # are st.cache_data'd by company_id/plant_ids alone (see that module's own
+    # docstring on clear_scope_cache()) with no per-test isolation - since
+    # _reset_schema() restarts autoincrement IDs at 1 for every test in this
+    # file, a fresh company here can collide with another test's now-stale
+    # cached scope from a few seconds earlier, silently filtering this
+    # fixture's own grade out of the Recipe Optimization page's grade picker
+    # and making it flake order-dependently (passes alone, fails inside the
+    # full file). Same fix every write path in the app already uses after a
+    # commit.
+    tenant_scope.clear_scope_cache()
 
     captured = {}
 
@@ -361,17 +392,27 @@ def test_recipe_optimization_pi3_prompt_has_no_leak(wp3_session, monkeypatch):
     PAGE15 = os.path.join(APP_DIR, "pages", "15_Recipe_Optimization.py")
     at = AppTest.from_file(PAGE15, default_timeout=30)
     at.secrets["AUTH_DISABLED"] = True
+    # Fake secrets so ai_assistant.is_configured() passes and the "Get PI3
+    # recommendation" button renders (see _seed_wp3_fixture's
+    # PI3AIConnectionSetting) - ask_assistant() itself is monkeypatched below,
+    # so this never makes a real network call, same pattern as
+    # tests/test_wp4_recipe_optimization_page_smoke.py.
+    at.secrets["OPENAI_API_KEY"] = "sk-test-not-a-real-key"
+    at.secrets["PI3_VECTOR_STORE_ID"] = "vs_test_not_real"
     at.run()
-    if at.exception:
-        # Not a CR-09 regression: this minimal fixture has no
-        # FoamGradeTargetProperty rows, which can trip an unrelated
-        # pre-existing dtype edge case elsewhere on this page before the
-        # grade picker even renders. The WP3 conformance report test above
-        # already proves customer_facing_release_note() is leak-free
-        # against this exact row shape (achievement_summary rows with a
-        # production_release value) - skip rather than fail on a fixture
-        # gap unrelated to what this test is checking.
-        pytest.skip(f"Recipe Optimization page raised an unrelated exception on this minimal fixture: {at.exception}")
+    # CR-09 closeout correction (2026-08-12, per Charlie's "Return to JC for
+    # Completion" review): this used to pytest.skip() here on the grounds that
+    # a dtype TypeError elsewhere on this page (expectation_summary["avg_target"]
+    # .round(2) on an object-dtype column - see pages/15_Recipe_Optimization.py's
+    # own comment at that line) was "an unrelated pre-existing edge case," and
+    # relied on the WP3 conformance report test above as indirect proof this
+    # customer-facing path was clean. Charlie's review rejected that: the CR
+    # explicitly covers PI3 prompt/output leakage, so that path requires DIRECT
+    # verification, not an indirect stand-in from a different report type. The
+    # dtype bug has now been fixed at its source, so this must fail loudly (not
+    # skip) if the page ever raises again - that's the whole point of this
+    # assertion existing.
+    assert not at.exception, f"Unhandled exception loading Recipe Optimization: {at.exception}"
 
     grade_sb = next((sb for sb in at.selectbox if sb.label == "Product grade"), None)
     if grade_sb is None:
