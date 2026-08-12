@@ -3436,4 +3436,72 @@ customer-safe text (the old assertion string was itself part of the
 leak this CR removes).
 """
 
-APP_VERSION = "0.30.0"
+VERSION_0_31_0_NOTES = """
+v0.31.0 - CR-10 (Split Product Families and Product Grades into Separate
+Pages, Charlie's instruction for Stefan, 2026-08-12).
+
+Problem: the sidebar had one combined "Product Families & Product Grades"
+entry (pages/2_Product_Family_Foam_Grade.py) whose page split the two data
+domains into an in-page "Product families" / "Product grades" tab pair.
+Charlie's CR removes that extra tab-selection step - each domain gets its
+own direct sidebar entry - while keeping the family-to-grade relationship
+clear and reachable without repeating the family selection.
+
+What changed:
+
+- pages/2_Product_Families.py (new): the old page's "Product families" tab
+  content, unchanged - same Add/Edit/Delete form, same table, same cascade-
+  delete warning. Adds one new control: an "Open Product Grades for
+  '<family>' →" button on the selected family's edit panel, which stashes
+  that family's id in st.session_state["pfg_family_context_id"] and calls
+  st.switch_page("pages/2_Product_Grades.py").
+- pages/2_Product_Grades.py (new): the old page's "Product grades" tab
+  content, unchanged - same manual Add form, CSV/Excel import, machine
+  assignment, and the full Product Grade Property Targets editor (CR-07's
+  dynamic target-type/UOM/method/condition builder). Adds one new control:
+  a "Filter by product family" selectbox above the Add/import tabs, narrowing
+  the grade table to one family (or "All product families"). This selectbox
+  is what consumes the context from Product Families - on each run, if
+  st.session_state["pfg_family_context_id"] is present, it's popped and used
+  to pre-set st.session_state["pgr_family_filter"] BEFORE the selectbox with
+  that key is instantiated, which is what makes Streamlit treat it as this
+  run's initial value. One-time inheritance, not a permanent link: the key
+  is gone from session_state immediately after use, so a later direct visit
+  (or a switch from a different family) is never masked by a stale value,
+  and the operator can always change the filter afterward.
+- pages/2_Product_Family_Foam_Grade.py: deleted.
+- app_rigid_foam.py: production_method_pages' single combined nav entry is
+  replaced by two, in CR-10's mandated order (Production Methods,
+  Production Equipment, Product Families, Product Grades).
+- access_control.py: PAGE_CATALOG's "product_family_foam_grade" key is
+  removed and replaced with two fresh keys, "product_families" and
+  "product_grades" - same pattern CR-03 used to retire
+  "reference_formulations". A live query against Supabase's
+  rigid_foam.role_page_permissions before this change found zero rows
+  referencing "product_family_foam_grade" for any role, so there was
+  nothing to migrate onto the two new keys; every role gets full access to
+  both new pages by default, same as it had on the old combined one.
+
+Explicitly unchanged, per CR-10 section 6 ("Functional Preservation"): every
+Product Family and Product Grade record, the Product Family -> Product
+Grade FK relationship itself, all existing authorization/validation/data
+controls, and every search/selection/filter/edit/view function the two old
+tabs provided.
+
+New regression coverage: tests/test_cr10_product_family_grade_split.py -
+confirms the old page file and page_key are gone, both new PAGE_CATALOG
+keys exist, production_method_pages' declared order matches CR-10 section
+3, both new pages open directly without exception, the family filter
+defaults to "All product families" on a direct visit, and - the one that
+actually proves the handoff design works rather than merely not crashing -
+presetting session_state["pfg_family_context_id"] before loading Product
+Grades results in the filter selectbox picking up that exact family, the
+grade table narrowing to it, and the context key being consumed (popped)
+rather than lingering. A defensive case also confirms a stale/unresolvable
+context id is ignored rather than crashing the page. tests/test_pm_
+hierarchy_pages_smoke.py, tests/test_cr07_grade_property_targets.py, and
+tests/test_cr04_step7_consolidated_walkthrough.py were updated to point at
+the correct split-out page for the flows they already covered.
+"""
+
+APP_VERSION = "0.31.0"

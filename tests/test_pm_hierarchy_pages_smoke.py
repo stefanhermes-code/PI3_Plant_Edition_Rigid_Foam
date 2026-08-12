@@ -11,8 +11,11 @@ pages touched by this batch:
     UI navigation restructure - see that page's own docstring. PAGE1
     below now points at the pure Plants page and is no longer where this
     picker lives.)
-  - pages/2_Product_Family_Foam_Grade.py: Foam Grade's method picker +
+  - pages/2_Product_Grades.py: Product Grade's method picker +
     many-to-many Machine-assignment multiselect, filtered by method.
+    (CR-10, 2026-08-12, split this off pages/2_Product_Family_Foam_Grade.py's
+    "Product grades" tab into its own direct page - see that page's own
+    docstring. PAGE2 below now points at the split-out grades page.)
   - pages/4_Production_Run_Trial_Record.py: Machine picker filtered to the
     grade's own assigned machines, the Plant/Method/Machine breadcrumb, and
     the immutable production_method_id snapshot set on creation.
@@ -56,7 +59,7 @@ import db
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGE1 = os.path.join(APP_DIR, "pages", "1_Plant_Installation_Overview.py")
-PAGE2 = os.path.join(APP_DIR, "pages", "2_Product_Family_Foam_Grade.py")
+PAGE2 = os.path.join(APP_DIR, "pages", "2_Product_Grades.py")
 PAGE4 = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
 PAGE30 = os.path.join(APP_DIR, "pages", "30_Production_Methods.py")
 PAGE31 = os.path.join(APP_DIR, "pages", "31_Production_Equipment.py")
@@ -190,7 +193,7 @@ def test_foam_grade_form_offers_machines_across_activated_methods(seeded_pm_hier
     than one method can be fully assigned in one save."""
     ids = seeded_pm_hierarchy
     at = _run(PAGE2)
-    assert not at.exception, f"Unhandled exception loading Product Family & Foam Grade: {at.exception}"
+    assert not at.exception, f"Unhandled exception loading Product Grades: {at.exception}"
 
     assert not any(sb.key == "add_grade_method" for sb in at.selectbox), (
         "Add foam grade form should no longer have a separate Production "

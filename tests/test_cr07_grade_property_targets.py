@@ -27,6 +27,11 @@ SQLAlchemy operations the page's form-submit blocks perform - same model,
 same session, same commit - so they verify the real persistence behavior,
 not a mock of it.
 
+CR-10 (Split Product Families and Product Grades into Separate Pages,
+2026-08-12) split pages/2_Product_Family_Foam_Grade.py's "Product grades"
+tab into its own direct page, pages/2_Product_Grades.py - the Add Product
+Grade form this suite's one AppTest-based test exercises lives there now.
+
 Usage: python -m pytest tests/test_cr07_grade_property_targets.py
 """
 import os
@@ -46,7 +51,7 @@ import db
 import wp3_conformance as wc
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE2 = os.path.join(APP_DIR, "pages", "2_Product_Family_Foam_Grade.py")
+PAGE2 = os.path.join(APP_DIR, "pages", "2_Product_Grades.py")
 
 
 def _reset_schema():
@@ -109,7 +114,7 @@ def test_add_product_grade_form_has_no_fixed_density_or_hardness_fields(seeded_g
     """CR-07 acceptance criterion (section 9, first bullet): 'Add Product
     Grade contains no fixed density or 40% ILD hardness input fields.'"""
     at = _run(PAGE2)
-    assert not at.exception, f"Unhandled exception loading Product Family & Foam Grade: {at.exception}"
+    assert not at.exception, f"Unhandled exception loading Product Grades: {at.exception}"
 
     number_input_labels = {ni.label for ni in at.number_input}
     assert "Target density (kg/m3)" not in number_input_labels, (
@@ -225,7 +230,7 @@ def test_duplicate_property_target_blocked_at_db_level(seeded_grade):
 
 
 def test_available_properties_excludes_used_and_readmits_after_removal(seeded_grade):
-    """Mirrors pages/2_Product_Family_Foam_Grade.py's own 'used_property_ids
+    """Mirrors pages/2_Product_Grades.py's own 'used_property_ids
     / available_properties' computation exactly - CR-07: 'A property already
     selected on the Product Grade is absent from subsequent property
     selectors until removed,' and readmitted once it is."""

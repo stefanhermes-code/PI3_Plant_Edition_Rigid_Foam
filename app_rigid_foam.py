@@ -400,6 +400,15 @@ report_page = st.Page("pages/21_Report.py", title="Reports", icon="🖨️")
 # Reference Formulations) stays its own section, reused as-is - CR-01
 # treats these as shared/context-independent. See pages/1, 30, and 31's own
 # docstrings for the page-level split rationale.
+#
+# CR-10 (Split Product Families and Product Grades into Separate Pages),
+# implemented 2026-08-12: the single "Product Families & Product Grades"
+# entry (formerly pages/2_Product_Family_Foam_Grade.py, two tabs) is
+# replaced by two direct entries, in the exact order CR-10 section 3
+# mandates (Production Methods, Production Equipment, Product Families,
+# Product Grades) - see pages/2_Product_Families.py and
+# pages/2_Product_Grades.py for the split page-level rationale, including
+# the context handoff between them and the access_control key change.
 plant_setup_pages = [
     ("plant_overview", st.Page("pages/1_Plant_Installation_Overview.py", title="Plants", icon="📍")),
 ]
@@ -407,7 +416,8 @@ plant_setup_pages = [
 production_method_pages = [
     ("production_methods", st.Page("pages/30_Production_Methods.py", title="Production Methods", icon="🧭")),
     ("plant_overview", st.Page("pages/31_Production_Equipment.py", title="Production Equipment", icon="🏭")),
-    ("product_family_foam_grade", st.Page("pages/2_Product_Family_Foam_Grade.py", title="Product Families & Product Grades", icon="🧬")),
+    ("product_families", st.Page("pages/2_Product_Families.py", title="Product Families", icon="🧬")),
+    ("product_grades", st.Page("pages/2_Product_Grades.py", title="Product Grades", icon="🏷️")),
 ]
 
 formulation_pages = [
@@ -494,7 +504,10 @@ platform_admin_pages = [
 # Runs) / Samples & Trials / Quality (Test Results, Quality Issues) /
 # Industrial Intelligence (unchanged). Company Admin stays as-is - out of
 # CR-01's scope (rigid-foam terminology/navigation for the operational app),
-# not a customer-facing production-method concept.
+# not a customer-facing production-method concept. CR-10 (2026-08-12) later
+# split "Product Families & Product Grades" into its own two direct entries
+# within this same Production Methods section - see production_method_pages
+# above.
 #
 # CR-05 (Default User Role Inheritance and Platform Admin Separation),
 # implemented 2026-08-11: the nav section for the platform-owner-only pages

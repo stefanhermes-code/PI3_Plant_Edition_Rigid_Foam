@@ -167,10 +167,23 @@ ADMIN_ROLE_NAMES = frozenset({"company admin", "platform admin"})
 # that key again); not backfilled/deleted, since a stray permission row with
 # no matching page has no effect and deleting rows out from under live role
 # data is unnecessary risk for zero functional gain.
+#
+# CR-10 (Split Product Families and Product Grades into Separate Pages),
+# implemented 2026-08-12: "product_family_foam_grade" (the combined page's
+# single key) is removed the same way "reference_formulations" was under
+# CR-03 - the combined page/nav entry no longer exists, replaced by two
+# independent pages below with their own fresh keys. A live-data check
+# against Supabase's rigid_foam.role_page_permissions before this change
+# found zero rows referencing "product_family_foam_grade" for any role, so
+# there was nothing to migrate onto the two new keys - every role simply
+# gets full access to both new pages by default, same as it had on the old
+# combined one (see access_control.py module docstring point 3, "no row =
+# full access").
 PAGE_CATALOG = {
     "plant_overview": "Plants",
     "production_methods": "Production Methods",
-    "product_family_foam_grade": "Product Families & Product Grades",
+    "product_families": "Product Families",
+    "product_grades": "Product Grades",
     "raw_materials": "Raw Materials",
     "recipes": "Recipes",
     "production_run": "Production Runs",
