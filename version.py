@@ -4061,4 +4061,50 @@ unrelated numpy divide-by-zero RuntimeWarnings present before this batch
 too.
 """
 
-APP_VERSION = "0.33.4"
+VERSION_0_33_5_NOTES = """
+v0.33.4 -> v0.33.5 (2026-08-12, CR-12 closeout correction round 2, per
+Charlie's "CR12_Closeout_Correction_Review_Return_to_JC.docx" - the
+round-1 correction's PI3 Q&A generation-test fix and 274-passed
+regression were accepted, but the closeout stayed OPEN on two evidence-
+structure gaps).
+
+1. Comparison matrix incompleteness: the round-1 correction's matrix
+   carried the disposition/gap/action columns but dropped the original
+   closeout's On-page(Flex)/On-page(Rigid)/Report-page(Flex)/Report-page
+   (Rigid) availability columns, and stated filters/record-context as one
+   blanket sentence rather than per-row. Rebuilt as one consolidated
+   18-row matrix (no more splitting across the original closeout and the
+   correction) carrying every CR-12 Section 3 field per row: on-page/
+   report-page availability for both apps, reporting role, the actual
+   selection context for that specific report (e.g. Production Run for
+   Batch Release/Conformance Record, Recipe Version for Recipe
+   Formulation Record, Foam Grade for the Industrial Intelligence
+   reports, Sample for the Certificate of Analysis), equivalent function,
+   structural gap, and required action - read from each report's own
+   build_*_report_data() signature in reports.py, not assumed.
+
+2. Scope/filter/access evidence non-traceable: the round-1 correction's
+   evidence mapped reporting paths to historical task numbers (#207-217,
+   #216, #129, #279) instead of naming an executed automated test. No
+   test in the suite actually proved cross-company isolation for any
+   reporting path before this round. Added tests/test_cr12_report_scope_
+   isolation.py - 13 new tests, each seeding two separate companies and
+   proving the actual record-selector query or widget that feeds a
+   report's subject (recipe version, raw material, production run,
+   customer trial, optimization trial, sample, foam grade, expert note,
+   or PI3 Q&A vector-store filter) excludes the other company's record.
+   Verified non-vacuous by temporarily neutering tenant_scope.apply_scope
+   and tenant_scope.plant_ids_for_company and confirming the relevant
+   tests fail, then reverting. One page-source finding corrected the
+   assumed mapping: Root-Cause Assistant's (page 18) real selector is
+   Quality-Issue/Observation-based (run-scoped), not foam-grade-based as
+   its grouping with pages 15/16/17/19 would suggest - its new test
+   reflects the actual widget, not the assumption.
+
+Full regression suite: 323 passed, 2 skipped (312 pre-existing + 13 new;
+the 2 skips are the pre-existing Flexible-Foam-sibling-app-not-present
+skips in test_cr12_reporting_parity.py, unchanged by this batch). No
+application code changed - test-coverage and documentation only.
+"""
+
+APP_VERSION = "0.33.5"
