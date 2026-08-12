@@ -34,6 +34,7 @@ from auth import current_user, logout_button, require_login
 from helpers import (
     clickable_table,
     confidence_badge,
+    cr11_function_tab_labels,
     csv_excel_uploader,
     dedupe_import_rows,
     delete_with_confirm,
@@ -213,9 +214,14 @@ if not runs and not customer_trials and not optimization_trials:
     )
     st.stop()
 
-tab_obs_manual, tab_obs_import = st.tabs(["Add quality issue", "CSV / Excel import"])
+# CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
+# Functions, 2026-08-12): wording/order aligned via
+# cr11_function_tab_labels(). The Edit/Delete content (previously a
+# below-the-tabs browse/edit/delete section) is now the middle sibling
+# tab - see tab_edit_delete below.
+tab_create, tab_edit_delete, tab_import = st.tabs(cr11_function_tab_labels("Quality Issue"))
 
-with tab_obs_manual:
+with tab_create:
     with st.expander("Add quality issue", expanded=False):
         if not page_usable:
             st.caption("View-only access - adding a quality issue is restricted for your role.")
@@ -292,7 +298,7 @@ with tab_obs_manual:
                         st.success("Quality issue saved.")
                         st.rerun()
 
-with tab_obs_import:
+with tab_import:
     show_pending_banner("observation_import_msg")
     with st.expander("Accepted issue-type names (must match exactly, case-insensitive)"):
         for _cat in quality_issue_taxonomy.categories():
@@ -415,286 +421,288 @@ with tab_obs_import:
             set_pending_banner("observation_import_msg", msg)
             st.rerun()
 
-st.divider()
-st.subheader("Quality issues")
 
-filter_col1, filter_col2 = st.columns([1, 1])
-with filter_col1:
-    severity_filter = st.multiselect("Severity filter", SEVERITIES, default=SEVERITIES)
-with filter_col2:
-    # Foam scope - same "All product grades / Product grade / Foam family" pattern
-    # as the Quality Test Result page's breakdown chart, so both pages let
-    # you ask "which issue is most common for this grade/family" the same
-    # way. This filter set and the Pareto chart below both read from the
-    # same scoped_grade_ids, so the chart always matches the table.
-    scoped_grades = (
-        apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids_for_company(session, active_company_id))
-        .order_by(FoamGrade.grade_name)
-        .all()
-    )
-    foam_scope_mode = st.radio(
-        "Foam scope", ["All product grades", "Product grade", "Foam family"], key="qi_foam_scope_mode"
-    )
-    if foam_scope_mode == "All product grades" or not scoped_grades:
-        scope_grade_ids = None
-        scope_label = "all product grades"
-    elif foam_scope_mode == "Product grade":
-        scope_grade = st.selectbox(
-            "Product grade", scoped_grades, format_func=lambda g: g.grade_name, key="qi_foam_scope_grade"
+with tab_edit_delete:
+    st.divider()
+    st.subheader("Quality issues")
+
+    filter_col1, filter_col2 = st.columns([1, 1])
+    with filter_col1:
+        severity_filter = st.multiselect("Severity filter", SEVERITIES, default=SEVERITIES)
+    with filter_col2:
+        # Foam scope - same "All product grades / Product grade / Foam family" pattern
+        # as the Quality Test Result page's breakdown chart, so both pages let
+        # you ask "which issue is most common for this grade/family" the same
+        # way. This filter set and the Pareto chart below both read from the
+        # same scoped_grade_ids, so the chart always matches the table.
+        scoped_grades = (
+            apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids_for_company(session, active_company_id))
+            .order_by(FoamGrade.grade_name)
+            .all()
         )
-        scope_grade_ids = [scope_grade.id] if scope_grade else []
-        scope_label = scope_grade.grade_name if scope_grade else "—"
-    else:
-        families = sorted({g.product_family for g in scoped_grades if g.product_family}, key=lambda f: f.name)
-        if not families:
-            st.caption("No foam family available for these grades yet.")
-            scope_grade_ids = []
-            scope_label = "—"
-        else:
-            scope_family = st.selectbox(
-                "Foam family", families, format_func=lambda f: f.name, key="qi_foam_scope_family"
+        foam_scope_mode = st.radio(
+            "Foam scope", ["All product grades", "Product grade", "Foam family"], key="qi_foam_scope_mode"
+        )
+        if foam_scope_mode == "All product grades" or not scoped_grades:
+            scope_grade_ids = None
+            scope_label = "all product grades"
+        elif foam_scope_mode == "Product grade":
+            scope_grade = st.selectbox(
+                "Product grade", scoped_grades, format_func=lambda g: g.grade_name, key="qi_foam_scope_grade"
             )
-            scope_grade_ids = [g.id for g in scoped_grades if g.product_family_id == scope_family.id]
-            scope_label = scope_family.name
+            scope_grade_ids = [scope_grade.id] if scope_grade else []
+            scope_label = scope_grade.grade_name if scope_grade else "—"
+        else:
+            families = sorted({g.product_family for g in scoped_grades if g.product_family}, key=lambda f: f.name)
+            if not families:
+                st.caption("No foam family available for these grades yet.")
+                scope_grade_ids = []
+                scope_label = "—"
+            else:
+                scope_family = st.selectbox(
+                    "Foam family", families, format_func=lambda f: f.name, key="qi_foam_scope_family"
+                )
+                scope_grade_ids = [g.id for g in scoped_grades if g.product_family_id == scope_family.id]
+                scope_label = scope_family.name
 
-observations_query = session.query(QualityObservation).filter(QualityObservation.severity.in_(severity_filter))
-if active_company_id is not None:
-    observations_query = observations_query.filter(
-        or_(
-            QualityObservation.production_run_id.in_(scoped_run_ids or []),
-            QualityObservation.customer_trial_id.in_(scoped_ct_ids or []),
-            QualityObservation.optimization_trial_id.in_(scoped_ot_ids or []),
+    observations_query = session.query(QualityObservation).filter(QualityObservation.severity.in_(severity_filter))
+    if active_company_id is not None:
+        observations_query = observations_query.filter(
+            or_(
+                QualityObservation.production_run_id.in_(scoped_run_ids or []),
+                QualityObservation.customer_trial_id.in_(scoped_ct_ids or []),
+                QualityObservation.optimization_trial_id.in_(scoped_ot_ids or []),
+            )
         )
+    all_observations = observations_query.order_by(QualityObservation.observed_at.desc()).all()
+    # Foam scope applied here in Python (not a SQL join) - a result's foam
+    # grade is reached through whichever of the three mutually-exclusive
+    # parents it has - see _obs_foam_grade_id().
+    observations = (
+        [o for o in all_observations if _obs_foam_grade_id(o) in (scope_grade_ids or [])]
+        if scope_grade_ids is not None else all_observations
     )
-all_observations = observations_query.order_by(QualityObservation.observed_at.desc()).all()
-# Foam scope applied here in Python (not a SQL join) - a result's foam
-# grade is reached through whichever of the three mutually-exclusive
-# parents it has - see _obs_foam_grade_id().
-observations = (
-    [o for o in all_observations if _obs_foam_grade_id(o) in (scope_grade_ids or [])]
-    if scope_grade_ids is not None else all_observations
-)
 
-if not observations:
-    st.info("No quality issues match this filter.")
-else:
-    obs_rows = []
-    for o in observations:
-        source_label, source_desc = _obs_source_desc(o)
-        obs_rows.append(
-            {
-                "Issue": o.observation_type,
-                "Source": source_label,
-                "Parent": source_desc,
-                "Production Method": production_method_label(o),
-                "Severity": o.severity,
-                "Frequency": o.frequency,
-                "Confidence": o.confidence_level,
-                "Observed": o.observed_at,
-            }
-        )
-    st.caption("Click a row to edit (and optionally delete) that quality issue.")
-    idx = clickable_table(obs_rows, key="obs_table")
-    if idx is not None and idx < len(observations):
-        st.session_state["obs_selected_id"] = observations[idx].id
+    if not observations:
+        st.info("No quality issues match this filter.")
     else:
-        st.session_state.pop("obs_selected_id", None)
+        obs_rows = []
+        for o in observations:
+            source_label, source_desc = _obs_source_desc(o)
+            obs_rows.append(
+                {
+                    "Issue": o.observation_type,
+                    "Source": source_label,
+                    "Parent": source_desc,
+                    "Production Method": production_method_label(o),
+                    "Severity": o.severity,
+                    "Frequency": o.frequency,
+                    "Confidence": o.confidence_level,
+                    "Observed": o.observed_at,
+                }
+            )
+        st.caption("Click a row to edit (and optionally delete) that quality issue.")
+        idx = clickable_table(obs_rows, key="obs_table")
+        if idx is not None and idx < len(observations):
+            st.session_state["obs_selected_id"] = observations[idx].id
+        else:
+            st.session_state.pop("obs_selected_id", None)
 
-    # -------------------------------------------------------------------
-    # Breakdown by issue - same filtered set as the table above (Severity
-    # and foam scope both apply), grouped either by the specific issue type
-    # or by its taxonomy category (see quality_issue_taxonomy.py) - e.g.
-    # Severity = High + Foam scope = a foam family, grouped by issue type,
-    # to see which specific fault is most common for that family; or
-    # grouped by category for the coarser "which broad kind of problem"
-    # view when individual issue types are too scattered to be actionable.
-    st.divider()
-    st.subheader("Breakdown by issue")
-    group_by = st.radio("Group by", ["Issue type", "Issue category"], key="qi_breakdown_group_by", horizontal=True)
-    if group_by == "Issue type":
-        breakdown_labels = [o.observation_type for o in observations]
-        breakdown_col = "Issue type"
-    else:
-        breakdown_labels = [
-            (quality_issue_taxonomy.lookup(o.observation_type) or {}).get("category")
-            or "Other / not yet classified"
-            for o in observations
-        ]
-        breakdown_col = "Issue category"
-    st.caption(f"{len(observations)} issue(s) for {scope_label}, using the Severity filter above.")
-    breakdown_counts = (
-        pd.Series(breakdown_labels, name=breakdown_col)
-        .value_counts()
-        .rename_axis(breakdown_col)
-        .reset_index(name="Count")
-    )
-    render_pareto_chart(breakdown_counts, category_col=breakdown_col, count_col="Count")
-
-    # -------------------------------------------------------------------
-    # Quality Issues Report - exports exactly this selection (Severity +
-    # Foam scope filters, Group by choice above), aggregated into a
-    # severity/recurring-vs-one-off summary, a confidence-level breakdown,
-    # an issues-by-type-or-category breakdown, and a curated table of just
-    # the priority issues (High severity and/or Recurring) - not a dump of
-    # every row in the table above (the CSV export on that table already
-    # covers that). Lives here rather than on the Report page for the same
-    # reason as the Quality Test Result report: it needs this comprehensive
-    # selection built first, unlike the Report page's single-dropdown reports.
-    st.divider()
-    st.subheader("Quality Issues Report")
-    if set(severity_filter) == set(SEVERITIES):
-        severity_label = "All"
-    elif severity_filter:
-        severity_label = ", ".join(severity_filter)
-    else:
-        severity_label = "None selected"
-    st.caption(f"Severity: {severity_label} · Foam scope: {scope_label} · Grouped by: {breakdown_col}")
-
-    issue_report_data = reports.build_quality_issue_report_data(
-        session, [o.id for o in observations],
-        {"severity_label": severity_label, "foam_scope_label": scope_label, "group_by_label": breakdown_col},
-    )
-    ric1, ric2, ric3 = st.columns(3)
-    ric1.metric("Issues in selection", issue_report_data["total_issues"])
-    ric2.metric("Recurring", issue_report_data["recurring_count"])
-    ric3.metric(
-        "High severity",
-        next((r["Count"] for r in issue_report_data["severity_breakdown"] if r["Severity"] == "High"), 0),
-    )
-    st.download_button(
-        "Download Word", data=reports.render_quality_issue_report_docx(issue_report_data),
-        file_name="quality_issue_report.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        key="quality_issue_report_docx",
-        on_click=log_export_click, args=("quality_issue_report_docx",),
-        kwargs={"description": f"{severity_label} · {scope_label} · {breakdown_col}"},
-    )
-
-    selected_id = st.session_state.get("obs_selected_id")
-    selected = next((o for o in observations if o.id == selected_id), None) or (
-        session.query(QualityObservation).filter(QualityObservation.id == selected_id).first()
-        if selected_id else None
-    )
-
-    if selected:
+        # -------------------------------------------------------------------
+        # Breakdown by issue - same filtered set as the table above (Severity
+        # and foam scope both apply), grouped either by the specific issue type
+        # or by its taxonomy category (see quality_issue_taxonomy.py) - e.g.
+        # Severity = High + Foam scope = a foam family, grouped by issue type,
+        # to see which specific fault is most common for that family; or
+        # grouped by category for the coarser "which broad kind of problem"
+        # view when individual issue types are too scattered to be actionable.
         st.divider()
-        st.subheader(f"Edit: {selected.observation_type}")
-        st.caption(f"Production Method: {production_method_label(selected)}")
-
-        # Source/parent + trial link are rendered OUTSIDE the form, same
-        # reasoning as the issue-type picker below: the parent/trial
-        # dropdowns' options depend on the source type and parent currently
-        # selected, so they need to react immediately rather than waiting
-        # for form submit. This also preserves a real gap-fix from before
-        # the 3-source rework - which run this issue was recorded against
-        # used to be fixed at creation time with no way to correct it
-        # later; now the source (Production Run / Customer Trial /
-        # Optimization Trial) and its parent can both be corrected too.
-        current_source, _ = _obs_source_desc(selected)
-        available_edit_sources = [
-            s for s in SAMPLE_SOURCE_TYPES
-            if (s == "Production Run" and runs)
-            or (s == "Customer Trial" and customer_trials)
-            or (s == "Optimization Trial" and optimization_trials)
-            or s == current_source
-        ]
-        e_source_type = st.selectbox(
-            "Record against *", available_edit_sources,
-            index=available_edit_sources.index(current_source) if current_source in available_edit_sources else 0,
-            key=f"edit_obs_source_{selected.id}",
+        st.subheader("Breakdown by issue")
+        group_by = st.radio("Group by", ["Issue type", "Issue category"], key="qi_breakdown_group_by", horizontal=True)
+        if group_by == "Issue type":
+            breakdown_labels = [o.observation_type for o in observations]
+            breakdown_col = "Issue type"
+        else:
+            breakdown_labels = [
+                (quality_issue_taxonomy.lookup(o.observation_type) or {}).get("category")
+                or "Other / not yet classified"
+                for o in observations
+            ]
+            breakdown_col = "Issue category"
+        st.caption(f"{len(observations)} issue(s) for {scope_label}, using the Severity filter above.")
+        breakdown_counts = (
+            pd.Series(breakdown_labels, name=breakdown_col)
+            .value_counts()
+            .rename_axis(breakdown_col)
+            .reset_index(name="Count")
         )
-        if e_source_type == "Production Run":
-            run_options = runs
-            run_default = next((i for i, r in enumerate(run_options) if r.id == selected.production_run_id), 0)
-            e_parent = st.selectbox(
-                "Production run *", run_options, index=run_default,
-                format_func=lambda r: f"Run #{r.id} — {r.foam_grade.grade_name} · {r.run_date}",
-                key=f"edit_obs_run_{selected.id}",
-            )
-        elif e_source_type == "Customer Trial":
-            ct_default = next((i for i, t in enumerate(customer_trials) if t.id == selected.customer_trial_id), 0)
-            e_parent = st.selectbox(
-                "Customer trial *", customer_trials, index=ct_default,
-                format_func=lambda t: f"Trial #{t.id} — {t.foam_grade.grade_name} · {t.customer_name} · {t.trial_date or '—'}",
-                key=f"edit_obs_ct_{selected.id}",
-            )
+        render_pareto_chart(breakdown_counts, category_col=breakdown_col, count_col="Count")
+
+        # -------------------------------------------------------------------
+        # Quality Issues Report - exports exactly this selection (Severity +
+        # Foam scope filters, Group by choice above), aggregated into a
+        # severity/recurring-vs-one-off summary, a confidence-level breakdown,
+        # an issues-by-type-or-category breakdown, and a curated table of just
+        # the priority issues (High severity and/or Recurring) - not a dump of
+        # every row in the table above (the CSV export on that table already
+        # covers that). Lives here rather than on the Report page for the same
+        # reason as the Quality Test Result report: it needs this comprehensive
+        # selection built first, unlike the Report page's single-dropdown reports.
+        st.divider()
+        st.subheader("Quality Issues Report")
+        if set(severity_filter) == set(SEVERITIES):
+            severity_label = "All"
+        elif severity_filter:
+            severity_label = ", ".join(severity_filter)
         else:
-            ot_default = next((i for i, t in enumerate(optimization_trials) if t.id == selected.optimization_trial_id), 0)
-            e_parent = st.selectbox(
-                "Optimization trial *", optimization_trials, index=ot_default,
-                format_func=lambda t: (
-                    f"Trial #{t.id} — {t.foam_grade.grade_name} · "
-                    f"{t.improvement_initiative_reference or '(no reference)'} · {t.trial_date or '—'}"
-                ),
-                key=f"edit_obs_ot_{selected.id}",
-            )
+            severity_label = "None selected"
+        st.caption(f"Severity: {severity_label} · Foam scope: {scope_label} · Grouped by: {breakdown_col}")
 
-        e_type, e_typical_causes = _issue_type_picker(f"edit_obs_{selected.id}", current_value=selected.observation_type)
-        if e_typical_causes:
-            st.caption(f"Typical causes/checks: {e_typical_causes}")
+        issue_report_data = reports.build_quality_issue_report_data(
+            session, [o.id for o in observations],
+            {"severity_label": severity_label, "foam_scope_label": scope_label, "group_by_label": breakdown_col},
+        )
+        ric1, ric2, ric3 = st.columns(3)
+        ric1.metric("Issues in selection", issue_report_data["total_issues"])
+        ric2.metric("Recurring", issue_report_data["recurring_count"])
+        ric3.metric(
+            "High severity",
+            next((r["Count"] for r in issue_report_data["severity_breakdown"] if r["Severity"] == "High"), 0),
+        )
+        st.download_button(
+            "Download Word", data=reports.render_quality_issue_report_docx(issue_report_data),
+            file_name="quality_issue_report.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="quality_issue_report_docx",
+            on_click=log_export_click, args=("quality_issue_report_docx",),
+            kwargs={"description": f"{severity_label} · {scope_label} · {breakdown_col}"},
+        )
 
-        with st.form(f"edit_obs_{selected.id}"):
-            st.caption(f"Issue type: **{e_type or '(describe the issue above)'}**")
-            ec1, ec2 = st.columns(2)
-            e_severity = ec1.selectbox(
-                "Severity", SEVERITIES,
-                index=SEVERITIES.index(selected.severity) if selected.severity in SEVERITIES else 0,
-                key=f"edit_obs_severity_{selected.id}",
-            )
-            e_frequency = ec2.selectbox(
-                "Frequency", ["One-off", "Recurring"],
-                index=["One-off", "Recurring"].index(selected.frequency) if selected.frequency in ["One-off", "Recurring"] else 0,
-                key=f"edit_obs_frequency_{selected.id}",
-            )
-            e_location = st.text_input("Location in block", value=selected.location_in_block or "", key=f"edit_obs_location_{selected.id}")
-            e_cause = st.text_area("Suspected cause", value=selected.suspected_cause or "", key=f"edit_obs_cause_{selected.id}")
-            e_confidence = st.selectbox(
-                "Confidence level *", CONFIDENCE_LEVELS,
-                index=CONFIDENCE_LEVELS.index(selected.confidence_level) if selected.confidence_level in CONFIDENCE_LEVELS else 2,
-                key=f"edit_obs_confidence_{selected.id}",
-            )
-            e_product_impact = st.text_area("Product impact", value=selected.product_impact or "", key=f"edit_obs_pimpact_{selected.id}")
-            e_customer_impact = st.text_area("Customer impact", value=selected.customer_impact or "", key=f"edit_obs_cimpact_{selected.id}")
-            e_notes = st.text_area("Notes", value=selected.notes or "", key=f"edit_obs_notes_{selected.id}")
-            e_observed_at = st.date_input("Observed on", value=selected.observed_at or dt.date.today(), key=f"edit_obs_observed_{selected.id}")
-            if st.form_submit_button("Save changes", disabled=not page_usable) and page_usable:
-                if not e_type:
-                    st.error("Issue type is required.")
-                elif not e_parent:
-                    st.error(f"{e_source_type} is required.")
-                else:
-                    selected.production_run_id = None
-                    selected.customer_trial_id = None
-                    selected.optimization_trial_id = None
-                    setattr(selected, sample_source_fk_field(e_source_type), e_parent.id)
-                    selected.observation_type = e_type
-                    selected.severity = e_severity
-                    selected.frequency = e_frequency
-                    selected.location_in_block = e_location
-                    selected.suspected_cause = e_cause
-                    selected.confidence_level = e_confidence
-                    selected.product_impact = e_product_impact
-                    selected.customer_impact = e_customer_impact
-                    selected.notes = e_notes
-                    selected.observed_at = e_observed_at
-                    session.commit()
-                    st.success("Quality issue updated.")
-                    st.rerun()
+        selected_id = st.session_state.get("obs_selected_id")
+        selected = next((o for o in observations if o.id == selected_id), None) or (
+            session.query(QualityObservation).filter(QualityObservation.id == selected_id).first()
+            if selected_id else None
+        )
 
-        def _do_delete_obs(_session=session, _id=selected.id):
-            _session.query(QualityObservation).filter(QualityObservation.id == _id).delete(synchronize_session=False)
-            _session.commit()
-            st.session_state.pop("obs_selected_id", None)
+        if selected:
+            st.divider()
+            st.subheader(f"Edit: {selected.observation_type}")
+            st.caption(f"Production Method: {production_method_label(selected)}")
 
-        if page_usable:
-            delete_with_confirm(
-                "this quality issue", _do_delete_obs, key_prefix=f"obs_{selected.id}",
-                extra_warning="This is a leaf record — deleting it has no other effects.",
+            # Source/parent + trial link are rendered OUTSIDE the form, same
+            # reasoning as the issue-type picker below: the parent/trial
+            # dropdowns' options depend on the source type and parent currently
+            # selected, so they need to react immediately rather than waiting
+            # for form submit. This also preserves a real gap-fix from before
+            # the 3-source rework - which run this issue was recorded against
+            # used to be fixed at creation time with no way to correct it
+            # later; now the source (Production Run / Customer Trial /
+            # Optimization Trial) and its parent can both be corrected too.
+            current_source, _ = _obs_source_desc(selected)
+            available_edit_sources = [
+                s for s in SAMPLE_SOURCE_TYPES
+                if (s == "Production Run" and runs)
+                or (s == "Customer Trial" and customer_trials)
+                or (s == "Optimization Trial" and optimization_trials)
+                or s == current_source
+            ]
+            e_source_type = st.selectbox(
+                "Record against *", available_edit_sources,
+                index=available_edit_sources.index(current_source) if current_source in available_edit_sources else 0,
+                key=f"edit_obs_source_{selected.id}",
             )
-        else:
-            st.caption("View-only access - deleting is restricted for your role.")
+            if e_source_type == "Production Run":
+                run_options = runs
+                run_default = next((i for i, r in enumerate(run_options) if r.id == selected.production_run_id), 0)
+                e_parent = st.selectbox(
+                    "Production run *", run_options, index=run_default,
+                    format_func=lambda r: f"Run #{r.id} — {r.foam_grade.grade_name} · {r.run_date}",
+                    key=f"edit_obs_run_{selected.id}",
+                )
+            elif e_source_type == "Customer Trial":
+                ct_default = next((i for i, t in enumerate(customer_trials) if t.id == selected.customer_trial_id), 0)
+                e_parent = st.selectbox(
+                    "Customer trial *", customer_trials, index=ct_default,
+                    format_func=lambda t: f"Trial #{t.id} — {t.foam_grade.grade_name} · {t.customer_name} · {t.trial_date or '—'}",
+                    key=f"edit_obs_ct_{selected.id}",
+                )
+            else:
+                ot_default = next((i for i, t in enumerate(optimization_trials) if t.id == selected.optimization_trial_id), 0)
+                e_parent = st.selectbox(
+                    "Optimization trial *", optimization_trials, index=ot_default,
+                    format_func=lambda t: (
+                        f"Trial #{t.id} — {t.foam_grade.grade_name} · "
+                        f"{t.improvement_initiative_reference or '(no reference)'} · {t.trial_date or '—'}"
+                    ),
+                    key=f"edit_obs_ot_{selected.id}",
+                )
 
-        if st.button("Clear selection", key="clear_obs_selection"):
-            st.session_state.pop("obs_selected_id", None)
-            st.rerun()
+            e_type, e_typical_causes = _issue_type_picker(f"edit_obs_{selected.id}", current_value=selected.observation_type)
+            if e_typical_causes:
+                st.caption(f"Typical causes/checks: {e_typical_causes}")
+
+            with st.form(f"edit_obs_{selected.id}"):
+                st.caption(f"Issue type: **{e_type or '(describe the issue above)'}**")
+                ec1, ec2 = st.columns(2)
+                e_severity = ec1.selectbox(
+                    "Severity", SEVERITIES,
+                    index=SEVERITIES.index(selected.severity) if selected.severity in SEVERITIES else 0,
+                    key=f"edit_obs_severity_{selected.id}",
+                )
+                e_frequency = ec2.selectbox(
+                    "Frequency", ["One-off", "Recurring"],
+                    index=["One-off", "Recurring"].index(selected.frequency) if selected.frequency in ["One-off", "Recurring"] else 0,
+                    key=f"edit_obs_frequency_{selected.id}",
+                )
+                e_location = st.text_input("Location in block", value=selected.location_in_block or "", key=f"edit_obs_location_{selected.id}")
+                e_cause = st.text_area("Suspected cause", value=selected.suspected_cause or "", key=f"edit_obs_cause_{selected.id}")
+                e_confidence = st.selectbox(
+                    "Confidence level *", CONFIDENCE_LEVELS,
+                    index=CONFIDENCE_LEVELS.index(selected.confidence_level) if selected.confidence_level in CONFIDENCE_LEVELS else 2,
+                    key=f"edit_obs_confidence_{selected.id}",
+                )
+                e_product_impact = st.text_area("Product impact", value=selected.product_impact or "", key=f"edit_obs_pimpact_{selected.id}")
+                e_customer_impact = st.text_area("Customer impact", value=selected.customer_impact or "", key=f"edit_obs_cimpact_{selected.id}")
+                e_notes = st.text_area("Notes", value=selected.notes or "", key=f"edit_obs_notes_{selected.id}")
+                e_observed_at = st.date_input("Observed on", value=selected.observed_at or dt.date.today(), key=f"edit_obs_observed_{selected.id}")
+                if st.form_submit_button("Save changes", disabled=not page_usable) and page_usable:
+                    if not e_type:
+                        st.error("Issue type is required.")
+                    elif not e_parent:
+                        st.error(f"{e_source_type} is required.")
+                    else:
+                        selected.production_run_id = None
+                        selected.customer_trial_id = None
+                        selected.optimization_trial_id = None
+                        setattr(selected, sample_source_fk_field(e_source_type), e_parent.id)
+                        selected.observation_type = e_type
+                        selected.severity = e_severity
+                        selected.frequency = e_frequency
+                        selected.location_in_block = e_location
+                        selected.suspected_cause = e_cause
+                        selected.confidence_level = e_confidence
+                        selected.product_impact = e_product_impact
+                        selected.customer_impact = e_customer_impact
+                        selected.notes = e_notes
+                        selected.observed_at = e_observed_at
+                        session.commit()
+                        st.success("Quality issue updated.")
+                        st.rerun()
+
+            def _do_delete_obs(_session=session, _id=selected.id):
+                _session.query(QualityObservation).filter(QualityObservation.id == _id).delete(synchronize_session=False)
+                _session.commit()
+                st.session_state.pop("obs_selected_id", None)
+
+            if page_usable:
+                delete_with_confirm(
+                    "this quality issue", _do_delete_obs, key_prefix=f"obs_{selected.id}",
+                    extra_warning="This is a leaf record — deleting it has no other effects.",
+                )
+            else:
+                st.caption("View-only access - deleting is restricted for your role.")
+
+            if st.button("Clear selection", key="clear_obs_selection"):
+                st.session_state.pop("obs_selected_id", None)
+                st.rerun()
 

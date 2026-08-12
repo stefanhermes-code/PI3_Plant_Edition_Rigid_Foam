@@ -50,6 +50,7 @@ from db import (
 from helpers import (
     clickable_table,
     combine_date_time,
+    cr11_function_tab_labels,
     csv_excel_uploader,
     dedupe_import_rows,
     delete_with_confirm,
@@ -100,7 +101,7 @@ render_function_action_intro(
         "Create Trial: flag a new customer trial, then use Manage samples below to add/edit/import "
         "samples for it (or for any other open trial).",
         "Edit/Delete Trial: update or close out an existing trial, or delete it.",
-        "CSV / Excel import: bulk-create trials from a spreadsheet.",
+        "CSV/Excel import Trials: bulk-create trials from a spreadsheet.",
     ],
     action_note=(
         "Log quality test results / quality issues against a trial from the Quality Test Result and "
@@ -154,8 +155,12 @@ def _resolve_recipe_version(grade_id):
     return current_version.id if current_version else None
 
 
+# CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
+# Functions, 2026-08-12): wording aligned via cr11_function_tab_labels();
+# "Sample Report" is a page-specific 4th tab beyond the CR-11 standard 3,
+# which the CR explicitly allows to remain.
 tab_create, tab_edit_delete, tab_import, tab_report = st.tabs(
-    ["Create Trial", "Edit/Delete Trial", "CSV / Excel import", "Sample Report"]
+    [*cr11_function_tab_labels("Trial"), "Sample Report"]
 )
 
 with tab_create:
@@ -211,7 +216,8 @@ with tab_create:
             format_func=lambda t: f"#{t.id} — {t.customer_name} ({t.foam_grade.grade_name}, {t.status})",
             key="ct_manage_trial",
         )
-        sub_create, sub_edit_delete, sub_import = st.tabs(["Create Sample", "Edit/Delete Sample", "CSV / Excel import"])
+        # CR-11: nested Sample sub-tabs aligned to the same standard.
+        sub_create, sub_edit_delete, sub_import = st.tabs(cr11_function_tab_labels("Sample"))
 
         managed_trial_is_rigid = _is_rigid_grade(managed_trial.foam_grade)
         with sub_create:

@@ -44,6 +44,7 @@ from db import (
 from helpers import (
     clickable_table,
     combine_date_time,
+    cr11_function_tab_labels,
     csv_excel_uploader,
     dedupe_import_rows,
     delete_with_confirm,
@@ -101,8 +102,12 @@ if not runs:
     st.warning("Create a production run first (Production Run page).")
     st.stop()
 
+# CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
+# Functions, 2026-08-12): wording aligned via cr11_function_tab_labels();
+# "Sample Report" is a page-specific 4th tab beyond the CR-11 standard 3,
+# which the CR explicitly allows to remain.
 tab_create, tab_edit_delete, tab_import, tab_report = st.tabs(
-    ["Create Sample", "Edit/Delete Sample", "CSV / Excel import", "Sample Report"]
+    [*cr11_function_tab_labels("Sample"), "Sample Report"]
 )
 
 with tab_create:

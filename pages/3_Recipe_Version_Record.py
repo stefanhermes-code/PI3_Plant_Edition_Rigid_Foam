@@ -71,6 +71,7 @@ from db import (
 from helpers import (
     activate_recipe_version,
     clickable_table,
+    cr11_function_tab_labels,
     csv_excel_uploader,
     dedupe_import_rows,
     delete_with_confirm,
@@ -115,7 +116,7 @@ render_function_action_intro(
     ),
     action_text=(
         "Use 'Create Recipe' to start a brand-new formulation for a product grade that doesn't have "
-        "one yet, or 'Edit Recipe' to revise the currently active one - saving automatically "
+        "one yet, or 'Edit/Delete Recipe' to revise the currently active one - saving automatically "
         "records it as a new version and retires the one it replaces, so you don't have to manage "
         "version numbers or active flags by hand. Add raw materials to a recipe by name (typing a "
         "new one creates it in Raw Materials automatically) with its php and role in the "
@@ -201,7 +202,14 @@ def _active_version(grade):
 # ---------------------------------------------------------------------------
 # Recipe versions (header record)
 # ---------------------------------------------------------------------------
-tab_create, tab_edit, tab_import = st.tabs(["Create Recipe", "Edit Recipe", "CSV / Excel import"])
+# CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
+# Functions, 2026-08-12): tab wording/order aligned to the app-wide standard
+# via helpers.cr11_function_tab_labels() - "Edit Recipe" -> "Edit/Delete
+# Recipe" (delete already lives inside this tab, via delete_with_confirm()
+# further down - only the label was stale), and "CSV / Excel import" ->
+# "CSV/Excel import Recipes" (no spaces around the slash, plural record
+# name appended).
+tab_create, tab_edit, tab_import = st.tabs(cr11_function_tab_labels("Recipe"))
 
 with tab_create:
     if not page_usable:

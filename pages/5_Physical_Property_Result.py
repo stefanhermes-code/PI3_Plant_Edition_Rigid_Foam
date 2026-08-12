@@ -56,6 +56,7 @@ from db import (
 )
 from helpers import (
     clickable_table,
+    cr11_function_tab_labels,
     csv_excel_uploader,
     dedupe_import_rows,
     delete_with_confirm,
@@ -204,9 +205,14 @@ if not property_defs:
         "physical_property_definitions/methods/uoms before recording results."
     )
 
-tab_result_manual, tab_result_import = st.tabs(["Add quality test result", "CSV / Excel import"])
+# CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
+# Functions, 2026-08-12): wording/order aligned via
+# cr11_function_tab_labels(). The Edit/Delete content (previously a
+# below-the-tabs browse/edit/delete section) is now the middle sibling
+# tab - see tab_edit_delete below.
+tab_create, tab_edit_delete, tab_import = st.tabs(cr11_function_tab_labels("Quality Test Result"))
 
-with tab_result_manual:
+with tab_create:
     with st.expander("Add quality test result", expanded=False):
         if not page_usable:
             st.caption("View-only access - adding a quality test result is restricted for your role.")
@@ -352,7 +358,7 @@ with tab_result_manual:
                         st.success("Quality test result saved.")
                         st.rerun()
 
-with tab_result_import:
+with tab_import:
     show_pending_banner("result_import_msg")
     st.caption(
         "property_name must match a name in the physical property master list (case-insensitive). "
@@ -502,337 +508,339 @@ with tab_result_import:
             set_pending_banner("result_import_msg", msg)
             st.rerun()
 
-# ---------------------------------------------------------------------------
-# Browse / edit / delete - one flat, filterable table across every result
-# (scoped to the active company), not one mini-table per production run.
-# ---------------------------------------------------------------------------
-st.divider()
-st.subheader("Quality test results")
 
-filter_col1, filter_col2, filter_col3 = st.columns([1, 1, 1])
-with filter_col1:
-    pass_fail_options = ["Pass", "Fail", "Not computed"]
-    pass_fail_filter = st.multiselect("Pass/Fail filter", pass_fail_options, default=pass_fail_options)
-with filter_col2:
-    property_name_options = sorted({p.name for p in property_defs}) if property_defs else []
-    property_filter = (
-        st.multiselect("Property filter", property_name_options, default=property_name_options)
-        if property_name_options
-        else None
-    )
-with filter_col3:
-    # Foam scope - "All product grades" pools the whole company's results (the
-    # common case: which properties fail most, overall), while Foam
-    # grade/family narrows to one grade or a whole family (e.g. "Comfort
-    # foams that failed") - both this filter set and the Pareto chart below
-    # read from the same scoped_grade_ids, so the chart always matches
-    # exactly what the table above it shows.
-    scoped_grades = (
-        apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids_for_company(session, active_company_id))
-        .order_by(FoamGrade.grade_name)
-        .all()
-    )
-    foam_scope_mode = st.radio(
-        "Foam scope", ["All product grades", "Product grade", "Foam family"], key="qtr_foam_scope_mode"
-    )
-    if foam_scope_mode == "All product grades" or not scoped_grades:
-        scope_grade_ids = None
-        scope_label = "all product grades"
-    elif foam_scope_mode == "Product grade":
-        scope_grade = st.selectbox(
-            "Product grade", scoped_grades, format_func=lambda g: g.grade_name, key="qtr_foam_scope_grade"
-        )
-        scope_grade_ids = [scope_grade.id] if scope_grade else []
-        scope_label = scope_grade.grade_name if scope_grade else "—"
-    else:
-        families = sorted({g.product_family for g in scoped_grades if g.product_family}, key=lambda f: f.name)
-        if not families:
-            st.caption("No foam family available for these grades yet.")
-            scope_grade_ids = []
-            scope_label = "—"
-        else:
-            scope_family = st.selectbox(
-                "Foam family", families, format_func=lambda f: f.name, key="qtr_foam_scope_family"
-            )
-            scope_grade_ids = [g.id for g in scoped_grades if g.product_family_id == scope_family.id]
-            scope_label = scope_family.name
-
-results_query = session.query(PhysicalPropertyResult)
-if active_company_id is not None:
-    results_query = results_query.filter(
-        or_(
-            PhysicalPropertyResult.production_run_id.in_(run_ids or []),
-            PhysicalPropertyResult.customer_trial_id.in_(customer_trial_ids or []),
-            PhysicalPropertyResult.optimization_trial_id.in_(optimization_trial_ids or []),
-        )
-    )
-if property_filter is not None:
-    results_query = results_query.filter(PhysicalPropertyResult.property_name.in_(property_filter))
-all_results = results_query.order_by(PhysicalPropertyResult.tested_at.desc()).all()
-
-# Pass/Fail is recomputed live rather than trusted from the stored column -
-# see the same note in analytics.property_results_dataframe - so this
-# filter is applied here in Python against the live verdict, not as a SQL
-# WHERE clause against the stored (possibly stale) column. Foam scope is
-# applied here too (rather than a SQL join) since a result's product grade is
-# reached through whichever of the three mutually-exclusive parents it
-# has - see _result_foam_grade_id().
-filtered_results = []
-for r in all_results:
-    if scope_grade_ids is not None and _result_foam_grade_id(r) not in (scope_grade_ids or []):
-        continue
-    live_pass_fail = compute_pass_fail(r.property_name, r.target_value, r.actual_value)
-    if (live_pass_fail or "Not computed") in pass_fail_filter:
-        filtered_results.append((r, live_pass_fail))
-
-if not filtered_results:
-    st.info("No quality test results match this filter.")
-else:
-    result_rows = []
-    for r, live_pass_fail in filtered_results:
-        source_label, source_desc = _result_source_desc(r)
-        result_rows.append(
-            {
-                "Source": source_label,
-                "Parent": source_desc,
-                "Production Method": production_method_label(r),
-                "Property": r.property_name,
-                "Target": r.target_value,
-                "Actual": r.actual_value,
-                "Unit": r.unit,
-                "Pass/Fail": live_pass_fail or "—",
-                "Sample": f"#{r.sample_id} ({r.sample.zone_label})" if r.sample else "—",
-                "Method": r.test_method,
-                "Rev.": r.method_revision,
-                "Replicate": r.replicate_no,
-                "Tested": r.tested_at,
-                "Notes": r.notes,
-            }
-        )
-    st.caption(f"{len(filtered_results)} result(s). Click a row to edit (and optionally delete) that result.")
-    idx = clickable_table(result_rows, key="results_table")
-    if idx is not None and idx < len(filtered_results):
-        st.session_state["result_selected_id"] = filtered_results[idx][0].id
-    else:
-        st.session_state.pop("result_selected_id", None)
-
-    # -----------------------------------------------------------------------
-    # Breakdown by property - same filtered set as the table above (Pass/
-    # Fail, Property, and foam scope filters all apply), grouped by property
-    # instead of listed row by row. Answers "which properties are behind
-    # most of these results" at a glance - e.g. Pass/Fail = Fail, Foam scope
-    # = a foam family, to see which property fails most often for that
-    # family - rather than scrolling the raw table counting rows by eye.
+with tab_edit_delete:
+    # ---------------------------------------------------------------------------
+    # Browse / edit / delete - one flat, filterable table across every result
+    # (scoped to the active company), not one mini-table per production run.
+    # ---------------------------------------------------------------------------
     st.divider()
-    st.subheader("Breakdown by property")
-    st.caption(
-        f"{len(filtered_results)} result(s) for {scope_label}, using the Pass/Fail and Property "
-        "filters above."
-    )
-    property_counts = (
-        pd.Series([r.property_name for r, _ in filtered_results], name="Property")
-        .value_counts()
-        .rename_axis("Property")
-        .reset_index(name="Count")
-    )
-    render_pareto_chart(property_counts, category_col="Property", count_col="Count")
+    st.subheader("Quality test results")
 
-    # -------------------------------------------------------------------
-    # Test Results Report - exports exactly this selection (Pass/
-    # Fail + Property + Foam scope filters above), aggregated into a
-    # pass-rate summary, failure breakdown charts, and a curated table of
-    # just the failing results - not a dump of every row in the table
-    # above (the CSV export on that table already covers that). This
-    # report lives here rather than on the Report page because it needs
-    # this comprehensive selection built first, unlike the Report page's
-    # other reports which are each a single dropdown choice.
-    st.divider()
-    st.subheader("Test Results Report")
-    if set(pass_fail_filter) == set(pass_fail_options):
-        pass_fail_label = "All"
-    elif pass_fail_filter:
-        pass_fail_label = ", ".join(pass_fail_filter)
-    else:
-        pass_fail_label = "None selected"
-    if property_filter is None or (property_name_options and set(property_filter) == set(property_name_options)):
-        property_label = "All properties"
-    elif not property_filter:
-        property_label = "None selected"
-    elif len(property_filter) <= 5:
-        property_label = ", ".join(property_filter)
-    else:
-        property_label = f"{len(property_filter)} of {len(property_name_options)} properties"
-    st.caption(f"Pass/Fail: {pass_fail_label} · Property: {property_label} · Foam scope: {scope_label}")
-
-    report_data = reports.build_quality_test_report_data(
-        session, [r.id for r, _ in filtered_results],
-        {"pass_fail_label": pass_fail_label, "property_label": property_label, "foam_scope_label": scope_label},
-    )
-    rc1, rc2, rc3 = st.columns(3)
-    rc1.metric("Results in selection", report_data["total_results"])
-    rc2.metric("Pass rate", f"{report_data['pass_rate']}%" if report_data["pass_rate"] is not None else "—")
-    rc3.metric("Failing results", report_data["fail_count"])
-    st.download_button(
-        "Download Word", data=reports.render_quality_test_report_docx(report_data),
-        file_name="quality_test_result_report.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        key="quality_test_report_docx",
-        on_click=log_export_click, args=("quality_test_report_docx",),
-        kwargs={"description": f"{pass_fail_label} · {property_label} · {scope_label}"},
-    )
-
-selected_result_id = st.session_state.get("result_selected_id")
-selected_result = (
-    session.query(PhysicalPropertyResult).filter(PhysicalPropertyResult.id == selected_result_id).first()
-    if selected_result_id else None
-)
-
-if selected_result:
-    st.divider()
-    edit_source_label, edit_source_desc = _result_source_desc(selected_result)
-    st.subheader(f"Edit quality test result #{selected_result.id}")
-    st.caption(
-        f"{edit_source_label}: {edit_source_desc} · Production Method: {production_method_label(selected_result)} "
-        "— which run/trial this belongs to can't be changed here."
-    )
-    # Same controlled method/UOM pickers as the Add form above, scoped to
-    # this result's own property - previously this edit form used a free
-    # text_input for both fields, which lost the structured picker the Add
-    # form offers (see PI3_Gaps_and_Ambiguities.docx, findings 2.5/2.6).
-    methods_for_edit = (
-        session.query(PhysicalPropertyMethod)
-        .filter(PhysicalPropertyMethod.property_definition_id == selected_result.property_definition_id)
-        .order_by(PhysicalPropertyMethod.sort_order)
-        .all()
-        if selected_result.property_definition_id
-        else []
-    )
-    uoms_for_edit = (
-        session.query(PhysicalPropertyUOM)
-        .filter(PhysicalPropertyUOM.property_definition_id == selected_result.property_definition_id)
-        .order_by(PhysicalPropertyUOM.sort_order)
-        .all()
-        if selected_result.property_definition_id
-        else []
-    )
-    method_match_idx = next(
-        (i for i, m in enumerate(methods_for_edit) if m.method_code == selected_result.test_method), None
-    )
-    uom_match_idx = next(
-        (i for i, u in enumerate(uoms_for_edit) if u.unit_label == selected_result.unit), None
-    )
-    with st.form(f"edit_result_{selected_result.id}"):
-        samples_for_edit = _samples_for_parent(
-            session, edit_source_label,
-            selected_result.production_run_id or selected_result.customer_trial_id or selected_result.optimization_trial_id,
-        ) if edit_source_label in SAMPLE_SOURCE_TYPES else []
-        sample_options = [None] + samples_for_edit
-        sample_default = next((i for i, s in enumerate(sample_options) if s and s.id == selected_result.sample_id), 0)
-        e_sample = st.selectbox(
-            "Sample (optional)", sample_options, index=sample_default,
-            format_func=lambda s: "— not linked to a sample —" if s is None else f"Sample #{s.id} — {s.zone_label}",
-            key=f"edit_result_sample_{selected_result.id}",
+    filter_col1, filter_col2, filter_col3 = st.columns([1, 1, 1])
+    with filter_col1:
+        pass_fail_options = ["Pass", "Fail", "Not computed"]
+        pass_fail_filter = st.multiselect("Pass/Fail filter", pass_fail_options, default=pass_fail_options)
+    with filter_col2:
+        property_name_options = sorted({p.name for p in property_defs}) if property_defs else []
+        property_filter = (
+            st.multiselect("Property filter", property_name_options, default=property_name_options)
+            if property_name_options
+            else None
         )
-        ec1, ec2 = st.columns(2)
-        e_target = ec1.number_input(
-            "Target value", step=0.1, value=float(selected_result.target_value or 0.0), key=f"edit_result_target_{selected_result.id}"
+    with filter_col3:
+        # Foam scope - "All product grades" pools the whole company's results (the
+        # common case: which properties fail most, overall), while Foam
+        # grade/family narrows to one grade or a whole family (e.g. "Comfort
+        # foams that failed") - both this filter set and the Pareto chart below
+        # read from the same scoped_grade_ids, so the chart always matches
+        # exactly what the table above it shows.
+        scoped_grades = (
+            apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids_for_company(session, active_company_id))
+            .order_by(FoamGrade.grade_name)
+            .all()
         )
-        e_actual = ec2.number_input(
-            "Actual value", step=0.1, value=float(selected_result.actual_value or 0.0), key=f"edit_result_actual_{selected_result.id}"
+        foam_scope_mode = st.radio(
+            "Foam scope", ["All product grades", "Product grade", "Foam family"], key="qtr_foam_scope_mode"
         )
-        st.caption(
-            f"Industry accepted tolerance for {selected_result.property_name}: "
-            f"{tolerance_label(selected_result.property_name)}"
-        )
-
-        emc1, emc2 = st.columns(2)
-        if methods_for_edit:
-            e_method_choice = emc1.selectbox(
-                "Measuring method", methods_for_edit, index=method_match_idx or 0,
-                format_func=lambda m: m.method_code, key=f"edit_result_method_select_{selected_result.id}",
+        if foam_scope_mode == "All product grades" or not scoped_grades:
+            scope_grade_ids = None
+            scope_label = "all product grades"
+        elif foam_scope_mode == "Product grade":
+            scope_grade = st.selectbox(
+                "Product grade", scoped_grades, format_func=lambda g: g.grade_name, key="qtr_foam_scope_grade"
             )
+            scope_grade_ids = [scope_grade.id] if scope_grade else []
+            scope_label = scope_grade.grade_name if scope_grade else "—"
         else:
-            e_method_choice = None
-        e_method_other = emc1.text_input(
-            "Or type a method not listed above",
-            value=(selected_result.test_method or "") if method_match_idx is None else "",
-            key=f"edit_result_method_other_{selected_result.id}",
-        )
-        if uoms_for_edit:
-            e_uom_choice = emc2.selectbox(
-                "Unit of measure", uoms_for_edit, index=uom_match_idx or 0,
-                format_func=lambda u: u.unit_label, key=f"edit_result_uom_select_{selected_result.id}",
-            )
-        else:
-            e_uom_choice = None
-        e_uom_other = emc2.text_input(
-            "Or type a unit not listed above",
-            value=(selected_result.unit or "") if uom_match_idx is None else "",
-            key=f"edit_result_uom_other_{selected_result.id}",
-        )
-        e_revision = st.text_input(
-            "Method edition / revision", value=selected_result.method_revision or "", key=f"edit_result_rev_{selected_result.id}"
-        )
-        e_replicate = st.number_input(
-            "Replicate no.", min_value=1, step=1, value=selected_result.replicate_no or 1,
-            key=f"edit_result_replicate_{selected_result.id}",
-            help=(
-                "Which repeat this is when the same property is tested more than once on the same "
-                "sample (e.g. running tensile strength 3 times for a reliable average) - use 1 for "
-                "the first/only measurement, 2 for the second, and so on."
-            ),
-        )
-        e_thickness = st.number_input(
-            "Specimen thickness (mm)", min_value=0.0, step=0.1,
-            value=float(selected_result.thickness_mm or 0.0), key=f"edit_result_thickness_{selected_result.id}",
-            help=(
-                "Thickness of THIS specific test specimen as measured - not the parent sample's "
-                "general thickness. Required for thermal conductivity and compressive strength to "
-                "be evaluated against a grade specification."
-            ),
-        )
-        e_tested_at = st.date_input(
-            "Tested on", value=selected_result.tested_at or dt.date.today(), key=f"edit_result_tested_{selected_result.id}"
-        )
-        e_notes = st.text_area("Notes", value=selected_result.notes or "", key=f"edit_result_notes_{selected_result.id}")
-        if st.form_submit_button("Save changes", disabled=not page_usable) and page_usable:
-            e_method = e_method_other.strip() or (e_method_choice.method_code if e_method_choice else "")
-            e_unit = e_uom_other.strip() or (e_uom_choice.unit_label if e_uom_choice else "")
-            if not e_method:
-                st.error("A measuring method is required.")
+            families = sorted({g.product_family for g in scoped_grades if g.product_family}, key=lambda f: f.name)
+            if not families:
+                st.caption("No foam family available for these grades yet.")
+                scope_grade_ids = []
+                scope_label = "—"
             else:
-                pass_fail = compute_pass_fail(selected_result.property_name, e_target, e_actual)
-                selected_result.sample_id = e_sample.id if e_sample else None
-                selected_result.target_value = e_target or None
-                selected_result.actual_value = e_actual or None
-                selected_result.unit = e_unit
-                selected_result.pass_fail = pass_fail
-                selected_result.test_method = e_method
-                selected_result.property_method_id = (
-                    e_method_choice.id if (e_method_choice and not e_method_other.strip()) else None
+                scope_family = st.selectbox(
+                    "Foam family", families, format_func=lambda f: f.name, key="qtr_foam_scope_family"
                 )
-                selected_result.method_revision = e_revision
-                selected_result.replicate_no = int(e_replicate)
-                selected_result.thickness_mm = e_thickness or None
-                selected_result.tested_at = e_tested_at
-                selected_result.notes = e_notes
-                session.commit()
-                st.success("Quality test result updated.")
-                st.rerun()
+                scope_grade_ids = [g.id for g in scoped_grades if g.product_family_id == scope_family.id]
+                scope_label = scope_family.name
 
-    def _do_delete_result(_session=session, _id=selected_result.id):
-        _session.query(PhysicalPropertyResult).filter(PhysicalPropertyResult.id == _id).delete(synchronize_session=False)
-        _session.commit()
-        st.session_state.pop("result_selected_id", None)
-
-    if page_usable:
-        delete_with_confirm(
-            f"result #{selected_result.id}", _do_delete_result, key_prefix=f"result_{selected_result.id}",
-            extra_warning="This is a leaf record — deleting it has no other effects.",
+    results_query = session.query(PhysicalPropertyResult)
+    if active_company_id is not None:
+        results_query = results_query.filter(
+            or_(
+                PhysicalPropertyResult.production_run_id.in_(run_ids or []),
+                PhysicalPropertyResult.customer_trial_id.in_(customer_trial_ids or []),
+                PhysicalPropertyResult.optimization_trial_id.in_(optimization_trial_ids or []),
+            )
         )
-    else:
-        st.caption("View-only access - deleting is restricted for your role.")
+    if property_filter is not None:
+        results_query = results_query.filter(PhysicalPropertyResult.property_name.in_(property_filter))
+    all_results = results_query.order_by(PhysicalPropertyResult.tested_at.desc()).all()
 
-    if st.button("Clear selection", key="clear_result_selection"):
-        st.session_state.pop("result_selected_id", None)
-        st.rerun()
+    # Pass/Fail is recomputed live rather than trusted from the stored column -
+    # see the same note in analytics.property_results_dataframe - so this
+    # filter is applied here in Python against the live verdict, not as a SQL
+    # WHERE clause against the stored (possibly stale) column. Foam scope is
+    # applied here too (rather than a SQL join) since a result's product grade is
+    # reached through whichever of the three mutually-exclusive parents it
+    # has - see _result_foam_grade_id().
+    filtered_results = []
+    for r in all_results:
+        if scope_grade_ids is not None and _result_foam_grade_id(r) not in (scope_grade_ids or []):
+            continue
+        live_pass_fail = compute_pass_fail(r.property_name, r.target_value, r.actual_value)
+        if (live_pass_fail or "Not computed") in pass_fail_filter:
+            filtered_results.append((r, live_pass_fail))
+
+    if not filtered_results:
+        st.info("No quality test results match this filter.")
+    else:
+        result_rows = []
+        for r, live_pass_fail in filtered_results:
+            source_label, source_desc = _result_source_desc(r)
+            result_rows.append(
+                {
+                    "Source": source_label,
+                    "Parent": source_desc,
+                    "Production Method": production_method_label(r),
+                    "Property": r.property_name,
+                    "Target": r.target_value,
+                    "Actual": r.actual_value,
+                    "Unit": r.unit,
+                    "Pass/Fail": live_pass_fail or "—",
+                    "Sample": f"#{r.sample_id} ({r.sample.zone_label})" if r.sample else "—",
+                    "Method": r.test_method,
+                    "Rev.": r.method_revision,
+                    "Replicate": r.replicate_no,
+                    "Tested": r.tested_at,
+                    "Notes": r.notes,
+                }
+            )
+        st.caption(f"{len(filtered_results)} result(s). Click a row to edit (and optionally delete) that result.")
+        idx = clickable_table(result_rows, key="results_table")
+        if idx is not None and idx < len(filtered_results):
+            st.session_state["result_selected_id"] = filtered_results[idx][0].id
+        else:
+            st.session_state.pop("result_selected_id", None)
+
+        # -----------------------------------------------------------------------
+        # Breakdown by property - same filtered set as the table above (Pass/
+        # Fail, Property, and foam scope filters all apply), grouped by property
+        # instead of listed row by row. Answers "which properties are behind
+        # most of these results" at a glance - e.g. Pass/Fail = Fail, Foam scope
+        # = a foam family, to see which property fails most often for that
+        # family - rather than scrolling the raw table counting rows by eye.
+        st.divider()
+        st.subheader("Breakdown by property")
+        st.caption(
+            f"{len(filtered_results)} result(s) for {scope_label}, using the Pass/Fail and Property "
+            "filters above."
+        )
+        property_counts = (
+            pd.Series([r.property_name for r, _ in filtered_results], name="Property")
+            .value_counts()
+            .rename_axis("Property")
+            .reset_index(name="Count")
+        )
+        render_pareto_chart(property_counts, category_col="Property", count_col="Count")
+
+        # -------------------------------------------------------------------
+        # Test Results Report - exports exactly this selection (Pass/
+        # Fail + Property + Foam scope filters above), aggregated into a
+        # pass-rate summary, failure breakdown charts, and a curated table of
+        # just the failing results - not a dump of every row in the table
+        # above (the CSV export on that table already covers that). This
+        # report lives here rather than on the Report page because it needs
+        # this comprehensive selection built first, unlike the Report page's
+        # other reports which are each a single dropdown choice.
+        st.divider()
+        st.subheader("Test Results Report")
+        if set(pass_fail_filter) == set(pass_fail_options):
+            pass_fail_label = "All"
+        elif pass_fail_filter:
+            pass_fail_label = ", ".join(pass_fail_filter)
+        else:
+            pass_fail_label = "None selected"
+        if property_filter is None or (property_name_options and set(property_filter) == set(property_name_options)):
+            property_label = "All properties"
+        elif not property_filter:
+            property_label = "None selected"
+        elif len(property_filter) <= 5:
+            property_label = ", ".join(property_filter)
+        else:
+            property_label = f"{len(property_filter)} of {len(property_name_options)} properties"
+        st.caption(f"Pass/Fail: {pass_fail_label} · Property: {property_label} · Foam scope: {scope_label}")
+
+        report_data = reports.build_quality_test_report_data(
+            session, [r.id for r, _ in filtered_results],
+            {"pass_fail_label": pass_fail_label, "property_label": property_label, "foam_scope_label": scope_label},
+        )
+        rc1, rc2, rc3 = st.columns(3)
+        rc1.metric("Results in selection", report_data["total_results"])
+        rc2.metric("Pass rate", f"{report_data['pass_rate']}%" if report_data["pass_rate"] is not None else "—")
+        rc3.metric("Failing results", report_data["fail_count"])
+        st.download_button(
+            "Download Word", data=reports.render_quality_test_report_docx(report_data),
+            file_name="quality_test_result_report.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="quality_test_report_docx",
+            on_click=log_export_click, args=("quality_test_report_docx",),
+            kwargs={"description": f"{pass_fail_label} · {property_label} · {scope_label}"},
+        )
+
+    selected_result_id = st.session_state.get("result_selected_id")
+    selected_result = (
+        session.query(PhysicalPropertyResult).filter(PhysicalPropertyResult.id == selected_result_id).first()
+        if selected_result_id else None
+    )
+
+    if selected_result:
+        st.divider()
+        edit_source_label, edit_source_desc = _result_source_desc(selected_result)
+        st.subheader(f"Edit quality test result #{selected_result.id}")
+        st.caption(
+            f"{edit_source_label}: {edit_source_desc} · Production Method: {production_method_label(selected_result)} "
+            "— which run/trial this belongs to can't be changed here."
+        )
+        # Same controlled method/UOM pickers as the Add form above, scoped to
+        # this result's own property - previously this edit form used a free
+        # text_input for both fields, which lost the structured picker the Add
+        # form offers (see PI3_Gaps_and_Ambiguities.docx, findings 2.5/2.6).
+        methods_for_edit = (
+            session.query(PhysicalPropertyMethod)
+            .filter(PhysicalPropertyMethod.property_definition_id == selected_result.property_definition_id)
+            .order_by(PhysicalPropertyMethod.sort_order)
+            .all()
+            if selected_result.property_definition_id
+            else []
+        )
+        uoms_for_edit = (
+            session.query(PhysicalPropertyUOM)
+            .filter(PhysicalPropertyUOM.property_definition_id == selected_result.property_definition_id)
+            .order_by(PhysicalPropertyUOM.sort_order)
+            .all()
+            if selected_result.property_definition_id
+            else []
+        )
+        method_match_idx = next(
+            (i for i, m in enumerate(methods_for_edit) if m.method_code == selected_result.test_method), None
+        )
+        uom_match_idx = next(
+            (i for i, u in enumerate(uoms_for_edit) if u.unit_label == selected_result.unit), None
+        )
+        with st.form(f"edit_result_{selected_result.id}"):
+            samples_for_edit = _samples_for_parent(
+                session, edit_source_label,
+                selected_result.production_run_id or selected_result.customer_trial_id or selected_result.optimization_trial_id,
+            ) if edit_source_label in SAMPLE_SOURCE_TYPES else []
+            sample_options = [None] + samples_for_edit
+            sample_default = next((i for i, s in enumerate(sample_options) if s and s.id == selected_result.sample_id), 0)
+            e_sample = st.selectbox(
+                "Sample (optional)", sample_options, index=sample_default,
+                format_func=lambda s: "— not linked to a sample —" if s is None else f"Sample #{s.id} — {s.zone_label}",
+                key=f"edit_result_sample_{selected_result.id}",
+            )
+            ec1, ec2 = st.columns(2)
+            e_target = ec1.number_input(
+                "Target value", step=0.1, value=float(selected_result.target_value or 0.0), key=f"edit_result_target_{selected_result.id}"
+            )
+            e_actual = ec2.number_input(
+                "Actual value", step=0.1, value=float(selected_result.actual_value or 0.0), key=f"edit_result_actual_{selected_result.id}"
+            )
+            st.caption(
+                f"Industry accepted tolerance for {selected_result.property_name}: "
+                f"{tolerance_label(selected_result.property_name)}"
+            )
+
+            emc1, emc2 = st.columns(2)
+            if methods_for_edit:
+                e_method_choice = emc1.selectbox(
+                    "Measuring method", methods_for_edit, index=method_match_idx or 0,
+                    format_func=lambda m: m.method_code, key=f"edit_result_method_select_{selected_result.id}",
+                )
+            else:
+                e_method_choice = None
+            e_method_other = emc1.text_input(
+                "Or type a method not listed above",
+                value=(selected_result.test_method or "") if method_match_idx is None else "",
+                key=f"edit_result_method_other_{selected_result.id}",
+            )
+            if uoms_for_edit:
+                e_uom_choice = emc2.selectbox(
+                    "Unit of measure", uoms_for_edit, index=uom_match_idx or 0,
+                    format_func=lambda u: u.unit_label, key=f"edit_result_uom_select_{selected_result.id}",
+                )
+            else:
+                e_uom_choice = None
+            e_uom_other = emc2.text_input(
+                "Or type a unit not listed above",
+                value=(selected_result.unit or "") if uom_match_idx is None else "",
+                key=f"edit_result_uom_other_{selected_result.id}",
+            )
+            e_revision = st.text_input(
+                "Method edition / revision", value=selected_result.method_revision or "", key=f"edit_result_rev_{selected_result.id}"
+            )
+            e_replicate = st.number_input(
+                "Replicate no.", min_value=1, step=1, value=selected_result.replicate_no or 1,
+                key=f"edit_result_replicate_{selected_result.id}",
+                help=(
+                    "Which repeat this is when the same property is tested more than once on the same "
+                    "sample (e.g. running tensile strength 3 times for a reliable average) - use 1 for "
+                    "the first/only measurement, 2 for the second, and so on."
+                ),
+            )
+            e_thickness = st.number_input(
+                "Specimen thickness (mm)", min_value=0.0, step=0.1,
+                value=float(selected_result.thickness_mm or 0.0), key=f"edit_result_thickness_{selected_result.id}",
+                help=(
+                    "Thickness of THIS specific test specimen as measured - not the parent sample's "
+                    "general thickness. Required for thermal conductivity and compressive strength to "
+                    "be evaluated against a grade specification."
+                ),
+            )
+            e_tested_at = st.date_input(
+                "Tested on", value=selected_result.tested_at or dt.date.today(), key=f"edit_result_tested_{selected_result.id}"
+            )
+            e_notes = st.text_area("Notes", value=selected_result.notes or "", key=f"edit_result_notes_{selected_result.id}")
+            if st.form_submit_button("Save changes", disabled=not page_usable) and page_usable:
+                e_method = e_method_other.strip() or (e_method_choice.method_code if e_method_choice else "")
+                e_unit = e_uom_other.strip() or (e_uom_choice.unit_label if e_uom_choice else "")
+                if not e_method:
+                    st.error("A measuring method is required.")
+                else:
+                    pass_fail = compute_pass_fail(selected_result.property_name, e_target, e_actual)
+                    selected_result.sample_id = e_sample.id if e_sample else None
+                    selected_result.target_value = e_target or None
+                    selected_result.actual_value = e_actual or None
+                    selected_result.unit = e_unit
+                    selected_result.pass_fail = pass_fail
+                    selected_result.test_method = e_method
+                    selected_result.property_method_id = (
+                        e_method_choice.id if (e_method_choice and not e_method_other.strip()) else None
+                    )
+                    selected_result.method_revision = e_revision
+                    selected_result.replicate_no = int(e_replicate)
+                    selected_result.thickness_mm = e_thickness or None
+                    selected_result.tested_at = e_tested_at
+                    selected_result.notes = e_notes
+                    session.commit()
+                    st.success("Quality test result updated.")
+                    st.rerun()
+
+        def _do_delete_result(_session=session, _id=selected_result.id):
+            _session.query(PhysicalPropertyResult).filter(PhysicalPropertyResult.id == _id).delete(synchronize_session=False)
+            _session.commit()
+            st.session_state.pop("result_selected_id", None)
+
+        if page_usable:
+            delete_with_confirm(
+                f"result #{selected_result.id}", _do_delete_result, key_prefix=f"result_{selected_result.id}",
+                extra_warning="This is a leaf record — deleting it has no other effects.",
+            )
+        else:
+            st.caption("View-only access - deleting is restricted for your role.")
+
+        if st.button("Clear selection", key="clear_result_selection"):
+            st.session_state.pop("result_selected_id", None)
+            st.rerun()

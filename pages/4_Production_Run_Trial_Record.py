@@ -101,6 +101,7 @@ from db import (
 from helpers import (
     clickable_table,
     combine_date_time,
+    cr11_function_tab_labels,
     csv_excel_uploader,
     dedupe_import_rows,
     delete_with_confirm,
@@ -330,9 +331,9 @@ tab_runs, tab_setup, tab_runtime, tab_streams, tab_events = st.tabs(
 # Production Runs — overview/edit/delete + create
 # ---------------------------------------------------------------------------
 with tab_runs:
-    sub_overview, sub_create = st.tabs(["Overview", "Create Production Run"])
+    tab_create, tab_edit_delete, tab_import = st.tabs(cr11_function_tab_labels("Production Run"))
 
-    with sub_overview:
+    with tab_edit_delete:
         if not runs:
             st.info("No production runs yet — use the Create Production Run tab.")
         else:
@@ -499,197 +500,194 @@ with tab_runs:
                     st.session_state.pop("pr_selected_run_id", None)
                     st.rerun()
 
-    with sub_create:
-        sub_manual, sub_import = st.tabs(["Manual entry", "CSV / Excel import"])
+    with tab_create:
+        # run_date lives outside the form so the batch-reference preview
+        # below updates live as it's changed, before the operator commits
+        # to saving - forms otherwise only release widget values on submit.
+        run_date = st.date_input("Run date", value=dt.date.today(), key="create_run_date")
+        batch_reference = _generate_batch_reference(session, run_date, plant_ids)
+        st.caption(
+            f"Batch reference (auto-generated, prevents typos/duplicates): **{batch_reference}**"
+        )
 
-        with sub_manual:
-            # run_date lives outside the form so the batch-reference preview
-            # below updates live as it's changed, before the operator commits
-            # to saving - forms otherwise only release widget values on submit.
-            run_date = st.date_input("Run date", value=dt.date.today(), key="create_run_date")
-            batch_reference = _generate_batch_reference(session, run_date, plant_ids)
-            st.caption(
-                f"Batch reference (auto-generated, prevents typos/duplicates): **{batch_reference}**"
+        with st.form("add_run"):
+            grade = st.selectbox("Product grade *", grades, format_func=lambda g: g.grade_name)
+            # No version picker - see the same note in the Edit Run form above.
+            # A new run always uses whichever recipe version is currently active
+            # for the chosen product grade.
+            versions_for_grade = _cached_versions_for_grade(session, grade.id if grade else None)
+            current_version = next(
+                (v for v in versions_for_grade if v.is_active),
+                versions_for_grade[-1] if versions_for_grade else None,
             )
+            if current_version:
+                st.caption(f"Recipe version in use: **{current_version.version_label}** (current)")
+            else:
+                st.caption("⚠️ This product grade has no recipe version yet - add one on the Recipes page first.")
+            # Filtered to this PU Material's own Machine assignment
+            # (FoamGrade.machines) - see the same note in the Edit Run
+            # form above, including the NULL-is-active handling.
+            assigned_machines = [m for m in grade.machines if m.active is not False] if grade else []
+            machine = st.selectbox(
+                "Production Unit or Cell" + ("" if assigned_machines else " (none assigned to this PU Material yet)"),
+                [None] + assigned_machines,
+                format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
+            )
+            run_method = machine.production_method if machine else None
+            st.caption(
+                f"Plant: **{grade.product_family.plant.name if grade else '—'}** · "
+                f"Production Method: **{run_method.name if run_method else '—'}** · "
+                f"Production Unit or Cell: **{machine.name if machine else '—'}**"
+            )
+            block_reference = st.text_input("Block reference")
+            operator = st.text_input("Operator / team reference")
+            notes = st.text_area("Notes")
 
-            with st.form("add_run"):
-                grade = st.selectbox("Product grade *", grades, format_func=lambda g: g.grade_name)
-                # No version picker - see the same note in the Edit Run form above.
-                # A new run always uses whichever recipe version is currently active
-                # for the chosen product grade.
-                versions_for_grade = _cached_versions_for_grade(session, grade.id if grade else None)
-                current_version = next(
-                    (v for v in versions_for_grade if v.is_active),
-                    versions_for_grade[-1] if versions_for_grade else None,
-                )
-                if current_version:
-                    st.caption(f"Recipe version in use: **{current_version.version_label}** (current)")
+            submitted = st.form_submit_button("Save production run", disabled=not page_usable)
+            if submitted and page_usable:
+                if not current_version:
+                    st.error("This product grade has no recipe version yet — add one on the Recipes page first.")
                 else:
-                    st.caption("⚠️ This product grade has no recipe version yet - add one on the Recipes page first.")
-                # Filtered to this PU Material's own Machine assignment
-                # (FoamGrade.machines) - see the same note in the Edit Run
-                # form above, including the NULL-is-active handling.
-                assigned_machines = [m for m in grade.machines if m.active is not False] if grade else []
-                machine = st.selectbox(
-                    "Production Unit or Cell" + ("" if assigned_machines else " (none assigned to this PU Material yet)"),
-                    [None] + assigned_machines,
-                    format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
-                )
-                run_method = machine.production_method if machine else None
-                st.caption(
-                    f"Plant: **{grade.product_family.plant.name if grade else '—'}** · "
-                    f"Production Method: **{run_method.name if run_method else '—'}** · "
-                    f"Production Unit or Cell: **{machine.name if machine else '—'}**"
-                )
-                block_reference = st.text_input("Block reference")
-                operator = st.text_input("Operator / team reference")
-                notes = st.text_area("Notes")
-
-                submitted = st.form_submit_button("Save production run", disabled=not page_usable)
-                if submitted and page_usable:
-                    if not current_version:
-                        st.error("This product grade has no recipe version yet — add one on the Recipes page first.")
-                    else:
-                        run = ProductionRun(
-                            plant_id=grade.product_family.plant_id,
-                            foam_grade_id=grade.id,
-                            recipe_version_id=current_version.id,
-                            run_date=run_date,
-                            batch_reference=_generate_batch_reference(session, run_date, plant_ids),
-                            block_reference=block_reference,
-                            machine_id=machine.id if machine else None,
-                            production_method_id=run_method.id if run_method else None,
-                            operator_or_team_reference=operator,
-                            notes=notes,
-                        )
-                        session.add(run)
-                        session.commit()
-                        clear_scope_cache()
-                        st.session_state["pr_selected_run_id"] = run.id
-                        st.success(f"Production run created. Batch reference: {run.batch_reference}.")
-                        st.rerun()
-
-        with sub_import:
-            show_pending_banner("run_import_msg")
-            st.caption(
-                "recipe_version_id must belong to the foam_grade_id on the same row. plant_id and machine "
-                "assignment are derived/validated from the product grade automatically."
-            )
-            run_df, run_filename = csv_excel_uploader(RUN_REQUIRED_COLUMNS, RUN_OPTIONAL_COLUMNS, key="run_upload")
-            if run_df is not None:
-                grades_by_id = {g.id: g for g in grades}
-                # Scoped to this company's grades (not an unfiltered, every-
-                # company RecipeVersion.all() as before the 2026-08-05
-                # performance audit) - cheaper, and no reason to pull other
-                # companies' recipe versions into a lookup dict just to
-                # validate this CSV upload.
-                versions_by_id = {
-                    v.id: v for v in apply_scope(session.query(RecipeVersion), RecipeVersion.foam_grade_id, grade_ids).all()
-                }
-                # Scoped to this company's plants too - otherwise a CSV row could
-                # reference a machine_id belonging to a different company (the
-                # foam_grade/recipe_version cross-check above doesn't catch this,
-                # since machine_id isn't derived from either of those).
-                machines_by_id = {
-                    m.id: m for m in apply_scope(session.query(Machine), Machine.plant_id, plant_ids).all()
-                }
-                good_rows, bad_rows = [], []
-                for _, row in run_df.iterrows():
-                    try:
-                        grade_row = grades_by_id.get(row.get("foam_grade_id"))
-                        version_row = versions_by_id.get(row.get("recipe_version_id"))
-                        machine_val = row.get("machine_id")
-                        machine_ok = pd.isna(machine_val) or int(machine_val) in machines_by_id
-                        ok = bool(grade_row and version_row and version_row.foam_grade_id == grade_row.id and machine_ok)
-                    except (TypeError, ValueError):
-                        ok = False
-                    if ok:
-                        good_rows.append(row)
-                    else:
-                        bad_rows.append(row)
-
-                st.write(f"Rows ready to import: **{len(good_rows)}** | Rows flagged/rejected: **{len(bad_rows)}**")
-                if bad_rows:
-                    st.warning(
-                        "Flagged rows reference an unknown foam_grade_id/recipe_version_id, a recipe version "
-                        "that doesn't belong to that product grade, or an unknown machine_id."
+                    run = ProductionRun(
+                        plant_id=grade.product_family.plant_id,
+                        foam_grade_id=grade.id,
+                        recipe_version_id=current_version.id,
+                        run_date=run_date,
+                        batch_reference=_generate_batch_reference(session, run_date, plant_ids),
+                        block_reference=block_reference,
+                        machine_id=machine.id if machine else None,
+                        production_method_id=run_method.id if run_method else None,
+                        operator_or_team_reference=operator,
+                        notes=notes,
                     )
-                    render_data_table(pd.DataFrame(bad_rows), max_height="300px")
-
-                if good_rows and st.button("Confirm import", key="confirm_run_import", disabled=not page_usable):
-                    # Rows with an explicit batch_reference are deduped against
-                    # what's already in the database, so re-clicking Confirm
-                    # import (e.g. because the previous success message wasn't
-                    # visibly persistent) can't silently insert the same batch
-                    # twice. Rows with a blank batch_reference always get a
-                    # fresh auto-generated one, so they need no such check.
-                    existing_batch_refs = {
-                        r.batch_reference
-                        for r in apply_scope(session.query(ProductionRun), ProductionRun.plant_id, plant_ids).all()
-                        if r.batch_reference
-                    }
-                    import_rows, dup_rows = [], []
-                    for row in good_rows:
-                        br = str(row.get("batch_reference", "") or "").strip()
-                        if br and br in existing_batch_refs:
-                            dup_rows.append(row)
-                        else:
-                            import_rows.append(row)
-                            if br:
-                                existing_batch_refs.add(br)
-
-                    # Rows that already carry a batch_reference (e.g. migrating a
-                    # historical log) keep it as-is; blank ones get auto-generated,
-                    # tracking the running sequence per day in-memory so multiple
-                    # blank rows for the same date in one file don't collide.
-                    seq_by_prefix = {}
-                    for row in import_rows:
-                        grade_row = grades_by_id[row["foam_grade_id"]]
-                        machine_val = row.get("machine_id")
-                        run_date_val = pd.to_datetime(row.get("run_date"), errors="coerce")
-                        final_run_date = run_date_val.date() if not pd.isna(run_date_val) else dt.date.today()
-                        batch_val = str(row.get("batch_reference", "") or "").strip()
-                        if not batch_val:
-                            prefix = f"B-{final_run_date:%d%m%y}"
-                            if prefix not in seq_by_prefix:
-                                seq_by_prefix[prefix] = _max_batch_seq_for_prefix(session, prefix, plant_ids)
-                            seq_by_prefix[prefix] += 1
-                            batch_val = f"{prefix}-{seq_by_prefix[prefix]:02d}"
-                        # Production Method architecture change (2026-08-09,
-                        # flat-model redesign 2026-08-10): derive the
-                        # snapshot the same way manual entry does - from the
-                        # imported machine's own production_method, not the
-                        # product grade's, since the machine is the actual
-                        # source of method context (a grade can only be
-                        # assigned to machines under one method per
-                        # Charlie's consistency rule, so either source
-                        # agrees). Flat model: direct attribute, no
-                        # hierarchy resolution needed.
-                        imported_machine = (
-                            session.get(Machine, int(machine_val)) if not pd.isna(machine_val) else None
-                        )
-                        imported_method = imported_machine.production_method if imported_machine else None
-                        session.add(
-                            ProductionRun(
-                                plant_id=grade_row.product_family.plant_id,
-                                foam_grade_id=grade_row.id,
-                                recipe_version_id=int(row["recipe_version_id"]),
-                                run_date=final_run_date,
-                                batch_reference=batch_val,
-                                block_reference=str(row.get("block_reference", "") or ""),
-                                machine_id=imported_machine.id if imported_machine else None,
-                                production_method_id=imported_method.id if imported_method else None,
-                                operator_or_team_reference=str(row.get("operator_or_team_reference", "") or ""),
-                                notes=str(row.get("notes", "") or ""),
-                            )
-                        )
+                    session.add(run)
                     session.commit()
                     clear_scope_cache()
-                    msg = f"Imported {len(import_rows)} production run(s) from {run_filename}."
-                    if dup_rows:
-                        msg += f" Skipped {len(dup_rows)} row(s) whose batch_reference already exists (likely a repeat click)."
-                    set_pending_banner("run_import_msg", msg)
+                    st.session_state["pr_selected_run_id"] = run.id
+                    st.success(f"Production run created. Batch reference: {run.batch_reference}.")
                     st.rerun()
+
+    with tab_import:
+        show_pending_banner("run_import_msg")
+        st.caption(
+            "recipe_version_id must belong to the foam_grade_id on the same row. plant_id and machine "
+            "assignment are derived/validated from the product grade automatically."
+        )
+        run_df, run_filename = csv_excel_uploader(RUN_REQUIRED_COLUMNS, RUN_OPTIONAL_COLUMNS, key="run_upload")
+        if run_df is not None:
+            grades_by_id = {g.id: g for g in grades}
+            # Scoped to this company's grades (not an unfiltered, every-
+            # company RecipeVersion.all() as before the 2026-08-05
+            # performance audit) - cheaper, and no reason to pull other
+            # companies' recipe versions into a lookup dict just to
+            # validate this CSV upload.
+            versions_by_id = {
+                v.id: v for v in apply_scope(session.query(RecipeVersion), RecipeVersion.foam_grade_id, grade_ids).all()
+            }
+            # Scoped to this company's plants too - otherwise a CSV row could
+            # reference a machine_id belonging to a different company (the
+            # foam_grade/recipe_version cross-check above doesn't catch this,
+            # since machine_id isn't derived from either of those).
+            machines_by_id = {
+                m.id: m for m in apply_scope(session.query(Machine), Machine.plant_id, plant_ids).all()
+            }
+            good_rows, bad_rows = [], []
+            for _, row in run_df.iterrows():
+                try:
+                    grade_row = grades_by_id.get(row.get("foam_grade_id"))
+                    version_row = versions_by_id.get(row.get("recipe_version_id"))
+                    machine_val = row.get("machine_id")
+                    machine_ok = pd.isna(machine_val) or int(machine_val) in machines_by_id
+                    ok = bool(grade_row and version_row and version_row.foam_grade_id == grade_row.id and machine_ok)
+                except (TypeError, ValueError):
+                    ok = False
+                if ok:
+                    good_rows.append(row)
+                else:
+                    bad_rows.append(row)
+
+            st.write(f"Rows ready to import: **{len(good_rows)}** | Rows flagged/rejected: **{len(bad_rows)}**")
+            if bad_rows:
+                st.warning(
+                    "Flagged rows reference an unknown foam_grade_id/recipe_version_id, a recipe version "
+                    "that doesn't belong to that product grade, or an unknown machine_id."
+                )
+                render_data_table(pd.DataFrame(bad_rows), max_height="300px")
+
+            if good_rows and st.button("Confirm import", key="confirm_run_import", disabled=not page_usable):
+                # Rows with an explicit batch_reference are deduped against
+                # what's already in the database, so re-clicking Confirm
+                # import (e.g. because the previous success message wasn't
+                # visibly persistent) can't silently insert the same batch
+                # twice. Rows with a blank batch_reference always get a
+                # fresh auto-generated one, so they need no such check.
+                existing_batch_refs = {
+                    r.batch_reference
+                    for r in apply_scope(session.query(ProductionRun), ProductionRun.plant_id, plant_ids).all()
+                    if r.batch_reference
+                }
+                import_rows, dup_rows = [], []
+                for row in good_rows:
+                    br = str(row.get("batch_reference", "") or "").strip()
+                    if br and br in existing_batch_refs:
+                        dup_rows.append(row)
+                    else:
+                        import_rows.append(row)
+                        if br:
+                            existing_batch_refs.add(br)
+
+                # Rows that already carry a batch_reference (e.g. migrating a
+                # historical log) keep it as-is; blank ones get auto-generated,
+                # tracking the running sequence per day in-memory so multiple
+                # blank rows for the same date in one file don't collide.
+                seq_by_prefix = {}
+                for row in import_rows:
+                    grade_row = grades_by_id[row["foam_grade_id"]]
+                    machine_val = row.get("machine_id")
+                    run_date_val = pd.to_datetime(row.get("run_date"), errors="coerce")
+                    final_run_date = run_date_val.date() if not pd.isna(run_date_val) else dt.date.today()
+                    batch_val = str(row.get("batch_reference", "") or "").strip()
+                    if not batch_val:
+                        prefix = f"B-{final_run_date:%d%m%y}"
+                        if prefix not in seq_by_prefix:
+                            seq_by_prefix[prefix] = _max_batch_seq_for_prefix(session, prefix, plant_ids)
+                        seq_by_prefix[prefix] += 1
+                        batch_val = f"{prefix}-{seq_by_prefix[prefix]:02d}"
+                    # Production Method architecture change (2026-08-09,
+                    # flat-model redesign 2026-08-10): derive the
+                    # snapshot the same way manual entry does - from the
+                    # imported machine's own production_method, not the
+                    # product grade's, since the machine is the actual
+                    # source of method context (a grade can only be
+                    # assigned to machines under one method per
+                    # Charlie's consistency rule, so either source
+                    # agrees). Flat model: direct attribute, no
+                    # hierarchy resolution needed.
+                    imported_machine = (
+                        session.get(Machine, int(machine_val)) if not pd.isna(machine_val) else None
+                    )
+                    imported_method = imported_machine.production_method if imported_machine else None
+                    session.add(
+                        ProductionRun(
+                            plant_id=grade_row.product_family.plant_id,
+                            foam_grade_id=grade_row.id,
+                            recipe_version_id=int(row["recipe_version_id"]),
+                            run_date=final_run_date,
+                            batch_reference=batch_val,
+                            block_reference=str(row.get("block_reference", "") or ""),
+                            machine_id=imported_machine.id if imported_machine else None,
+                            production_method_id=imported_method.id if imported_method else None,
+                            operator_or_team_reference=str(row.get("operator_or_team_reference", "") or ""),
+                            notes=str(row.get("notes", "") or ""),
+                        )
+                    )
+                session.commit()
+                clear_scope_cache()
+                msg = f"Imported {len(import_rows)} production run(s) from {run_filename}."
+                if dup_rows:
+                    msg += f" Skipped {len(dup_rows)} row(s) whose batch_reference already exists (likely a repeat click)."
+                set_pending_banner("run_import_msg", msg)
+                st.rerun()
 
 # ---------------------------------------------------------------------------
 # Setup (planned/configured settings, entered before the run starts)
@@ -707,8 +705,11 @@ with tab_setup:
         run = _run_selector(runs, key="setup_tab_run_select")
         st.caption(f"Showing Setup data for **{_run_label(run)}**")
 
-        sub_overview, sub_create, sub_import, sub_fallplate = st.tabs(
-            ["Overview & Edit", "Create", "CSV / Excel import", "Tool Geometry and Fill Configuration"]
+        # CR-11: wording/order aligned via cr11_function_tab_labels();
+        # "Tool Geometry and Fill Configuration" is a page-specific 4th
+        # tab beyond the CR-11 standard 3, which the CR explicitly allows.
+        tab_create, tab_edit_delete, tab_import, sub_fallplate = st.tabs(
+            [*cr11_function_tab_labels("Setup Data", "Setup Data"), "Tool Geometry and Fill Configuration"]
         )
 
         setup_phase = (
@@ -717,7 +718,7 @@ with tab_setup:
             .first()
         )
 
-        with sub_overview:
+        with tab_edit_delete:
             if not setup_phase:
                 st.info("No Setup data recorded yet for this run — use the Create tab.")
             else:
@@ -815,7 +816,7 @@ with tab_setup:
                 else:
                     st.caption("View-only access - deleting is restricted for your role.")
 
-        with sub_create:
+        with tab_create:
             if setup_phase:
                 st.caption("Setup data already recorded for this run — edit it in the Overview & Edit tab.")
             else:
@@ -889,7 +890,7 @@ with tab_setup:
                             st.success("Setup data saved.")
                             st.rerun()
 
-        with sub_import:
+        with tab_import:
             show_pending_banner("setup_import_msg")
             st.caption(
                 "Required column: `production_run_id`. Optional columns: " + ", ".join(SETUP_OPTIONAL_COLUMNS)
@@ -981,7 +982,12 @@ with tab_setup:
             if not setup_phase:
                 st.info("Add Setup data for this run first (Create tab) before recording section positions.")
             else:
-                sub_fp_manual, sub_fp_import = st.tabs(["Manual entry", "CSV / Excel import"])
+                # Fall-plate Positions is a page-specific sub-workflow nested
+                # inside "Tool Geometry and Fill Configuration" (itself a 4th,
+                # page-specific tab beyond CR-11's standard 3) - not one of the
+                # CR-11 mandated 3 functions, so only the wording/spacing is
+                # aligned here, not the tab order.
+                sub_fp_manual, sub_fp_import = st.tabs(["Manual entry", "CSV/Excel import Fall-plate Positions"])
 
                 with sub_fp_manual:
                     with st.form(f"add_fallplate_section_setup_{run.id}"):
@@ -1150,7 +1156,8 @@ with tab_streams:
                 f"Showing stream readings for **{_run_label(run)}** — Finalized phase "
                 f"({finalized_phase.phase_start})"
             )
-            sub_overview, sub_create, sub_import = st.tabs(["Overview & Edit", "Create", "CSV / Excel import"])
+            # CR-11: wording/order aligned via cr11_function_tab_labels().
+            tab_create, tab_edit_delete, tab_import = st.tabs(cr11_function_tab_labels("Stream Reading"))
 
             streams_for_run = (
                 session.query(ComponentStreamReading)
@@ -1165,7 +1172,7 @@ with tab_streams:
                 .all()
             )
 
-            with sub_overview:
+            with tab_edit_delete:
                 if not streams_for_run:
                     st.info("No stream readings recorded yet for this run — use the Create tab.")
                 else:
@@ -1286,7 +1293,7 @@ with tab_streams:
                     else:
                         st.caption("Click a row above to edit (and optionally delete) that stream reading.")
 
-            with sub_create:
+            with tab_create:
                 st.caption("Phase: Finalized (component stream readings always attach here).")
                 phase = finalized_phase
                 if not recipe_components:
@@ -1352,7 +1359,7 @@ with tab_streams:
                             st.success("Stream reading saved.")
                             st.rerun()
 
-            with sub_import:
+            with tab_import:
                 show_pending_banner("stream_import_msg")
                 st.caption(
                     "Required columns: " + ", ".join(STREAM_REQUIRED_COLUMNS) + ". Optional columns: "
@@ -1459,7 +1466,8 @@ with tab_events:
             session.query(ProductionPhase).filter(ProductionPhase.production_run_id == run.id).all()
         )
 
-        sub_overview, sub_create, sub_import = st.tabs(["Overview & Edit", "Create", "CSV / Excel import"])
+        # CR-11: wording/order aligned via cr11_function_tab_labels().
+        tab_create, tab_edit_delete, tab_import = st.tabs(cr11_function_tab_labels("Production Event"))
 
         events_for_run = (
             session.query(ProductionEvent)
@@ -1468,7 +1476,7 @@ with tab_events:
             .all()
         )
 
-        with sub_overview:
+        with tab_edit_delete:
             if not events_for_run:
                 st.info("No events logged yet for this run — use the Create tab.")
             else:
@@ -1553,7 +1561,7 @@ with tab_events:
                 else:
                     st.caption("Click a row above to edit (and optionally delete) that event.")
 
-        with sub_create:
+        with tab_create:
             with st.form(f"add_event_{run.id}"):
                 event_type = st.selectbox("Event type *", EVENT_TYPES)
                 severity = st.selectbox("Severity", [""] + SEVERITIES)
@@ -1584,7 +1592,7 @@ with tab_events:
                     st.success("Event logged.")
                     st.rerun()
 
-        with sub_import:
+        with tab_import:
             st.caption(
                 "Required columns: " + ", ".join(EVENT_REQUIRED_COLUMNS) + ". Optional columns: "
                 + ", ".join(EVENT_OPTIONAL_COLUMNS) + " (phase_name must match an existing phase on that run if given)."
@@ -1686,8 +1694,11 @@ with tab_runtime:
         run = _run_selector(runs, key="runtime_tab_run_select")
         st.caption(f"Showing Runtime Data for **{_run_label(run)}**")
 
-        sub_overview, sub_create, sub_import, sub_fallplate = st.tabs(
-            ["Overview & Edit", "Create", "CSV / Excel import", "Tool Geometry and Fill Configuration"]
+        # CR-11: wording/order aligned via cr11_function_tab_labels();
+        # "Tool Geometry and Fill Configuration" is a page-specific 4th
+        # tab beyond the CR-11 standard 3, which the CR explicitly allows.
+        tab_create, tab_edit_delete, tab_import, sub_fallplate = st.tabs(
+            [*cr11_function_tab_labels("Runtime Data", "Runtime Data"), "Tool Geometry and Fill Configuration"]
         )
 
         finalized_phase = (
@@ -1696,7 +1707,7 @@ with tab_runtime:
             .first()
         )
 
-        with sub_overview:
+        with tab_edit_delete:
             if not finalized_phase:
                 st.info("No Runtime Data recorded yet for this run — use the Create tab.")
             else:
@@ -1874,7 +1885,7 @@ with tab_runtime:
                 else:
                     st.caption("View-only access - deleting is restricted for your role.")
 
-        with sub_create:
+        with tab_create:
             if finalized_phase:
                 st.caption("Runtime Data already recorded for this run — edit it in the Overview & Edit tab.")
             else:
@@ -1977,7 +1988,7 @@ with tab_runtime:
                             st.success("Runtime Data saved.")
                             st.rerun()
 
-        with sub_import:
+        with tab_import:
             show_pending_banner("runtime_import_msg")
             st.caption(
                 "Required column: `production_run_id`. Optional columns: " + ", ".join(RUNTIME_OPTIONAL_COLUMNS)
@@ -2077,7 +2088,12 @@ with tab_runtime:
             if not finalized_phase:
                 st.info("Add Runtime Data for this run first (Create tab) before recording section positions.")
             else:
-                sub_fp_manual, sub_fp_import = st.tabs(["Manual entry", "CSV / Excel import"])
+                # Fall-plate Positions is a page-specific sub-workflow nested
+                # inside "Tool Geometry and Fill Configuration" (itself a 4th,
+                # page-specific tab beyond CR-11's standard 3) - not one of the
+                # CR-11 mandated 3 functions, so only the wording/spacing is
+                # aligned here, not the tab order.
+                sub_fp_manual, sub_fp_import = st.tabs(["Manual entry", "CSV/Excel import Fall-plate Positions"])
 
                 with sub_fp_manual:
                     with st.form(f"add_fallplate_section_runtime_{run.id}"):

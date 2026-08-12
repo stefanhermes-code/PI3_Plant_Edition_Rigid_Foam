@@ -931,6 +931,27 @@ def dedupe_import_rows(rows, existing_keys, key_func):
     return new_rows, dup_rows
 
 
+def cr11_function_tab_labels(record_singular, record_plural=None):
+    """CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
+    Functions, 2026-08-12): the single source of truth for the exact wording
+    and order every applicable record-creation page must use for its three
+    standard tabs. Per the CR: "Create <record>", "Edit/Delete <record>",
+    "CSV/Excel import <records>" - note NO spaces around the "/" in either
+    "Edit/Delete" or "CSV/Excel", singular noun for the first two tabs,
+    plural for the import tab. Returns the 3-tuple in the mandated order,
+    ready to hand straight to st.tabs(...).
+
+    record_plural defaults to record_singular + "s"; pass it explicitly
+    whenever that's wrong (e.g. "Company" -> "Companies", "Family" ->
+    "Families")."""
+    plural = record_plural or f"{record_singular}s"
+    return (
+        f"Create {record_singular}",
+        f"Edit/Delete {record_singular}",
+        f"CSV/Excel import {plural}",
+    )
+
+
 # PI3_Gaps_and_Ambiguities.docx finding 2.10: no CSV/Excel import anywhere
 # enforced a file-size or row-count limit. These are deliberately generous
 # (this app's imports are historical/bulk data loads, not per-transaction
