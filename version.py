@@ -3665,4 +3665,91 @@ warnings (test_recipe_optimization_baseline.py, test_wp4_rigid_lot_use_
 correlation.py) present before this batch too.
 """
 
-APP_VERSION = "0.32.0"
+VERSION_0_33_0_NOTES = """
+v0.33.0 - CR-12 (Align Rigid Foam Reporting Structure with Flexible Foam,
+2026-08-12) closed.
+
+CR-12 required a full side-by-side inventory of both apps' reporting
+capabilities (on-page Word downloads + central Report-page reports)
+before implementing anything, any missing equivalent Rigid capability
+implemented where the business function and data support it, retained
+application-specific differences documented with concrete reasons, and
+regression coverage for every item in the final inventory with zero
+skipped verification paths.
+
+Inventory finding (see CR12_Closeout_Package.docx for the full matrix):
+Rigid Foam was ALREADY at full structural reporting parity with Flexible
+Foam before this CR's engineering work began. Both apps have exactly the
+same 11 on-page Word-download locations (pages 3, 5, 6, 9, 11, 12, 15,
+16, 17, 18, 19, 20 - one page, 15, has two), the same 4 shared central
+Report-page report types (Batch Release / Conformance Record, Plant /
+Period Summary, Trial Closeout Report, Sample Certificate of Analysis),
+identical reports.py build_*/render_*_docx function signatures for every
+shared report, and identical "Download Word" button wording throughout.
+Confirmed via exhaustive comparison: page-by-page download_button grep
+across every page in both apps' pages/ directories, full reports.py
+function-name inventory (18 build/render pairs each), and direct
+signature/argument-shape comparison at every call site. No missing
+on-page download or missing Report-page coverage was found anywhere in
+either app - tasks #819/#820 (implement missing coverage) therefore
+closed as "verified already at parity, no implementation needed" rather
+than skipped.
+
+Rigid Foam carries exactly two legitimate, already-justified additions
+beyond Flexible, both pre-dating this CR and re-confirmed here rather
+than re-litigated: the rigid branch of the Recipe Optimization Report
+(reports.build_rigid_recipe_optimization_report_data, reusing the same
+render_recipe_optimization_report_docx unmodified - WP4, task #561), and
+the WP3 Property Conformance Report, a 5th Report-page tab
+(build_wp3_conformance_report_data/render_wp3_conformance_report_docx -
+Converged Joint Implementation Plan section 7.4, justified by rigid-only
+GradeSpecification data with no Flexible equivalent).
+
+Since CR-12's own engineering conclusion is "parity already held," the
+substantive work is the proof, not new feature code:
+
+New regression test file: tests/test_cr12_reporting_parity.py (22 tests).
+Every item in the final inventory is proven to actually generate a real
+docx - the Report page's all 5 tabs (including the Customer Trial /
+Optimization Trial radio branch), every on-page report on pages 5, 6, 9,
+11, 12, 20, the two page-3 reports gated behind a custom row-selection
+widget (Recipe Formulation Record via AppTest with st.session_state
+preset; Where Used Report via a direct build/render function call, since
+that half has no Streamlit dependency), and all 5 Industrial Intelligence
+pages' own deterministic reports (15-19). Proof method: st.download_
+button's `data=` argument is evaluated eagerly at script-run time (not
+lazily on click - confirmed by reading streamlit.testing.v1.element_tree),
+so an AppTest page load that reaches that line with no exception has, by
+construction, already run the full build-data -> render-docx chain
+successfully; asserting the button's presence is sufficient proof, no
+simulated click needed. Two further tests assert the two apps' on-page
+download_button locations and reports.py function inventories keep
+matching exactly (except the two named justified additions) - a
+structural regression guard against a future change adding reporting to
+one app without the other, not just a one-time snapshot.
+
+Bug fixed while building this test file (self-caught, no user report):
+several @st.cache_data-decorated app-wide functions (analytics.py's
+run_settings_dataframe/property_results_dataframe/actual_usage_dataframe,
+tenant_scope.py's six id-scoping helpers, access_control.denied_page_keys)
+take a leading `_session` parameter, which Streamlit's cache_data
+convention excludes from the cache key - so the key is built from small-
+integer arguments alone (company_id, plant_ids, foam_grade_id, ...). Since
+every fixture in this suite drops/recreates the schema (autoincrement ids
+restart at 1 each time), one test file's foam_grade_id=1 could collide
+with a completely different, later test file's own foam_grade_id=1 and
+silently serve its stale cached DataFrame - reproduced directly by running
+this file back-to-back with test_cr11_tab_wording_compliance.py and
+test_flat_pm_propagation_smoke.py, which intermittently failed tests in
+whichever file ran second purely from cache-key reuse. Fixed by clearing
+every one of these caches at this file's own fixture setup and teardown -
+contained entirely within the new test file, no application code changed.
+
+Full regression suite: 193 passed (171 pre-existing + 22 new CR-12
+tests), 0 failed, same 4 pre-existing unrelated numpy divide-by-zero
+warnings present before this batch too. Verified stable across repeated
+runs and in combination with the two other files sharing its known
+autoincrement-id/cache-key hazard.
+"""
+
+APP_VERSION = "0.33.0"
