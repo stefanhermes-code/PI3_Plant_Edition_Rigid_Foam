@@ -1542,6 +1542,36 @@ class RuntimeDataRecord(Base):
 
 
 # ---------------------------------------------------------------------------
+# 8b2. customers (CR-14, Create Customers Section and Lightweight Customer
+# Master, implemented 2026-08-12)
+#
+# A deliberately lightweight master for basic customer identity/contact
+# data - "a practical application reference rather than a full CRM" (CR-14
+# section 3). company_id scopes it directly to a tenant (same pattern as
+# Supplier/RawMaterial), NOT via the plant chain tenant_scope.py otherwise
+# walks for everything below Plant. company_name is the customer's OWN
+# company name (the primary customer-facing identifier per CR-14) - not to
+# be confused with the app's own tenant Company model right above; the two
+# are unrelated entities that happen to share the word "company".
+# customer_type is deliberately a free-text field, not a controlled
+# vocabulary - CR-14 section 3 explicitly defers defining customer
+# categories to a later CR, this field just leaves room for one.
+# ---------------------------------------------------------------------------
+class Customer(Base):
+    __tablename__ = "customers"
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    company_name = Column(String(200), nullable=False)
+    contact_person = Column(String(200))
+    contact_email = Column(String(200))
+    customer_type = Column(String(100))
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    company = relationship("Company")
+
+
+# ---------------------------------------------------------------------------
 # 8c. customer_trials (lab trial made for a customer/sales opportunity)
 #
 # Added 2026-08-03, per user correction: this is NOT a production run with a
@@ -1557,6 +1587,19 @@ class RuntimeDataRecord(Base):
 # here via their own nullable customer_trial_id FK (see Sample,
 # PhysicalPropertyResult, QualityObservation below) - never via
 # production_run_id, which stays NULL for every row tied to a trial.
+#
+# customer_id (CR-14, 2026-08-12): nullable FK to the new Customer master -
+# nullable rather than required so every pre-CR-14 row (and any row a CSV
+# import can't confidently auto-match) keeps working with zero data loss.
+# customer_name is DELIBERATELY KEPT, not replaced: it's still the field
+# reports.py, pages 5/6, and every existing query read for display, and CR-14
+# section 5 requires "existing trial and sample records must remain intact
+# and accessible" - kept as a synced text snapshot of customer.company_name,
+# the same "text snapshot, not a live-only reference" pattern
+# RawMaterial.default_supplier already uses for Supplier. See
+# pages/11_Customer_Trials.py and cascades.backfill_trial_customers() for
+# how the two fields are kept in sync going forward and mapped for existing
+# rows respectively.
 # ---------------------------------------------------------------------------
 class CustomerTrial(Base):
     __tablename__ = "customer_trials"
@@ -1565,6 +1608,7 @@ class CustomerTrial(Base):
     plant_id = Column(Integer, ForeignKey("plants.id"), nullable=False)
     foam_grade_id = Column(Integer, ForeignKey("foam_grades.id"), nullable=False)
     recipe_version_id = Column(Integer, ForeignKey("recipe_versions.id"))
+    customer_id = Column(Integer, ForeignKey("customers.id"))
 
     customer_name = Column(String(200), nullable=False)
     sales_opportunity_reference = Column(String(200))
@@ -1588,6 +1632,7 @@ class CustomerTrial(Base):
     plant = relationship("Plant")
     foam_grade = relationship("FoamGrade")
     recipe_version = relationship("RecipeVersion")
+    customer = relationship("Customer")
 
     # Closeout enforced app-level only (no DB-level CHECK constraint, to
     # limit migration scope for this batch).
@@ -4082,6 +4127,8 @@ ALL_MODELS = [
     ReferenceFormulationFamily,
     # --- Production Method Hierarchy architecture change additions (2026-08-09) ---
     PlantProductionMethod,
+    # --- CR-14 addition (2026-08-12): lightweight Customer master ---
+    Customer,
 ]
 
 

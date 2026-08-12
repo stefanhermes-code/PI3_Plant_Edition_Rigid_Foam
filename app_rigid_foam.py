@@ -447,8 +447,20 @@ production_pages = [
 
 experiment_pages = [
     ("samples_conditioning", st.Page("pages/9_Samples_Conditioning.py", title="Production Samples", icon="🧊")),
-    ("customer_trials", st.Page("pages/11_Customer_Trials.py", title="Customer Trials & Samples", icon="🤝")),
     ("optimization_trials", st.Page("pages/12_Optimization_Trials.py", title="Optimization Trials & Samples", icon="🚀")),
+]
+
+# CR-14 (Create Customers Section and Lightweight Customer Master),
+# implemented 2026-08-12: a dedicated "Customers" section, with the new
+# Customers master page first, then Customer Trials & Samples - moved out
+# of experiment_pages/"Samples & Trials" above, per CR-14 section 2's
+# mandated order. Optimization Trials & Samples stays in "Samples & Trials"
+# unaffected - CR-14 is scoped to Customer Trials & Samples specifically
+# (an internally-driven Performance Improvement trial has no "customer" of
+# its own to connect to a Customer master).
+customer_pages = [
+    ("customers", st.Page("pages/33_Customers.py", title="Customers", icon="🧾")),
+    ("customer_trials", st.Page("pages/11_Customer_Trials.py", title="Customer Trials & Samples", icon="🤝")),
 ]
 
 # Split out from Production 2026-08-04 per user direction (segregation of
@@ -518,6 +530,13 @@ platform_admin_pages = [
 # within this same Production Methods section - see production_method_pages
 # above.
 #
+# CR-14 (Create Customers Section and Lightweight Customer Master),
+# implemented 2026-08-12: a new "Customers" section is inserted between
+# Production and Samples & Trials - Customer Trials & Samples moved out of
+# Samples & Trials into it (now second, after the new Customers master
+# page, per CR-14 section 2's mandated order). Samples & Trials keeps
+# Production Samples and Optimization Trials & Samples.
+#
 # CR-05 (Default User Role Inheritance and Platform Admin Separation),
 # implemented 2026-08-11: the nav section for the platform-owner-only pages
 # (Companies, Subscription Types, Default User Roles, User Accounts, PI3
@@ -530,6 +549,7 @@ nav_sections_with_keys = {
     "Production Methods": production_method_pages,
     "Formulations": formulation_pages,
     "Production": production_pages,
+    "Customers": customer_pages,
     "Samples & Trials": experiment_pages,
     "Quality": quality_pages,
     "Industrial Intelligence": industrial_intelligence_pages,

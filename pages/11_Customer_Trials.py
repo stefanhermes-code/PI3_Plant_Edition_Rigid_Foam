@@ -26,6 +26,21 @@ Test Result / Quality Issue pages) still link back here by
 customer_trial_id - mirroring how those same tables link to a production
 run, just through a different, mutually-exclusive foreign key (see
 db.sample_source_fk_field()).
+
+CR-14 (Create Customers Section and Lightweight Customer Master),
+implemented 2026-08-12: this page moved into the new "Customers" nav
+section (see app_rigid_foam.py), positioned second after the new
+Customers master page. The Create/Edit "Customer name" free-text field is
+replaced with a selectbox sourced from the Customer master
+(CustomerTrial.customer_id), scoped to the same company this page is
+already scoped to. customer_name itself is kept, not removed - it's
+synced from the selected Customer's company_name on every save, so every
+existing read of customer_name elsewhere (reports.py, pages 5/6,
+analytics.py) keeps working unchanged. Pre-CR-14 rows (customer_id is
+NULL) are handled by cascades.backfill_trial_customers() - see that
+function's own docstring for how existing customer_name text values are
+mapped onto Customer records without ever silently merging two
+different-looking names into one.
 """
 
 import pandas as pd
@@ -38,6 +53,7 @@ from cascades import customer_trial_dependency_counts, delete_customer_trial_cas
 from db import (
     SAMPLE_SOURCE_TYPES,
     ZONE_LABELS,
+    Customer,
     CustomerTrial,
     FoamGrade,
     PhysicalPropertyResult,
@@ -125,6 +141,15 @@ if not grades:
     st.warning("Add a product grade first (Product Family & Product Grade page).")
     st.stop()
 
+# CR-14: Customer master, scoped the same way Suppliers/Raw Materials scope
+# by direct company_id (not via the plant chain apply_scope() above walks) -
+# `company` is the same Company object/None sentinel company_picker()
+# returned above.
+customers_query = session.query(Customer)
+if company is not None:
+    customers_query = customers_query.filter(Customer.company_id == company.id)
+customers = customers_query.order_by(Customer.company_name).all()
+
 trials = (
     apply_scope(session.query(CustomerTrial), CustomerTrial.plant_id, plant_ids)
     .order_by(CustomerTrial.created_at.desc())
@@ -167,12 +192,18 @@ with tab_create:
     st.subheader("Flag a new customer trial")
     if not page_usable:
         st.caption("View-only access - adding a customer trial is restricted for your role.")
+    elif not customers:
+        st.warning(
+            "Add a customer on the Customers page first, then come back here to flag a trial for them."
+        )
     else:
         with st.form("add_customer_trial"):
             grade = st.selectbox(
                 "Product grade *", grades, format_func=lambda g: g.grade_name, key="ct_add_grade",
             )
-            customer_name = st.text_input("Customer name *")
+            customer = st.selectbox(
+                "Customer *", customers, format_func=lambda c: c.company_name, key="ct_add_customer",
+            )
             sales_opportunity_reference = st.text_input("Sales opportunity reference")
             requested_by = st.text_input("Requested by")
             trial_objective = st.text_area("Trial objective (what the customer wants evaluated, and why)")
@@ -182,29 +213,27 @@ with tab_create:
             notes = st.text_area("Notes")
             submitted = st.form_submit_button("Save customer trial")
             if submitted:
-                if not customer_name.strip():
-                    st.error("Customer name is required.")
-                else:
-                    session.add(
-                        CustomerTrial(
-                            plant_id=grade.product_family.plant_id,
-                            foam_grade_id=grade.id,
-                            recipe_version_id=_resolve_recipe_version(grade.id),
-                            customer_name=customer_name.strip(),
-                            sales_opportunity_reference=sales_opportunity_reference,
-                            requested_by=requested_by,
-                            trial_objective=trial_objective,
-                            responsible_person=responsible_person,
-                            trial_date=trial_date,
-                            batch_reference=batch_reference,
-                            notes=notes,
-                            status="Open",
-                        )
+                session.add(
+                    CustomerTrial(
+                        plant_id=grade.product_family.plant_id,
+                        foam_grade_id=grade.id,
+                        recipe_version_id=_resolve_recipe_version(grade.id),
+                        customer_id=customer.id,
+                        customer_name=customer.company_name,
+                        sales_opportunity_reference=sales_opportunity_reference,
+                        requested_by=requested_by,
+                        trial_objective=trial_objective,
+                        responsible_person=responsible_person,
+                        trial_date=trial_date,
+                        batch_reference=batch_reference,
+                        notes=notes,
+                        status="Open",
                     )
-                    session.commit()
-                    clear_scope_cache()
-                    st.success("Customer trial created.")
-                    st.rerun()
+                )
+                session.commit()
+                clear_scope_cache()
+                st.success("Customer trial created.")
+                st.rerun()
 
     st.divider()
     st.subheader("Manage samples")
@@ -434,16 +463,26 @@ with tab_import:
 
             new_trial_rows, dup_trial_rows = dedupe_import_rows(good_trial_rows, existing_trial_keys, key_func=_trial_dedupe_key)
             grades_by_id = {g.id: g for g in grades}
+            # CR-14: best-effort auto-link to the Customer master by exact,
+            # case-insensitive name match within scope - never a fuzzy/
+            # partial match, so an import row is either confidently linked
+            # or left customer_id=None (still fully usable via its own
+            # customer_name text) rather than silently attached to the
+            # wrong customer.
+            customers_by_name = {c.company_name.strip().lower(): c for c in customers}
             for row in new_trial_rows:
                 grade_id_val = int(row["foam_grade_id"])
                 grade_obj = grades_by_id[grade_id_val]
                 trial_date_val = pd.to_datetime(row.get("trial_date"), errors="coerce")
+                row_customer_name = str(row["customer_name"]).strip()
+                matched_customer = customers_by_name.get(row_customer_name.lower())
                 session.add(
                     CustomerTrial(
                         plant_id=grade_obj.product_family.plant_id,
                         foam_grade_id=grade_id_val,
                         recipe_version_id=_resolve_recipe_version(grade_id_val),
-                        customer_name=str(row["customer_name"]).strip(),
+                        customer_id=matched_customer.id if matched_customer else None,
+                        customer_name=row_customer_name,
                         sales_opportunity_reference=str(row.get("sales_opportunity_reference", "") or ""),
                         requested_by=str(row.get("requested_by", "") or ""),
                         trial_objective=str(row.get("trial_objective", "") or ""),
@@ -497,13 +536,43 @@ with tab_edit_delete:
         if selected:
             st.divider()
             st.subheader(f"Edit Customer Trial #{selected.id}")
+
+            # CR-14: build the Customer selectbox's options/default OUTSIDE
+            # the form, since the "no exact historical match" caption below
+            # needs to render before the form (Streamlit forms can't
+            # conditionally render non-widget content based on a widget
+            # inside the same form in a useful way here).
+            customer_options = [None] + customers
+            if selected.customer_id is not None:
+                default_customer_idx = next(
+                    (i for i, c in enumerate(customer_options) if c is not None and c.id == selected.customer_id), 0
+                )
+            else:
+                exact_match = next(
+                    (c for c in customers if c.company_name.strip().lower() == (selected.customer_name or "").strip().lower()),
+                    None,
+                )
+                if exact_match is not None:
+                    default_customer_idx = customer_options.index(exact_match)
+                else:
+                    default_customer_idx = 0
+                    st.caption(
+                        f"No exact match found in the Customers master for the historical customer name "
+                        f"'{selected.customer_name}' - pick the correct customer below, or add a new one on the "
+                        "Customers page first."
+                    )
+
             with st.form(f"edit_customer_trial_{selected.id}"):
                 grade_idx = next((i for i, g in enumerate(grades) if g.id == selected.foam_grade_id), 0)
                 e_grade = st.selectbox(
                     "Product grade *", grades, index=grade_idx, format_func=lambda g: g.grade_name,
                     key=f"ct_edit_grade_{selected.id}",
                 )
-                e_customer_name = st.text_input("Customer name *", value=selected.customer_name or "", key=f"ct_edit_customer_{selected.id}")
+                e_customer = st.selectbox(
+                    "Customer *", customer_options, index=default_customer_idx,
+                    format_func=lambda c: "— Select a customer —" if c is None else c.company_name,
+                    key=f"ct_edit_customer_{selected.id}",
+                )
                 e_sales_ref = st.text_input(
                     "Sales opportunity reference", value=selected.sales_opportunity_reference or "", key=f"ct_edit_salesref_{selected.id}"
                 )
@@ -533,11 +602,12 @@ with tab_edit_delete:
                 e_date_closed = st.date_input("Date closed", value=selected.date_closed, key=f"ct_edit_dateclosed_{selected.id}")
                 e_notes = st.text_area("Notes", value=selected.notes or "", key=f"ct_edit_notes_{selected.id}")
                 if st.form_submit_button("Save changes", disabled=not page_usable) and page_usable:
-                    if not e_customer_name.strip():
-                        st.error("Customer name is required.")
+                    if e_customer is None:
+                        st.error("Pick a customer.")
                     else:
                         selected.foam_grade_id = e_grade.id
-                        selected.customer_name = e_customer_name.strip()
+                        selected.customer_id = e_customer.id
+                        selected.customer_name = e_customer.company_name
                         selected.sales_opportunity_reference = e_sales_ref
                         selected.requested_by = e_requested_by
                         selected.trial_objective = e_objective

@@ -15,8 +15,13 @@ calling them (possibly several times, e.g. once per run under a foam
 grade) so a whole master-data delete is one all-or-nothing transaction.
 """
 
+import difflib
+
+from sqlalchemy import func
+
 from db import (
     ComponentStreamReading,
+    Customer,
     CustomerTrial,
     FallplateSectionPosition,
     FoamGrade,
@@ -514,3 +519,78 @@ def unlink_machine_dependents(session, machine_id):
     session.query(ProductionRun).filter(ProductionRun.machine_id == machine_id).update(
         {"machine_id": None}, synchronize_session="fetch"
     )
+
+
+# ---------------------------------------------------------------------------
+# CR-14 (Create Customers Section and Lightweight Customer Master),
+# implemented 2026-08-12: migration/mapping helper for existing
+# CustomerTrial.customer_name text values, run once against a database that
+# has pre-CR-14 trial rows (customer_id is NULL). NOT part of the delete-
+# cascade family above - included here because it is the same kind of
+# cross-cutting relationship-maintenance logic, and because
+# pages/11_Customer_Trials.py's own module docstring already points here.
+# ---------------------------------------------------------------------------
+
+def backfill_trial_customers(session):
+    """For every CustomerTrial with no customer_id yet, find-or-create a
+    Customer master row for its plant's company + its customer_name text
+    value (an EXACT, case/whitespace-normalized match only) and link
+    customer_id to it. Commits once at the end.
+
+    Never merges two different-looking customer_name strings into one
+    Customer, no matter how similar - CR-14 section 5 requires "any
+    ambiguous historical customer value must be surfaced ... for Stefan
+    review rather than silently merged". Instead, after linking/creating,
+    this does a second pass over the resulting Customer set (per company)
+    and flags pairs of DIFFERENT company_name values that are suspiciously
+    similar (difflib.SequenceMatcher ratio >= 0.82, tuned to catch things
+    like "Acme Corp" vs "Acme Corp." or a likely typo, without flagging
+    genuinely unrelated names) - those pairs are returned for a human to
+    decide, never auto-merged.
+
+    Returns {"linked": int, "created": int, "possible_duplicates":
+    [(company_id, name_a, name_b, similarity_ratio), ...]}.
+
+    Safe to call on a database with zero pre-CR-14 rows (returns all
+    zeros/empty) - see the CR-14 closeout package for the live-data check
+    confirming that was the actual state of the production database at
+    the time of this CR."""
+    trials = session.query(CustomerTrial).filter(CustomerTrial.customer_id.is_(None)).all()
+    linked = 0
+    created = 0
+    for trial in trials:
+        company_id = trial.plant.company_id if trial.plant else None
+        name = (trial.customer_name or "").strip()
+        if company_id is None or not name:
+            continue
+        existing = (
+            session.query(Customer)
+            .filter(Customer.company_id == company_id)
+            .filter(func.lower(Customer.company_name) == name.lower())
+            .first()
+        )
+        if existing is None:
+            existing = Customer(company_id=company_id, company_name=name)
+            session.add(existing)
+            session.flush()
+            created += 1
+        trial.customer_id = existing.id
+        linked += 1
+    session.commit()
+
+    possible_duplicates = []
+    by_company = {}
+    for c in session.query(Customer).all():
+        by_company.setdefault(c.company_id, []).append(c)
+    for company_id, company_customers in by_company.items():
+        for i in range(len(company_customers)):
+            for j in range(i + 1, len(company_customers)):
+                a, b = company_customers[i], company_customers[j]
+                name_a, name_b = a.company_name.strip().lower(), b.company_name.strip().lower()
+                if name_a == name_b:
+                    continue
+                ratio = difflib.SequenceMatcher(None, name_a, name_b).ratio()
+                if ratio >= 0.82:
+                    possible_duplicates.append((company_id, a.company_name, b.company_name, round(ratio, 2)))
+
+    return {"linked": linked, "created": created, "possible_duplicates": possible_duplicates}

@@ -196,7 +196,14 @@ def seeded_ct_grade_only():
     Both pages st.stop() with 'Add a product grade first' if there is no
     grade in scope, so this is the minimum needed just to open the page;
     used for the outer Trial 'create via form' test and the outer Trial
-    CSV import test, neither of which needs a pre-existing trial."""
+    CSV import test, neither of which needs a pre-existing trial.
+
+    CR-14 (Create Customers Section and Lightweight Customer Master,
+    2026-08-12): the Create Trial form's Customer field is now a
+    selectbox sourced from the db.Customer master, not free text - also
+    seeds one Customer here (the page's own `elif not customers:` warning
+    branch st.stop()s the create form entirely otherwise, same as the
+    grade check)."""
     db.init_db()
     _reset_schema()
     u = uuid.uuid4().hex[:8]
@@ -209,10 +216,13 @@ def seeded_ct_grade_only():
     session.add(family); session.flush()
     grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11e-CT-Grade-{u}")
     session.add(grade); session.flush()
+    customer = db.Customer(company_id=company.id, company_name=f"CR11e-Correction-New-Customer-{u}")
+    session.add(customer); session.flush()
     session.commit()
     ids = {
         "company_id": company.id, "plant_id": plant.id,
         "family_id": family.id, "grade_id": grade.id, "grade_name": grade.grade_name,
+        "customer_id": customer.id, "customer_name": customer.company_name,
     }
     session.close()
     return ids
@@ -227,7 +237,13 @@ def seeded_ct_trial():
     minimum for the outer Trial selection/edit/delete test (unambiguous
     single row) and for the nested Sample 'create via form' test (a
     trial to land 'Manage samples' on, with no existing sample row to
-    make a fresh dataframe row-index ambiguous)."""
+    make a fresh dataframe row-index ambiguous).
+
+    CR-14 (2026-08-12): also seeds a SECOND Customer
+    ("customer_2_id"/"customer_2_name") beyond the one the trial links
+    to, so the outer Edit test has a real second option to switch the
+    Customer selectbox to (rather than only ever re-selecting the same
+    one)."""
     db.init_db()
     _reset_schema()
     u = uuid.uuid4().hex[:8]
@@ -240,9 +256,13 @@ def seeded_ct_trial():
     session.add(family); session.flush()
     grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11e-CT-Grade-{u}")
     session.add(grade); session.flush()
+    customer = db.Customer(company_id=company.id, company_name=f"CR11e CT Customer {u}")
+    session.add(customer); session.flush()
+    customer_2 = db.Customer(company_id=company.id, company_name=f"CR11e-Correction-Edited-Customer-{u}")
+    session.add(customer_2); session.flush()
     trial = db.CustomerTrial(
         plant_id=plant.id, foam_grade_id=grade.id,
-        customer_name=f"CR11e CT Customer {u}", status="Open",
+        customer_id=customer.id, customer_name=customer.company_name, status="Open",
     )
     session.add(trial); session.flush()
     session.commit()
@@ -250,6 +270,8 @@ def seeded_ct_trial():
         "company_id": company.id, "plant_id": plant.id,
         "family_id": family.id, "grade_id": grade.id, "grade_name": grade.grade_name,
         "trial_id": trial.id,
+        "customer_id": customer.id, "customer_name": customer.company_name,
+        "customer_2_id": customer_2.id, "customer_2_name": customer_2.company_name,
     }
     session.close()
     return ids
@@ -444,20 +466,25 @@ def view_only_ot_role_fixture(seeded_ot_trial_with_sample):
 
 def test_customer_trial_create_via_form(seeded_ct_grade_only):
     """Drives the real Create Trial form ("add_customer_trial"): the
-    Product grade selectbox already defaults to the only seeded grade, so
-    this fills the one required text_input (Customer name *, no key -
-    disambiguated from the Edit form's own keyed customer-name input by
-    t.key is None) and clicks the real 'Save customer trial' submit
-    button, then confirms the new CustomerTrial row landed in the
-    database with the plant/grade FKs the page itself resolves."""
+    Product grade selectbox already defaults to the only seeded grade,
+    and the Customer selectbox (key 'ct_add_customer') already defaults
+    to the fixture's one seeded Customer - CR-14 (2026-08-12) replaced
+    the old free-text 'Customer name *' input with this Customer-master
+    selectbox, so create no longer requires typing a name, only picking
+    one. Clicks the real 'Save customer trial' submit button, then
+    confirms the new CustomerTrial row landed in the database with the
+    plant/grade FKs the page itself resolves, AND that customer_id links
+    to the picked Customer while customer_name is synced from it."""
     ids = seeded_ct_grade_only
     at = AppTest.from_file(PAGE_CUSTOMER_TRIALS, default_timeout=30)
     at.secrets["AUTH_DISABLED"] = True
     at.run()
     assert not at.exception, f"Unhandled exception loading Customer Trials: {at.exception}"
 
-    name_input = next(t for t in at.text_input if t.label == "Customer name *" and t.key is None)
-    name_input.set_value("CR11e-Correction-New-Customer")
+    customer_sb = next(sb for sb in at.selectbox if sb.key == "ct_add_customer")
+    assert customer_sb.value.id == ids["customer_id"], (
+        "With only one Customer seeded, the Create Trial form's Customer selectbox should default to it"
+    )
     save_btn = next(b for b in at.button if b.label == "Save customer trial")
     save_btn.click()
     at.run()
@@ -468,12 +495,13 @@ def test_customer_trial_create_via_form(seeded_ct_grade_only):
         session.query(db.CustomerTrial)
         .filter(
             db.CustomerTrial.plant_id == ids["plant_id"],
-            db.CustomerTrial.customer_name == "CR11e-Correction-New-Customer",
+            db.CustomerTrial.customer_id == ids["customer_id"],
         )
         .first()
     )
     assert created is not None, "New customer trial was not persisted"
     assert created.foam_grade_id == ids["grade_id"]
+    assert created.customer_name == ids["customer_name"]
     session.close()
 
 
@@ -487,10 +515,15 @@ def test_customer_trial_selection_edit_and_delete_via_ui(seeded_ct_trial):
     'Manage samples' workspace also renders (it's inside the same
     Create Trial tab body) but shows 'No samples recorded yet' with no
     form of its own, so the single 'Save changes' button on screen is
-    unambiguously this outer Edit form's. Edits the trial's customer name
-    through that real form and confirms persistence, then deletes it
-    through the real confirm-checkbox + delete-button flow and confirms
-    the cascade-delete removed it."""
+    unambiguously this outer Edit form's.
+
+    CR-14 (2026-08-12) replaced the old free-text customer-name input
+    with a Customer selectbox (key f"ct_edit_customer_{trial_id}") - this
+    switches the selection from the fixture's original Customer to its
+    second seeded Customer through that real selectbox and confirms both
+    customer_id and the synced customer_name persisted, then deletes the
+    trial through the real confirm-checkbox + delete-button flow and
+    confirms the cascade-delete removed it."""
     ids = seeded_ct_trial
     at = AppTest.from_file(PAGE_CUSTOMER_TRIALS, default_timeout=30)
     at.secrets["AUTH_DISABLED"] = True
@@ -502,8 +535,9 @@ def test_customer_trial_selection_edit_and_delete_via_ui(seeded_ct_trial):
     )
 
     # --- Edit ---
-    name_input = next(t for t in at.text_input if t.key == f"ct_edit_customer_{ids['trial_id']}")
-    name_input.set_value("CR11e-Correction-Edited-Customer")
+    customer_sb = next(sb for sb in at.selectbox if sb.key == f"ct_edit_customer_{ids['trial_id']}")
+    target_idx = next(i for i, opt in enumerate(customer_sb.options) if opt == ids["customer_2_name"])
+    customer_sb.select_index(target_idx)
     save_btn = next(b for b in at.button if b.label == "Save changes")
     save_btn.click()
     at.run()
@@ -511,7 +545,8 @@ def test_customer_trial_selection_edit_and_delete_via_ui(seeded_ct_trial):
 
     session = db.get_session()
     edited = session.get(db.CustomerTrial, ids["trial_id"])
-    assert edited.customer_name == "CR11e-Correction-Edited-Customer", "Edit did not persist to the database"
+    assert edited.customer_id == ids["customer_2_id"], "Edit did not persist the new customer_id to the database"
+    assert edited.customer_name == ids["customer_2_name"], "customer_name was not synced from the newly picked customer"
     session.close()
 
     # --- Delete ---

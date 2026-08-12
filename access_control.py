@@ -62,8 +62,8 @@ this order by `page_visible()`:
    forms and action buttons. As of 2026-08-01 this is rolled out on every
    operational page with a write action: Plant & Foam Equipment Overview,
    Product Family & Foam Grade, Recipes, Production Run, Quality Test
-   Result, Quality Issue, Production Samples, Customer Trials & Samples,
-   Optimization Trials & Samples, Raw Materials, Expert
+   Result, Quality Issue, Production Samples, Customers, Customer Trials &
+   Samples, Optimization Trials & Samples, Raw Materials, Expert
    Notes, Recipe Optimization, Trend Analysis, Machine Settings
    Correlation, and Root-Cause Assistant (their "Ask PI3"/"Save to Expert
    Notes" actions), and Machine Settings Optimization (its single, fixed-
@@ -191,6 +191,16 @@ ADMIN_ROLE_NAMES = frozenset({"company admin", "platform admin"})
 # "suppliers" key even if one existed - every role gets full access to the
 # new Suppliers page by default, same "no row = full access" default every
 # other net-new page in this catalog gets.
+#
+# CR-14 (Create Customers Section and Lightweight Customer Master),
+# implemented 2026-08-12: "customers" is a brand-new page_key for the new
+# standalone Customers master page - see pages/33_Customers.py. Unlike
+# CR-13, this key has no prior "shared with another page" history at all
+# (Customer identity previously existed nowhere but a free-text field on
+# Customer Trials & Samples, not behind any permission gate of its own), so
+# there is nothing to check or migrate - every role gets full access by
+# default, same "no row = full access" convention as every other net-new
+# page.
 PAGE_CATALOG = {
     "plant_overview": "Plants",
     "production_methods": "Production Methods",
@@ -203,6 +213,7 @@ PAGE_CATALOG = {
     "quality_test_result": "Test Results",
     "quality_issue": "Quality Issues",
     "samples_conditioning": "Production Samples",
+    "customers": "Customers",
     "customer_trials": "Customer Trials & Samples",
     "optimization_trials": "Optimization Trials & Samples",
     "recipe_optimization": "Recipe Optimization",

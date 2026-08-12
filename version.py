@@ -4202,4 +4202,76 @@ app-not-present skips are conditional on a sibling checkout directory and
 were not observed in this run's environment - unrelated to this change.
 """
 
-APP_VERSION = "0.33.7"
+VERSION_0_33_8_NOTES = """
+v0.33.7 -> v0.33.8 (2026-08-12, CR-14, per Charlie's
+"CR14_Create_Customers_Section_and_Customer_Master.docx" - the second of
+three newly-queued CRs, processed in numeric order after CR-13 closed).
+
+What changed: a new lightweight Customer master (db.Customer -
+company_id, company_name, contact_person, contact_email, customer_type)
+and a new standalone page, pages/33_Customers.py, with its own
+"customers" access_control.py page_key, exposing the standard CR-11
+Create/Edit-Delete/CSV-Excel-import triplet. A brand-new "Customers"
+sidebar section (app_rigid_foam.py's customer_pages) holds Customers then
+Customer Trials & Samples, in that order, positioned between "Production"
+and "Samples & Trials" - Customer Trials & Samples (pages/11_Customer_
+Trials.py) moved out of the old "Samples & Trials" section into this new
+one. CustomerTrial gained a nullable customer_id FK to Customer; its
+existing customer_name column is kept, not removed - it's a synced
+display-only text snapshot updated on every Create/Edit save, so every
+existing reader of customer_name elsewhere (reports.py, pages 5/6,
+analytics.py) keeps working unchanged. Customer Trials & Samples' Create/
+Edit/CSV-import flows all now source customer selection from the
+Customer master: Create and Edit use a real selectbox; CSV import
+auto-links by exact, case-insensitive customer_name match (never a fuzzy
+match) and leaves customer_id NULL on any row with no match, rather than
+guessing. Contact Email gets format validation (helpers.is_valid_email())
+on both the Customers page's Create/Edit forms and its CSV import path -
+empty is valid (the field is optional), only a populated value has to
+look like an email.
+
+Migration/mapping: cascades.backfill_trial_customers() links every
+pre-CR-14 CustomerTrial (customer_id IS NULL) to an existing Customer by
+exact, case/whitespace-normalized customer_name match within the same
+company, or creates a new Customer for it if no match exists - never
+silently merges two different-looking names into one Customer (CR-14
+section 5's explicit requirement). After linking/creating, it flags pairs
+of DIFFERENT Customer names within the same company that are suspiciously
+similar (difflib.SequenceMatcher ratio >= 0.82) for Stefan's review,
+without ever auto-merging them. A live check against Supabase's
+rigid_foam.customer_trials confirmed zero existing rows at the time of
+this CR, so no actual migration run against production was needed - the
+closeout package documents this plus the synthetic-fixture test evidence
+proving the helper's linking/creation/duplicate-detection logic all work
+correctly.
+
+Tests: tests/test_cr14_customers_section.py (32 new tests) - Customers
+section/nav order (source-grepped, not imported directly, same established
+technique as prior CR nav tests), direct opening of both pages, the exact
+CR-11 three-tab wording/order and required fields, Customer create/edit/
+delete persistence and safeguards (including customer_id nullification
+on delete rather than cascade-deleting the linked trial, and rename-
+cascade onto CustomerTrial.customer_name), CSV/Excel import validation
+(duplicate name + invalid email rejection), company scoping and a
+view-only-role delete-block test against the new "customers" page_key,
+Customer Trials & Samples' Create/Edit/CSV-import Customer-selection
+wiring (exact-match auto-suggest, no-match caption, required-selection
+enforcement), preservation of existing trial/sample records, the
+backfill/duplicate-detection helper's linking/creation/idempotency/
+never-merge behavior, and is_valid_email() unit coverage (valid, invalid,
+and empty-is-valid cases). tests/test_cr11_functional_evidence_group_e.py's
+two outer-Customer-Trial-group tests that predated this CR's Customer-
+selectbox rewrite (create-via-form and selection-edit-delete) were
+updated in place to drive the new Customer-master selectbox instead of
+the retired free-text "Customer name" input, with their fixtures extended
+to seed the Customer(s) those flows now require.
+
+Full regression suite: 364 passed, 2 skipped, 0 failures (334 pre-existing
++ 32 new via test_cr14_customers_section.py, minus 2 net-new-test-count
+changes absorbed by the 2 corrected tests in test_cr11_functional_
+evidence_group_e.py, which stayed at 20 tests total). The 2 skips are the
+same pre-existing Flexible-Foam-sibling-app-not-present skips noted in
+every prior CR - unrelated to this change.
+"""
+
+APP_VERSION = "0.33.8"

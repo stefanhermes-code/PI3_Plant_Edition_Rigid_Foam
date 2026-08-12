@@ -931,6 +931,25 @@ def dedupe_import_rows(rows, existing_keys, key_func):
     return new_rows, dup_rows
 
 
+_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def is_valid_email(value):
+    """CR-14 (Create Customers Section and Lightweight Customer Master,
+    2026-08-12) section 3: "Contact Email should validate email format when
+    a value is entered" - the operative word being WHEN a value is entered;
+    an empty/blank value is valid (the field is optional), only a non-empty
+    value has to look like an email. Deliberately simple (one @, at least
+    one "." after it, no whitespace) - this is a data-entry sanity check,
+    not RFC 5322 validation; the Customers page is the first caller, but
+    this lives here so any future contact-email field (e.g. Companies)
+    can reuse the same rule instead of growing its own regex."""
+    value = (value or "").strip()
+    if not value:
+        return True
+    return bool(_EMAIL_PATTERN.match(value))
+
+
 def cr11_function_tab_labels(record_singular, record_plural=None):
     """CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
     Functions, 2026-08-12): the single source of truth for the exact wording
