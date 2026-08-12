@@ -406,6 +406,37 @@ def test_where_used_report_generates(rich_fixture):
     session.close()
 
 
+def test_pi3_qa_report_generates():
+    """CR-12 closeout correction (2026-08-12, item 4): the matrix's own
+    "PI3 Q&A Report (5 answer locations app-wide)" row had no test anywhere
+    in the suite before this correction - a genuine access-path evidence
+    gap, not caught earlier because build_pi3_qa_report_data()/render_
+    pi3_qa_report_docx() need no live OpenAI call or AppTest page load to
+    prove: per the module's own docstring precedent (see this file's
+    header), the data-assembly half is plain Python with no Streamlit
+    dependency, so it's proven the same direct-call way as Where Used
+    Report just above - a real question/answer/tool_log shape (matching
+    exactly what ai_assistant.ask_plant_question() returns) in, valid
+    OOXML bytes out."""
+    data = reports.build_pi3_qa_report_data(
+        question="What drove the density variance on this run?",
+        answer="1. Direct Answer\nDensity trended 2% below target on lots using Supplier B polyol.",
+        tool_log=[{
+            "tool": "query_plant_data",
+            "sql": "SELECT * FROM production_runs WHERE id = 1",
+            "rows_returned": 1,
+            "rows": [{"id": 1, "batch_reference": "CR12-CORR-B1"}],
+        }],
+        page_context="Root-Cause Assistant",
+        plant_name="CR-12 Correction Plant",
+        foam_grade_name="CR-12 Correction Grade",
+        asked_by="stefan.hermes@htcglobal.asia",
+    )
+    assert data["question"] and data["answer"] and data["tool_log"]
+    docx_bytes = reports.render_pi3_qa_report_docx(data)
+    assert docx_bytes[:2] == b"PK", "Word (.docx) output should be a valid zip/OOXML package"
+
+
 # ---------------------------------------------------------------------------
 # Industrial Intelligence pages (15-19) - each page's own deterministic
 # Context/Analysis/Conclusions report, distinct from PI3's separate

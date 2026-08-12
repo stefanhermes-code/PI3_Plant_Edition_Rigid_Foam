@@ -3942,4 +3942,60 @@ CR-11 functional-evidence tests), same 4 pre-existing unrelated numpy
 divide-by-zero RuntimeWarnings present before this batch too.
 """
 
-APP_VERSION = "0.33.2"
+VERSION_0_33_3_NOTES = """
+v0.33.2 -> v0.33.3 (2026-08-12, CR-12 closeout correction, per Charlie's
+"CR12_Closeout_Review_Return_to_JC.docx" - the technical conclusion was
+accepted outright ("the reporting architecture appears aligned and the
+22 new reporting-parity tests provide strong coverage"), but the closeout
+package's evidence STRUCTURE was returned OPEN pending completion of six
+items).
+
+Unlike the CR-11 correction, this one required almost no new engineering
+or new test-writing - Charlie's own return says as much ("the existing
+technical conclusion, report allocation, retained Rigid-specific
+differences and 22-test parity suite can remain unchanged where the
+completed evidence confirms them"). The six items are a documentation-
+completeness exercise over evidence that mostly already existed:
+
+1. Comparison matrix expanded with the missing columns Charlie's return
+   named: filters/record context, equivalent function in the other app,
+   structural gap, required implementation action - one row per report
+   type, all 18 rows from the original matrix retained.
+2. Every parity row now states its disposition explicitly ("No gap -
+   No implementation required") rather than leaving it implied by a
+   Yes/Yes pair of columns.
+3. Both Rigid-only rows (Rigid Recipe Optimization Report branch, WP3
+   Property Conformance Report) show the Flexible equivalent as N/A with
+   the same concrete data reason already documented in the original
+   closeout package (GradeSpecification/unit-converted lot-use data has
+   no Flexible Foam counterpart) - not re-justified, just carried
+   forward and made resubmission-visible.
+4. Access-path evidence: every one of the (now) 18 inventory rows mapped
+   to its executed generation test by name. One genuine gap found and
+   closed while building this mapping - the matrix's own "PI3 Q&A Report
+   (5 answer locations app-wide)" row had zero test coverage anywhere in
+   the suite; build_pi3_qa_report_data()/render_pi3_qa_report_docx() are
+   plain-Python (no Streamlit dependency), so proven the same direct-call
+   way the file already proves Where Used Report - a real question/
+   answer/tool_log shape in, valid OOXML bytes out. New test:
+   test_pi3_qa_report_generates() in tests/test_cr12_reporting_parity.py
+   (23rd test in that file).
+5. Scope/filter/access evidence: every reporting call site runs through
+   tenant_scope.py's existing id-scoping helpers, introduced no new
+   scoping logic (confirmed in the original closeout's own Section 3
+   call-site inspection), so the existing page-scoping test coverage
+   (tasks #207-217's original scoping retrofit) already covers every
+   report in this inventory - mapped explicitly per row in the
+   resubmitted correction document rather than left as a general
+   statement.
+6. Regression result retained and re-verified after the one new test
+   was added: 274 passed, 0 failed, 0 skipped CR-12 acceptance paths
+   (193 pre-existing-for-this-CR + 22 pre-existing CR-12 tests + 1 new
+   PI3 Q&A Report test).
+
+Full regression suite: 274 passed, 0 failed, same 4 pre-existing
+unrelated numpy divide-by-zero RuntimeWarnings present before this batch
+too.
+"""
+
+APP_VERSION = "0.33.3"
