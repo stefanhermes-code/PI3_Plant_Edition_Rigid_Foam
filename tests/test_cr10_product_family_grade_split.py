@@ -952,5 +952,121 @@ def test_customer_facing_scan_has_no_old_combined_naming():
     assert "product_family_foam_grade" not in access_control.PAGE_CATALOG
 
 
+# ---------------------------------------------------------------------------
+# CR-11 CLOSEOUT CORRECTION ROUND 2 - remaining gap (2026-08-12, per
+# Charlie's "CR11_Closeout_Correction_Round2_Review_Return_to_JC.docx"):
+# test_product_families_view_only_role_cannot_use_write_controls and
+# test_product_grades_view_only_role_cannot_use_write_controls (above)
+# prove the Create form and CSV/Excel uploader don't render for a
+# view-only role, but neither one selects an existing row and checks the
+# Delete path itself. Both pages' own source (pages/2_Product_Families.py
+# and pages/2_Product_Grades.py) gate the entire Edit form AND the
+# delete_with_confirm() block behind the same `if not page_usable:` branch
+# that already renders the "View-only access - editing and deleting is
+# restricted for your role." caption - so these two tests preset the
+# table's own on_select state to select the seeded row (the same
+# genuinely-drivable technique used by
+# test_product_family_selection_edit_and_delete_via_ui above), run as the
+# view-only role, and assert the real confirm-checkbox/delete-button keys
+# are absent while the record remains persisted - direct evidence for the
+# Delete path specifically, not just Create/Import.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def view_only_role_fixture_with_grade(seeded_one_family_one_grade):
+    """Same real RolePagePermission(can_view=True, can_use=False) row on
+    both page keys as view_only_role_fixture above, but built on
+    seeded_one_family_one_grade so a Product Grade row also exists to
+    select for the Delete-path test - view_only_role_fixture itself is
+    built on seeded_one_family (zero grades), which can't exercise
+    Product Grades' own selection/delete path."""
+    ids = seeded_one_family_one_grade
+    session = db.get_session()
+    role = db.Role(company_id=ids["company_id"], name="CR11 Round2 View Only", is_builtin=False)
+    session.add(role); session.flush()
+    session.add_all([
+        db.RolePagePermission(role_id=role.id, page_key="product_families", can_view=True, can_use=False),
+        db.RolePagePermission(role_id=role.id, page_key="product_grades", can_view=True, can_use=False),
+    ])
+    session.commit()
+    out = dict(ids)
+    out["role_id"] = role.id
+    session.close()
+    return out
+
+
+def test_product_family_view_only_role_cannot_delete_via_ui(view_only_role_fixture):
+    """Selects the seeded family through families_table's own on_select
+    state, runs as the view-only role, and confirms the real delete
+    confirm-checkbox (key f"family_{id}_confirm") and delete button (key
+    f"family_{id}_btn") are both absent - not merely that the Create/
+    Import controls are gone - while the family remains in the database
+    afterward."""
+    ids = view_only_role_fixture
+    at = AppTest.from_file(PAGE_FAMILIES, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.session_state["role_id"] = ids["role_id"]
+    at.session_state["is_super_admin"] = False
+    at.session_state["is_platform_owner"] = False
+    at.session_state["company_id"] = ids["company_id"]
+    at.session_state["families_table"] = {"selection": {"rows": [0], "columns": []}}
+    at.run()
+    assert not at.exception, f"Unhandled exception selecting a row as a view-only role: {at.exception}"
+    assert at.session_state["family_selected_id"] == ids["family_id"], (
+        "The view-only role should still be able to select the row (view is permitted) - only editing/deleting is restricted"
+    )
+
+    captions = " ".join(c.value for c in at.caption)
+    assert "editing and deleting is restricted" in captions.lower()
+    assert not any(c.key == f"family_{ids['family_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the delete confirm-checkbox"
+    )
+    assert not any(b.key == f"family_{ids['family_id']}_btn" for b in at.button), (
+        "View-only role should not see the delete button"
+    )
+
+    session = db.get_session()
+    assert session.get(db.ProductFamily, ids["family_id"]) is not None, (
+        "The product family must remain persisted - a view-only role must not be able to delete it"
+    )
+    session.close()
+
+
+def test_product_grade_view_only_role_cannot_delete_via_ui(view_only_role_fixture_with_grade):
+    """Same evidence as above, for pages/2_Product_Grades.py - selects the
+    seeded grade through grades_table's own on_select state, runs as the
+    view-only role, and confirms the real delete confirm-checkbox (key
+    f"grade_{id}_confirm") and delete button (key f"grade_{id}_btn") are
+    both absent, while the grade remains in the database afterward."""
+    ids = view_only_role_fixture_with_grade
+    at = AppTest.from_file(PAGE_GRADES, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.session_state["role_id"] = ids["role_id"]
+    at.session_state["is_super_admin"] = False
+    at.session_state["is_platform_owner"] = False
+    at.session_state["company_id"] = ids["company_id"]
+    at.session_state["grades_table"] = {"selection": {"rows": [0], "columns": []}}
+    at.run()
+    assert not at.exception, f"Unhandled exception selecting a row as a view-only role: {at.exception}"
+    assert at.session_state["grade_selected_id"] == ids["grade_id"], (
+        "The view-only role should still be able to select the row (view is permitted) - only editing/deleting is restricted"
+    )
+
+    captions = " ".join(c.value for c in at.caption)
+    assert "editing and deleting is restricted" in captions.lower()
+    assert not any(c.key == f"grade_{ids['grade_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the delete confirm-checkbox"
+    )
+    assert not any(b.key == f"grade_{ids['grade_id']}_btn" for b in at.button), (
+        "View-only role should not see the delete button"
+    )
+
+    session = db.get_session()
+    assert session.get(db.FoamGrade, ids["grade_id"]) is not None, (
+        "The product grade must remain persisted - a view-only role must not be able to delete it"
+    )
+    session.close()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

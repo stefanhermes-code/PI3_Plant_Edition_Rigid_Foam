@@ -4107,4 +4107,39 @@ skips in test_cr12_reporting_parity.py, unchanged by this batch). No
 application code changed - test-coverage and documentation only.
 """
 
-APP_VERSION = "0.33.5"
+VERSION_0_33_6_NOTES = """
+v0.33.5 -> v0.33.6 (2026-08-12, CR-11 closeout correction round 3, per
+Charlie's "CR11_Closeout_Correction_Round2_Review_Return_to_JC.docx" -
+round 2 closed the CSV/Excel validation gap and supplied named delete-
+permission evidence for 20 of the 22 record groups, but one gap remained
+for Product Families and Product Grades).
+
+Remaining gap: the round-2 matrix cited
+test_product_families_view_only_role_cannot_use_write_controls and
+test_product_grades_view_only_role_cannot_use_write_controls as delete-
+permission evidence for these two surfaces. At commit 6b958ae those two
+tests prove the page is in view-only mode and the Create submit control/
+CSV uploader are unavailable - they never select an existing row and
+verify the Delete confirmation/button path itself, leaving Delete
+unverified for exactly these two groups (the other 20 groups already had
+a real *_view_only_role_cannot_delete test selecting a row before this
+round).
+
+Fix: added test_product_family_view_only_role_cannot_delete_via_ui and
+test_product_grade_view_only_role_cannot_delete_via_ui to
+tests/test_cr10_product_family_grade_split.py. Each preloads the page's
+own clickable_table on_select state to select the seeded row (confirming
+a view-only role can still VIEW/select it), runs as a real
+RolePagePermission(can_view=True, can_use=False) role, and asserts the
+real delete confirm-checkbox and delete-button keys are absent while the
+record remains persisted afterward - reading both pages' own source
+first confirmed the entire Edit form AND the delete_with_confirm() block
+are gated behind the same `if not page_usable:` branch that already
+renders the view-only caption, so this is direct evidence for the Delete
+path specifically, not a restatement of the Create/Import evidence.
+
+Full regression suite: 325 passed, 2 skipped (323 pre-existing + 2 new;
+same pre-existing Flexible-Foam-sibling-app-not-present skips, unchanged).
+"""
+
+APP_VERSION = "0.33.6"
