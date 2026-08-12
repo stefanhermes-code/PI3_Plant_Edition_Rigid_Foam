@@ -3752,4 +3752,95 @@ runs and in combination with the two other files sharing its known
 autoincrement-id/cache-key hazard.
 """
 
-APP_VERSION = "0.33.0"
+VERSION_0_33_1_NOTES = """
+v0.33.1 - CR-10 closeout correction (per Charlie's
+"CR10_Closeout_Review_Return_to_JC.docx", 2026-08-12): CR-10's first
+closeout package was returned OPEN - Charlie's review found the
+implementation correct but the closeout evidence incomplete, and asked
+for direct evidence of 6 specific items plus the pre-existing CR-09
+Recipe Optimization skip reported separately (not conflated with CR-10's
+own completeness).
+
+This release adds the missing direct evidence. No application code
+behavior changed - see below for the two small comment/docstring-only
+touches - this is purely closing an evidence gap in a CR that was already
+correctly implemented in v0.31.0.
+
+15 new tests added to tests/test_cr10_product_family_grade_split.py
+(7 -> 22 tests in that file), one section per item in Charlie's return:
+
+1. Active-page highlighting (both new pages): structural proof - both
+   page keys are registered in production_method_pages next to an
+   st.Page(...), routed through app_rigid_foam.py's single shared
+   `for page in pages: st.page_link(page)` render loop (no per-page
+   custom render branch that could opt one out of Streamlit's native
+   page_link highlighting), and both default to page_visible()=True.
+
+2. Product Families functional regression - create (real form, real
+   submit button), edit (real Edit form, DB-verified persistence),
+   delete (real confirm-checkbox + delete-button flow, cascade verified),
+   selection (see capability note below), plus CSV/Excel import as bonus
+   coverage beyond the item's literal wording.
+
+3. Product Grades functional regression - same four, plus CSV/Excel
+   import via a real st.file_uploader upload and a real "Confirm import"
+   click.
+
+4. Authorization and access behavior on both new page keys - a real
+   company-scoped Role with an explicit RolePagePermission row
+   (can_view=True, can_use=False - the "View only" state) on
+   "product_families"/"product_grades" is proven, through AppTest, to
+   hide the Create form and the Import uploader on both pages, with a
+   contrast test proving a role with no permission row (the "no row =
+   full access" default) sees the real Create form.
+
+5. Validation and data persistence - blank-name submits on both pages'
+   Create forms are proven to show the real inline error and insert zero
+   rows; edits are proven durable by editing in one AppTest session then
+   loading a completely separate, fresh AppTest instance and confirming
+   the database (not an in-memory local variable) shows the edit.
+
+6. Customer-facing regression scan - proven at the actual rendered
+   surface (sidebar page titles via app_rigid_foam.py's st.Page(title=...)
+   list, and both new pages' own live st.tabs() labels), not a blind grep
+   for "Product families"/"Product grades" as substrings, which would
+   false-positive against the CURRENT, correct table column headers both
+   pages legitimately still use those same two words for.
+
+CR-09 separation (per Charlie's explicit instruction, not a CR-10 test):
+tests/test_cr09_customer_content_leakage.py's three pytest.skip() calls
+near its PI3-prompt test are defensive page-structure-drift guards, not
+an active skip - re-ran that file's full 11-test suite in isolation and
+got 11 passed, 0 skipped. Reported here for the record, not duplicated
+into CR-10's own test file, since it belongs to CR-09's.
+
+Capability note (methodology correction to an earlier test file, not an
+application defect): tests/test_pm_hierarchy_pages_smoke.py (2026-08-09/10)
+documented that clickable_table's st.dataframe row-click selection "has
+no way to [be] simulate[d]" in AppTest. Verified directly against
+streamlit==1.59.2 (this project's pinned version) that this is only half
+true: presetting the SELECTED ROW ID key directly (e.g.
+session_state["family_selected_id"]) indeed doesn't work, because the
+page's own "idx is None -> pop the selection" branch always fires on a
+run with no click event - but presetting the underlying dataframe
+WIDGET's own on_select state (session_state["families_table"] =
+{"selection": {"rows": [0], "columns": []}}), the exact shape Streamlit
+stores under the widget's own key, does work: the widget reports that
+selection on its very first run, same as a real click would. This gave
+items 2 and 3 above genuine end-to-end UI evidence instead of a
+data-layer stand-in.
+
+Two small stale-comment fixes made while re-reading the touched pages for
+this correction (not customer-facing, not part of item 6's scan, just
+found along the way and fixed since "no loose ends" is the standing
+instruction on this project): db.py's GradeSpecification unique-
+constraint comment referenced the now-deleted pages/2_Product_Family_
+Foam_Grade.py; corrected to point at pages/2_Product_Grades.py with the
+CR-10 history noted.
+
+Full regression suite: 208 passed (193 pre-existing + 15 new CR-10
+correction tests), 0 failed. Verified stable across 3 consecutive runs of
+the whole suite, plus the new test file run alone.
+"""
+
+APP_VERSION = "0.33.1"

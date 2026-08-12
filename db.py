@@ -3131,8 +3131,10 @@ class GradeSpecification(Base):
     # CR-07 acceptance criterion: "Duplicate Product Grade + Property_ID
     # combinations are blocked in both UI and write path." The UI blocks it
     # structurally (a property already on the grade drops out of the "add
-    # property target" picker - see pages/2_Product_Family_Foam_Grade.py);
-    # this is the write-path backstop. A plain (not partial) unique
+    # property target" picker - see pages/2_Product_Grades.py, CR-10
+    # 2026-08-12 split this off the old combined
+    # pages/2_Product_Family_Foam_Grade.py, since deleted); this is the
+    # write-path backstop. A plain (not partial) unique
     # constraint is correct here, not a WHERE-filtered index like
     # RecipeVersion's ux_recipe_version_one_active_per_grade: standard SQL
     # (both SQLite and Postgres) already treats NULL as distinct from every
