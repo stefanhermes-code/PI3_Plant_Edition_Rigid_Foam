@@ -71,6 +71,34 @@ docstring), so helpers.rigid_sample_dimension_fields() renders nothing
 extra on the Sample create/edit forms - deliberate, to keep every form
 in this file to its minimal real required-widget set.
 
+CORRECTION v2 (2026-08-12, per Charlie's CR11_Closeout_Correction_
+Review_Return_to_JC.docx): the round above closed out create/edit/
+selection/valid-import evidence for all 4 record groups (outer Customer
+Trial, nested Customer Trial Sample, outer Optimization Trial, nested
+Optimization Trial Sample), but Charlie's review found two further gaps,
+both cutting across all 4 groups:
+
+  1. Delete permission/safeguards - no direct evidence a role denied
+     "use" access (can_view=True, can_use=False) is actually blocked from
+     deleting a record through the real UI, for each applicable page key.
+     Added below: a view_only_ct_role_fixture / view_only_ot_role_fixture
+     pair (one company-scoped db.Role + db.RolePagePermission per outer
+     page, reused for that page's nested Sample group too, since both
+     verified from source to share the exact same page_key/page_usable
+     gating - see the fixtures' own docstrings) and 4 new tests, one per
+     record group, each presetting the relevant clickable_table's own
+     selection state for a real view-only-role run and asserting the
+     delete confirm-checkbox/button don't render, plus that the record
+     survives.
+  2. Import validation handling - all 4 of this file's importers
+     pre-existed CR-11 (only relabeled by it, not among CR-11's six
+     net-new importers) and so far only had successful-import evidence.
+     Added below: 4 new tests, one per record group, each uploading a CSV
+     row that fails that exact importer's own bad-row check (read from
+     source, not assumed - see each new test's own docstring for the
+     precise condition) and asserting the "Confirm import" button doesn't
+     render and the row count is unchanged.
+
 Usage: python -m pytest tests/test_cr11_functional_evidence_group_e.py -v
 """
 import os
@@ -127,6 +155,32 @@ def _run(page_path, session_state=None):
     at = AppTest.from_file(page_path, default_timeout=30)
     at.secrets["AUTH_DISABLED"] = True
     for key, value in (session_state or {}).items():
+        at.session_state[key] = value
+    at.run()
+    return at
+
+
+def _run_as_role(page_path, ids, extra_session_state=None):
+    """CR-11 correction v2 (2026-08-12, per Charlie's CR11_Closeout_
+    Correction_Review_Return_to_JC.docx item 1) - copied from
+    tests/test_cr10_product_family_grade_split.py's identical helper (the
+    template Charlie already accepted for this exact kind of evidence):
+    same AUTH_DISABLED entry point every other test in this file uses, but
+    overriding the dev-bypass's own is_super_admin=True default (see
+    auth.py's require_login docstring) with a real, restricted role - the
+    dev bypass only setdefault()s these session_state keys, so presetting
+    them BEFORE .run() makes require_login() leave them alone.
+    extra_session_state (e.g. a clickable_table's own on_select state) is
+    applied on that SAME first .run() call, since - per this file's module
+    docstring - a dataframe widget's own selection state only takes effect
+    if it's present before the run in which that widget first executes."""
+    at = AppTest.from_file(page_path, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.session_state["role_id"] = ids["role_id"]
+    at.session_state["is_super_admin"] = False
+    at.session_state["is_platform_owner"] = False
+    at.session_state["company_id"] = ids["company_id"]
+    for key, value in (extra_session_state or {}).items():
         at.session_state[key] = value
     at.run()
     return at
@@ -327,6 +381,64 @@ def seeded_ot_trial_with_sample():
 
 
 # ---------------------------------------------------------------------------
+# CR-11 CLOSEOUT CORRECTION v2 (2026-08-12, per Charlie's CR11_Closeout_
+# Correction_Review_Return_to_JC.docx) - fixtures for item 1 (Delete
+# permission/safeguards).
+#
+# Both pages gate their outer Trial group's AND their nested Sample
+# group's Create/Edit/Delete write controls off the SAME single
+# `page_usable = can_use_page(<page_key>, ...)` call near the top of the
+# page (see pages/11_Customer_Trials.py's `page_usable` variable, read
+# once and reused by both the outer tab_edit_delete block's
+# delete_with_confirm(...) call and the nested sub_edit_delete block's own
+# delete_with_confirm(...) call) - there is no separate page_key for the
+# nested Sample group. Verified directly from source rather than assumed:
+#   pages/11_Customer_Trials.py:    can_use_page("customer_trials", ...)
+#   pages/12_Optimization_Trials.py: can_use_page("optimization_trials", ...)
+# So one company-scoped Role per page, denied "use" (can_view=True,
+# can_use=False) on that page's own page_key, is directly reusable as
+# fixture-level evidence for BOTH that page's outer Trial delete test and
+# its nested Sample delete test below.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def view_only_ct_role_fixture(seeded_ct_trial_with_sample):
+    """A real db.Role + db.RolePagePermission(page_key="customer_trials",
+    can_view=True, can_use=False) against the seeded_ct_trial_with_sample
+    chain (one trial, one sample) - the minimum needed to exercise BOTH
+    the outer Trial delete-permission test and the nested Sample
+    delete-permission test off a single fixture, exactly as
+    tests/test_cr10_product_family_grade_split.py's view_only_role_fixture
+    does for its own two page keys."""
+    ids = seeded_ct_trial_with_sample
+    session = db.get_session()
+    role = db.Role(company_id=ids["company_id"], name="CR11e CT Correction View Only", is_builtin=False)
+    session.add(role); session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="customer_trials", can_view=True, can_use=False))
+    session.commit()
+    out = dict(ids)
+    out["role_id"] = role.id
+    session.close()
+    return out
+
+
+@pytest.fixture()
+def view_only_ot_role_fixture(seeded_ot_trial_with_sample):
+    """Same as view_only_ct_role_fixture, for optimization_trials /
+    seeded_ot_trial_with_sample."""
+    ids = seeded_ot_trial_with_sample
+    session = db.get_session()
+    role = db.Role(company_id=ids["company_id"], name="CR11e OT Correction View Only", is_builtin=False)
+    session.add(role); session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="optimization_trials", can_view=True, can_use=False))
+    session.commit()
+    out = dict(ids)
+    out["role_id"] = role.id
+    session.close()
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Customer Trials - outer "Trial" group
 # ---------------------------------------------------------------------------
 
@@ -416,6 +528,96 @@ def test_customer_trial_selection_edit_and_delete_via_ui(seeded_ct_trial):
     session = db.get_session()
     assert session.get(db.CustomerTrial, ids["trial_id"]) is None, "Delete did not remove the customer trial"
     session.close()
+
+
+def test_customer_trial_view_only_role_cannot_delete_via_ui(view_only_ct_role_fixture):
+    """CR-11 correction v2 (2026-08-12, per Charlie's CR11_Closeout_
+    Correction_Review_Return_to_JC.docx item 1) - Delete permission/
+    safeguards evidence for the outer Customer Trial group, page_key
+    'customer_trials'. A role denied 'use' (can_view=True, can_use=False)
+    via a real db.RolePagePermission row still opens the page (view-only,
+    not hidden - can_view stays True) but pages/11_Customer_Trials.py's
+    outer tab_edit_delete block only calls delete_with_confirm(...) when
+    page_usable is True; otherwise it renders the 'View-only access -
+    deleting is restricted for your role.' caption instead (see that
+    page's `if page_usable: delete_with_confirm(...) else: st.caption(...)`
+    branch). Presets the outer Trial table's own on_select state to select
+    the seeded trial (the same real-selection technique the create/edit/
+    delete test above uses) and confirms neither the delete confirm
+    checkbox nor the delete button render for this role, then confirms the
+    trial is still in the database - direct UI-level proof the
+    permission-denied delete path actually blocks the real controls, not
+    just that can_use_page() itself returns False."""
+    ids = view_only_ct_role_fixture
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "customer_trials", role_id=ids["role_id"], session=session, is_super_admin=False
+    )
+    session.close()
+
+    at = _run_as_role(
+        PAGE_CUSTOMER_TRIALS, ids,
+        extra_session_state={"customer_trials_table": {"selection": {"rows": [0], "columns": []}}},
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["ct_selected_id"] == ids["trial_id"], (
+        "Presetting the dataframe widget's own selection state should have selected the seeded trial"
+    )
+
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+    assert not any(c.key == f"ct_{ids['trial_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the outer Trial delete confirm checkbox"
+    )
+    assert not any(b.key == f"ct_{ids['trial_id']}_btn" for b in at.button), (
+        "View-only role should not see the outer Trial delete button"
+    )
+
+    session = db.get_session()
+    assert session.get(db.CustomerTrial, ids["trial_id"]) is not None, (
+        "The customer trial must remain in the database after a denied delete attempt"
+    )
+    session.close()
+
+
+def test_customer_trial_csv_import_validation_rejects_invalid_row(seeded_ct_grade_only):
+    """CR-11 correction v2 (item 2): pages/11_Customer_Trials.py's outer
+    Trial CSV/Excel importer pre-existed CR-11 (only relabeled by it, not
+    one of CR-11's six net-new importers) and so far only had
+    successful-import evidence (test above). Uploads one row with an
+    out-of-scope foam_grade_id (customer_name present and non-blank, so
+    the rejection is isolated to the page's own
+    `grade_id_val in import_grade_ids` half of its bad-row check) and
+    confirms the row is flagged invalid, not silently imported: the
+    'Confirm import' button only renders when good_rows is non-empty (see
+    that page's `if good_trial_rows and st.button(...)` guard), so its
+    absence here is direct proof of rejection."""
+    ids = seeded_ct_grade_only
+    at = AppTest.from_file(PAGE_CUSTOMER_TRIALS, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    session = db.get_session()
+    before_count = session.query(db.CustomerTrial).count()
+    session.close()
+
+    csv_bytes = b"foam_grade_id,customer_name\n999999,CR11e-Correction-Bad-Grade-Customer\n"
+    uploader = next(u for u in at.file_uploader if u.key == "ct_trial_upload")
+    uploader.set_value(("trials_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-foam_grade_id CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_ct_trial_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "foam_grade_id" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.CustomerTrial).count()
+    session.close()
+    assert after_count == before_count, "An out-of-scope foam_grade_id row must not be persisted"
 
 
 def test_customer_trial_csv_import_via_ui(seeded_ct_grade_only):
@@ -562,6 +764,96 @@ def test_customer_trial_sample_selection_edit_and_delete_via_ui(seeded_ct_trial_
     session.close()
 
 
+def test_customer_trial_sample_view_only_role_cannot_delete_via_ui(view_only_ct_role_fixture):
+    """CR-11 correction v2 (item 1) - Delete permission/safeguards
+    evidence for the NESTED Sample group under Customer Trials. Verified
+    from source: the nested Sample group has no page_key of its own - its
+    sub_edit_delete block gates delete_with_confirm(...) off the exact
+    SAME `page_usable` variable (derived from can_use_page("customer_trials",
+    ...)) as the outer Trial group, one scope up. Reuses
+    view_only_ct_role_fixture (same role, same page_key) rather than a
+    second fixture, since that shared gating is the point being evidenced.
+    Presets the NESTED Sample table's own on_select state
+    (f"ct_samples_table_{trial_id}") to select the seeded sample and
+    confirms neither the nested delete confirm checkbox
+    (f"ct_sample_{sample_id}_confirm") nor the nested delete button
+    (f"ct_sample_{sample_id}_btn") render for this role, then confirms the
+    sample is still in the database."""
+    ids = view_only_ct_role_fixture
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "customer_trials", role_id=ids["role_id"], session=session, is_super_admin=False
+    )
+    session.close()
+
+    table_key = f"ct_samples_table_{ids['trial_id']}"
+    sel_key = f"ct_sample_selected_id_{ids['trial_id']}"
+    at = _run_as_role(
+        PAGE_CUSTOMER_TRIALS, ids,
+        extra_session_state={table_key: {"selection": {"rows": [0], "columns": []}}},
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state[sel_key] == ids["sample_id"], (
+        "Presetting the nested Sample dataframe widget's own selection state should have selected the seeded sample"
+    )
+
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+    assert not any(c.key == f"ct_sample_{ids['sample_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the nested Sample delete confirm checkbox"
+    )
+    assert not any(b.key == f"ct_sample_{ids['sample_id']}_btn" for b in at.button), (
+        "View-only role should not see the nested Sample delete button"
+    )
+
+    session = db.get_session()
+    assert session.get(db.Sample, ids["sample_id"]) is not None, (
+        "The sample must remain in the database after a denied delete attempt"
+    )
+    session.close()
+
+
+def test_customer_trial_sample_csv_import_validation_rejects_invalid_row(seeded_ct_trial):
+    """CR-11 correction v2 (item 2): pages/11_Customer_Trials.py's nested
+    Sample CSV/Excel importer (also pre-existing, only relabeled by
+    CR-11) so far only had successful-import evidence (test below).
+    Navigates into the nested group the same way the create/valid-import
+    tests do (the lone seeded trial auto-selects in 'Manage samples'),
+    then uploads one row with an out-of-scope source_type ('Bogus Type',
+    not in db.SAMPLE_SOURCE_TYPES) - the page's own bad-row check
+    (`source_type in SAMPLE_SOURCE_TYPES and source_id_in_scope and
+    str(row.get("zone_label", "")).strip()`) rejects it on that first
+    clause alone - and confirms the row is flagged invalid: the
+    per-trial-id 'Confirm import' button only renders when good_rows is
+    non-empty, so its absence here is direct proof of rejection."""
+    ids = seeded_ct_trial
+    at = AppTest.from_file(PAGE_CUSTOMER_TRIALS, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    session = db.get_session()
+    before_count = session.query(db.Sample).count()
+    session.close()
+
+    csv_bytes = b"source_type,source_id,zone_label\nBogus Type,1,Top\n"
+    uploader = next(u for u in at.file_uploader if u.key == f"ct_sample_upload_{ids['trial_id']}")
+    uploader.set_value(("samples_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-source_type CSV: {at.exception}"
+
+    assert not any(b.key == f"confirm_ct_sample_import_{ids['trial_id']}" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "source_type" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.Sample).count()
+    session.close()
+    assert after_count == before_count, "An invalid-source_type row must not be persisted"
+
+
 def test_customer_trial_sample_csv_import_via_ui(seeded_ct_trial):
     """Navigates into the nested group the same way the create test
     above does (the lone seeded trial is auto-selected in 'Manage
@@ -695,6 +987,86 @@ def test_optimization_trial_selection_edit_and_delete_via_ui(seeded_ot_trial):
     session = db.get_session()
     assert session.get(db.OptimizationTrial, ids["trial_id"]) is None, "Delete did not remove the optimization trial"
     session.close()
+
+
+def test_optimization_trial_view_only_role_cannot_delete_via_ui(view_only_ot_role_fixture):
+    """CR-11 correction v2 (item 1) - Delete permission/safeguards
+    evidence for the outer Optimization Trial group, page_key
+    'optimization_trials'. Mirrors
+    test_customer_trial_view_only_role_cannot_delete_via_ui exactly:
+    pages/12_Optimization_Trials.py's outer tab_edit_delete block only
+    calls delete_with_confirm(...) when page_usable (derived from
+    can_use_page("optimization_trials", ...)) is True; otherwise it shows
+    the view-only caption. Presets the outer Trial table's own on_select
+    state to select the seeded trial and confirms neither the delete
+    confirm checkbox nor the delete button render for this role, then
+    confirms the trial is still in the database."""
+    ids = view_only_ot_role_fixture
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "optimization_trials", role_id=ids["role_id"], session=session, is_super_admin=False
+    )
+    session.close()
+
+    at = _run_as_role(
+        PAGE_OPTIMIZATION_TRIALS, ids,
+        extra_session_state={"optimization_trials_table": {"selection": {"rows": [0], "columns": []}}},
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["ot_selected_id"] == ids["trial_id"], (
+        "Presetting the dataframe widget's own selection state should have selected the seeded trial"
+    )
+
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+    assert not any(c.key == f"ot_{ids['trial_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the outer Trial delete confirm checkbox"
+    )
+    assert not any(b.key == f"ot_{ids['trial_id']}_btn" for b in at.button), (
+        "View-only role should not see the outer Trial delete button"
+    )
+
+    session = db.get_session()
+    assert session.get(db.OptimizationTrial, ids["trial_id"]) is not None, (
+        "The optimization trial must remain in the database after a denied delete attempt"
+    )
+    session.close()
+
+
+def test_optimization_trial_csv_import_validation_rejects_invalid_row(seeded_ot_grade_only):
+    """CR-11 correction v2 (item 2): pages/12_Optimization_Trials.py's
+    outer Trial CSV/Excel importer also pre-existed CR-11 (relabeled only).
+    Uploads one row with an out-of-scope foam_grade_id - this page's own
+    bad-row check is `grade_id_val in import_grade_ids` alone (unlike
+    Customer Trial, no customer_name/second column is required) - and
+    confirms the row is flagged invalid via the absent 'Confirm import'
+    button, exactly as the Customer Trial equivalent test does."""
+    ids = seeded_ot_grade_only
+    at = AppTest.from_file(PAGE_OPTIMIZATION_TRIALS, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    session = db.get_session()
+    before_count = session.query(db.OptimizationTrial).count()
+    session.close()
+
+    csv_bytes = b"foam_grade_id,improvement_initiative_reference\n999999,CR11e-Correction-Bad-Grade-Initiative\n"
+    uploader = next(u for u in at.file_uploader if u.key == "ot_trial_upload")
+    uploader.set_value(("trials_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-foam_grade_id CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_ot_trial_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "foam_grade_id" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.OptimizationTrial).count()
+    session.close()
+    assert after_count == before_count, "An out-of-scope foam_grade_id row must not be persisted"
 
 
 def test_optimization_trial_csv_import_via_ui(seeded_ot_grade_only):
@@ -833,6 +1205,91 @@ def test_optimization_trial_sample_selection_edit_and_delete_via_ui(seeded_ot_tr
     session = db.get_session()
     assert session.get(db.Sample, ids["sample_id"]) is None, "Delete did not remove the sample"
     session.close()
+
+
+def test_optimization_trial_sample_view_only_role_cannot_delete_via_ui(view_only_ot_role_fixture):
+    """CR-11 correction v2 (item 1) - Delete permission/safeguards
+    evidence for the NESTED Sample group under Optimization Trials.
+    Mirrors test_customer_trial_sample_view_only_role_cannot_delete_via_ui
+    exactly: verified from source that the nested Sample group here also
+    has no page_key of its own - its sub_edit_delete block gates
+    delete_with_confirm(...) off the same `page_usable`
+    (can_use_page("optimization_trials", ...)) as the outer Trial group.
+    Reuses view_only_ot_role_fixture (same role, same page_key). Presets
+    the NESTED Sample table's own on_select state
+    (f"ot_samples_table_{trial_id}") to select the seeded sample and
+    confirms neither the nested delete confirm checkbox nor the nested
+    delete button render for this role, then confirms the sample is still
+    in the database."""
+    ids = view_only_ot_role_fixture
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "optimization_trials", role_id=ids["role_id"], session=session, is_super_admin=False
+    )
+    session.close()
+
+    table_key = f"ot_samples_table_{ids['trial_id']}"
+    sel_key = f"ot_sample_selected_id_{ids['trial_id']}"
+    at = _run_as_role(
+        PAGE_OPTIMIZATION_TRIALS, ids,
+        extra_session_state={table_key: {"selection": {"rows": [0], "columns": []}}},
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state[sel_key] == ids["sample_id"], (
+        "Presetting the nested Sample dataframe widget's own selection state should have selected the seeded sample"
+    )
+
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+    assert not any(c.key == f"ot_sample_{ids['sample_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the nested Sample delete confirm checkbox"
+    )
+    assert not any(b.key == f"ot_sample_{ids['sample_id']}_btn" for b in at.button), (
+        "View-only role should not see the nested Sample delete button"
+    )
+
+    session = db.get_session()
+    assert session.get(db.Sample, ids["sample_id"]) is not None, (
+        "The sample must remain in the database after a denied delete attempt"
+    )
+    session.close()
+
+
+def test_optimization_trial_sample_csv_import_validation_rejects_invalid_row(seeded_ot_trial):
+    """CR-11 correction v2 (item 2): pages/12_Optimization_Trials.py's
+    nested Sample CSV/Excel importer (also pre-existing, only relabeled).
+    Mirrors test_customer_trial_sample_csv_import_validation_rejects_invalid_row
+    exactly - navigates into the nested group (the lone seeded trial
+    auto-selects in 'Manage samples'), uploads one row with an
+    out-of-scope source_type ('Bogus Type', not in
+    db.SAMPLE_SOURCE_TYPES), and confirms the row is flagged invalid via
+    the absent per-trial-id 'Confirm import' button."""
+    ids = seeded_ot_trial
+    at = AppTest.from_file(PAGE_OPTIMIZATION_TRIALS, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    session = db.get_session()
+    before_count = session.query(db.Sample).count()
+    session.close()
+
+    csv_bytes = b"source_type,source_id,zone_label\nBogus Type,1,Top\n"
+    uploader = next(u for u in at.file_uploader if u.key == f"ot_sample_upload_{ids['trial_id']}")
+    uploader.set_value(("samples_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-source_type CSV: {at.exception}"
+
+    assert not any(b.key == f"confirm_ot_sample_import_{ids['trial_id']}" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "source_type" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.Sample).count()
+    session.close()
+    assert after_count == before_count, "An invalid-source_type row must not be persisted"
 
 
 def test_optimization_trial_sample_csv_import_via_ui(seeded_ot_trial):

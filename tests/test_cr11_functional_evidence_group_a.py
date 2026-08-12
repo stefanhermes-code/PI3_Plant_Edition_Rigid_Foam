@@ -86,6 +86,39 @@ row was skipped alongside a successful one (see
 test_plant_csv_import_via_ui et al. for the "at least one row genuinely
 imports" side of this).
 
+CR-11 CLOSEOUT CORRECTION v2 (2026-08-12, per Charlie's
+"CR11_Closeout_Correction_Review_Return_to_JC.docx" item 1 - the first
+correction round above was accepted except for one remaining gap):
+Charlie's return noted that referencing the CR-10 access-control pattern
+(tests/test_cr10_product_family_grade_split.py's
+view_only_role_fixture / _run_as_role) as supporting methodology is not
+itself page-specific CR-11 evidence, and that the correction did not
+directly verify the permission-denied/view-only DELETE behavior for each
+applicable CR-11 page key. The section at the bottom of this file
+("CR-11 correction v2 - permission-denied delete evidence") supplies that
+missing evidence directly, one test per record type, reusing the exact
+same view-only-role fixture shape and _run_as_role technique CR-10's file
+established (real db.Role + db.RolePagePermission(can_view=True,
+can_use=False), presetting role_id/is_super_admin/is_platform_owner/
+company_id in session_state before .run() to override the AUTH_DISABLED
+dev-bypass's own setdefault() defaults) - but run here directly against
+these three pages' own can_use_page() calls and their own Edit/Delete tab
+bodies, not merely cited from the other file. Confirmed directly from
+source (not assumed) for this correction: Plant's and Production
+Equipment's page_usable checks both call
+can_use_page("plant_overview", ...) - Production Equipment reuses the
+Plant page's own key rather than a separate "production_equipment" key -
+while Expert Notes calls can_use_page("expert_notes", ...). On all three
+pages the delete confirm-checkbox/button (helpers.delete_with_confirm) is
+inside an `if page_usable: ... else: st.caption(...)` branch (Plant and
+Production Equipment gate the entire Edit form + delete_with_confirm call
+together; Expert Notes gates the delete_with_confirm call on its own,
+separately from its Edit form's disabled Save button) - so for a
+view-only role the delete controls for the selected record never render
+at all, verified below by asserting their specific keys are absent from
+at.checkbox/at.button, and by re-reading the record from the database
+afterward to positively confirm nothing was removed.
+
 Usage: python -m pytest tests/test_cr11_functional_evidence_group_a.py -v
 """
 import os
@@ -805,6 +838,227 @@ def test_production_unit_csv_import_validation_rejects_invalid_row(seeded_plant_
     after_count = session.query(db.Machine).filter(db.Machine.plant_id == ids["plant_id"]).count()
     session.close()
     assert after_count == before_count, "A row with a non-activated production_method_id must not insert a unit"
+
+
+# ===========================================================================
+# CR-11 correction v2 - permission-denied delete evidence (Charlie's
+# CR11_Closeout_Correction_Review_Return_to_JC.docx, item 1)
+# ===========================================================================
+#
+# One test per record type, each proving directly against the real page
+# that a role denied "use" (can_view=True, can_use=False) on that page's
+# own page_key cannot delete a record through the real UI - the delete
+# confirm-checkbox/button never render for the selected record, not merely
+# that Save/Import controls are hidden (already covered above).
+
+def _run_as_role(page_path, ids, session_state=None):
+    """Same technique as tests/test_cr10_product_family_grade_split.py's
+    own _run_as_role, run directly against this file's three pages: the
+    AUTH_DISABLED dev-bypass (auth.py's require_login()) only
+    setdefault()s role_id/is_super_admin/is_platform_owner/company_id in
+    session_state, so presetting them here BEFORE .run() makes
+    require_login() leave this fixture's real, restricted role in place
+    instead of overwriting it with the dev-bypass's own
+    is_super_admin=True default."""
+    at = AppTest.from_file(page_path, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.session_state["role_id"] = ids["role_id"]
+    at.session_state["is_super_admin"] = False
+    at.session_state["is_platform_owner"] = False
+    at.session_state["company_id"] = ids["company_id"]
+    for key, value in (session_state or {}).items():
+        at.session_state[key] = value
+    at.run()
+    return at
+
+
+@pytest.fixture()
+def plant_view_only_role_fixture(seeded_one_plant):
+    """A real company-scoped Role with an explicit RolePagePermission row
+    denying *use* (can_view=True, can_use=False) on "plant_overview" -
+    confirmed directly from pages/1_Plant_Installation_Overview.py's own
+    `can_use_page("plant_overview", ...)` call, not assumed - so this
+    fixture's role is denied exactly the permission that page itself
+    checks."""
+    ids = seeded_one_plant
+    session = db.get_session()
+    role = db.Role(company_id=ids["company_id"], name="CR11 Correction v2 View Only Plant", is_builtin=False)
+    session.add(role); session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="plant_overview", can_view=True, can_use=False))
+    session.commit()
+    out = dict(ids)
+    out["role_id"] = role.id
+    session.close()
+    return out
+
+
+@pytest.fixture()
+def expert_note_view_only_role_fixture(seeded_one_note):
+    """Same shape as plant_view_only_role_fixture, for "expert_notes" -
+    confirmed directly from pages/20_Expert_Notes.py's own
+    `can_use_page("expert_notes", ...)` call."""
+    ids = seeded_one_note
+    session = db.get_session()
+    role = db.Role(company_id=ids["company_id"], name="CR11 Correction v2 View Only Expert Note", is_builtin=False)
+    session.add(role); session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="expert_notes", can_view=True, can_use=False))
+    session.commit()
+    out = dict(ids)
+    out["role_id"] = role.id
+    session.close()
+    return out
+
+
+@pytest.fixture()
+def production_unit_view_only_role_fixture(seeded_one_machine):
+    """Same shape again, for Production Equipment. IMPORTANT, confirmed
+    directly from pages/31_Production_Equipment.py's own source - it does
+    NOT check a separate "production_equipment" page_key: its page_usable
+    line is `can_use_page("plant_overview", ...)`, the identical key
+    pages/1_Plant_Installation_Overview.py checks. This fixture denies
+    "use" on that same "plant_overview" key (scoped to this fixture's own
+    fresh company/role, so it cannot collide with
+    plant_view_only_role_fixture's separate company/role in another test)."""
+    ids = seeded_one_machine
+    session = db.get_session()
+    role = db.Role(company_id=ids["company_id"], name="CR11 Correction v2 View Only Production Unit", is_builtin=False)
+    session.add(role); session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="plant_overview", can_view=True, can_use=False))
+    session.commit()
+    out = dict(ids)
+    out["role_id"] = role.id
+    session.close()
+    return out
+
+
+def test_plant_view_only_role_cannot_delete(plant_view_only_role_fixture):
+    """CR-11 correction v2, item 1: direct functional evidence that a role
+    denied "use" on plant_overview cannot delete a plant through the real
+    UI. Presets the plants_table dataframe widget's own selection state to
+    select the seeded plant (row selection itself is not access-gated on
+    this page - only the surrounding Edit form + delete_with_confirm call
+    is, both together inside pages/1_Plant_Installation_Overview.py's own
+    `if not page_usable: st.caption(...) else: ...` branch), then asserts
+    the real delete confirm-checkbox (key=f"plant_{id}_confirm") and delete
+    button (key=f"plant_{id}_btn") are simply absent from the rendered
+    page - not merely unclicked - and confirms in the database afterward
+    that the plant genuinely still exists, since there was no control
+    through which a delete could have been attempted."""
+    ids = plant_view_only_role_fixture
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "plant_overview", role_id=ids["role_id"], session=session, is_super_admin=False
+    ), "This fixture's role must genuinely be denied use of plant_overview"
+    session.close()
+
+    at = _run_as_role(
+        PAGE_PLANTS, ids, session_state={"plants_table": {"selection": {"rows": [0], "columns": []}}}
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["plant_selected_id"] == ids["plant_id"], (
+        "Row selection should still work for a view-only role - only the write controls are gated"
+    )
+
+    assert not any(c.key == f"plant_{ids['plant_id']}_confirm" for c in at.checkbox), (
+        "A view-only role must not see the delete confirm-checkbox for the selected plant"
+    )
+    assert not any(b.key == f"plant_{ids['plant_id']}_btn" for b in at.button), (
+        "A view-only role must not see the delete button for the selected plant"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "editing and deleting is restricted for your role" in captions.lower()
+
+    session = db.get_session()
+    assert session.get(db.Plant, ids["plant_id"]) is not None, (
+        "The plant must still exist - with no delete control rendered, nothing could have deleted it"
+    )
+    session.close()
+
+
+def test_expert_note_view_only_role_cannot_delete(expert_note_view_only_role_fixture):
+    """CR-11 correction v2, item 1: same direct evidence as the Plant test
+    above, for a role denied "use" on expert_notes deleting an expert note.
+    pages/20_Expert_Notes.py gates its delete_with_confirm call on its own
+    (separately from its Edit form, whose Save button is merely disabled
+    rather than hidden for a view-only role) via
+    `if page_usable: delete_with_confirm(...) else: st.caption(...)` - so
+    this asserts the delete confirm-checkbox (key=f"note_{id}_confirm")
+    and delete button (key=f"note_{id}_btn") are absent, and that the note
+    still exists in the database afterward."""
+    ids = expert_note_view_only_role_fixture
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "expert_notes", role_id=ids["role_id"], session=session, is_super_admin=False
+    ), "This fixture's role must genuinely be denied use of expert_notes"
+    session.close()
+
+    at = _run_as_role(
+        PAGE_EXPERT_NOTES, ids, session_state={"expert_notes_table": {"selection": {"rows": [0], "columns": []}}}
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["note_selected_id"] == ids["note_id"], (
+        "Row selection should still work for a view-only role - only the write controls are gated"
+    )
+
+    assert not any(c.key == f"note_{ids['note_id']}_confirm" for c in at.checkbox), (
+        "A view-only role must not see the delete confirm-checkbox for the selected expert note"
+    )
+    assert not any(b.key == f"note_{ids['note_id']}_btn" for b in at.button), (
+        "A view-only role must not see the delete button for the selected expert note"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "deleting is restricted for your role" in captions.lower()
+
+    session = db.get_session()
+    assert session.get(db.ExpertNote, ids["note_id"]) is not None, (
+        "The expert note must still exist - with no delete control rendered, nothing could have deleted it"
+    )
+    session.close()
+
+
+def test_production_unit_view_only_role_cannot_delete(production_unit_view_only_role_fixture):
+    """CR-11 correction v2, item 1: same direct evidence again, for a role
+    denied "use" on Production Equipment's own page_key deleting a
+    Production Unit/Cell. Confirmed directly from source above:
+    pages/31_Production_Equipment.py's page_usable check calls
+    can_use_page("plant_overview", ...) - the SAME key the Plant page
+    checks, not a distinct "production_equipment" key - so this fixture's
+    role denies that shared key, scoped to its own fresh company/role so
+    it can't collide with the Plant test's separate fixture. Its
+    Edit/Delete tab gates the whole Edit form + delete_with_confirm call
+    together (same shape as Plant's), so this asserts the delete
+    confirm-checkbox (key=f"machine_{id}_confirm") and delete button
+    (key=f"machine_{id}_btn") are absent, and that the unit still exists
+    in the database afterward."""
+    ids = production_unit_view_only_role_fixture
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "plant_overview", role_id=ids["role_id"], session=session, is_super_admin=False
+    ), "This fixture's role must genuinely be denied use of plant_overview (Production Equipment's own gating key)"
+    session.close()
+
+    at = _run_as_role(
+        PAGE_PRODUCTION_EQUIPMENT, ids, session_state={"machines_table": {"selection": {"rows": [0], "columns": []}}}
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["machine_selected_id"] == ids["machine_id"], (
+        "Row selection should still work for a view-only role - only the write controls are gated"
+    )
+
+    assert not any(c.key == f"machine_{ids['machine_id']}_confirm" for c in at.checkbox), (
+        "A view-only role must not see the delete confirm-checkbox for the selected Production Unit / Cell"
+    )
+    assert not any(b.key == f"machine_{ids['machine_id']}_btn" for b in at.button), (
+        "A view-only role must not see the delete button for the selected Production Unit / Cell"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "editing and deleting is restricted for your role" in captions.lower()
+
+    session = db.get_session()
+    assert session.get(db.Machine, ids["machine_id"]) is not None, (
+        "The Production Unit / Cell must still exist - with no delete control rendered, nothing could have deleted it"
+    )
+    session.close()
 
 
 if __name__ == "__main__":

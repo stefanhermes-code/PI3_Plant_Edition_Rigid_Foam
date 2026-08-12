@@ -978,5 +978,430 @@ def test_runtime_data_csv_import_via_ui(seeded_run):
     session.close()
 
 
+# ---------------------------------------------------------------------------
+# CR-11 CLOSEOUT CORRECTION v2 (2026-08-12, per Charlie's CR11_Closeout_
+# Correction_Review_Return_to_JC.docx) - items 1 and 2.
+#
+# Item 1 (Delete permission/safeguards): the first correction round never
+# directly verified the permission-denied/view-only Delete behavior for any
+# of these 5 record groups' real page key. Verified directly from the page
+# source (line ~299 of pages/4_Production_Run_Trial_Record.py):
+#   page_usable = can_use_page("production_run", role_id=user["role_id"],
+#                               session=session, is_super_admin=user["is_super_admin"])
+# is computed ONCE and reused, unmodified, as the gate for every one of the
+# 5 groups' own `if page_usable: delete_with_confirm(...) else:
+# st.caption("View-only access - deleting is restricted for your role.")`
+# branch (Production Run ~line 491, Setup Data ~line 808, Stream Reading
+# ~line 1286, Production Event ~line 1555, Runtime Data ~line 1877) - one
+# page_key, "production_run", covers all 5. That means a single
+# view_only_role_fixture below (one Role + one RolePagePermission row) is
+# genuine, non-duplicated evidence for all 5 Delete-permission tests.
+#
+# Item 2 (Import validation handling): all 5 of these importers pre-existed
+# CR-11 (only their tab wording/order was standardized) and, until now, only
+# had successful-import evidence in this file - never a direct invalid-row/
+# rejection test. Each test below drives that group's own actual bad-row
+# check (read from the page source, not assumed) with a CSV row engineered
+# to fail exactly that check, and confirms the row is flagged (a warning
+# names the failing column/condition), the "Confirm import" button never
+# renders (the page's own `if good_rows and st.button(...)` guard - no good
+# rows means no button at all), and the database row count is unchanged.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def view_only_role_fixture(seeded_setup_phase, seeded_stream_reading, seeded_event):
+    """A real company-scoped Role with an explicit RolePagePermission row
+    denying *use* (can_view=True, can_use=False - access_control.py's "View
+    only" state) on page_key="production_run" - direct evidence against the
+    real can_use_page()/RolePagePermission plumbing pages/4 actually calls,
+    not a hypothetical role. See the section docstring above for why one
+    page_key/one role covers every one of the 5 groups' Delete-permission
+    tests.
+
+    Built by requesting seeded_setup_phase, seeded_stream_reading (which
+    itself pulls in seeded_finalized_phase), and seeded_event together -
+    three of this file's own dependency-chain fixtures, all ultimately
+    extending the same seeded_run/seeded_grade_chain. pytest caches a
+    function-scoped fixture once per test regardless of how many other
+    fixtures request it, so this does not create three separate runs or
+    call _reset_schema() more than once - it reuses the exact seeding logic
+    already written above rather than rebuilding it, and leaves every one
+    of the 5 groups with exactly one row to attempt to delete."""
+    ids = dict(seeded_setup_phase)
+    ids.update(seeded_stream_reading)
+    ids.update(seeded_event)
+
+    session = db.get_session()
+    role = db.Role(company_id=ids["company_id"], name="CR11D Correction View Only", is_builtin=False)
+    session.add(role); session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="production_run", can_view=True, can_use=False))
+    session.commit()
+    ids["role_id"] = role.id
+    session.close()
+    return ids
+
+
+def _run_as_role(session_state, ids):
+    """Same AUTH_DISABLED entry point as _run() above, but overriding the
+    dev-bypass's own is_super_admin=True/is_platform_owner=True defaults
+    (see auth.py's require_login docstring) with a real, restricted role -
+    the dev bypass only setdefault()s these session_state keys, so
+    presetting them BEFORE .run() makes require_login() leave them alone.
+    Mirrors test_cr10_product_family_grade_split.py's own _run_as_role,
+    applied to this page (PAGE4) instead."""
+    at = AppTest.from_file(PAGE4, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.session_state["role_id"] = ids["role_id"]
+    at.session_state["is_super_admin"] = False
+    at.session_state["is_platform_owner"] = False
+    at.session_state["company_id"] = ids["company_id"]
+    for key, value in (session_state or {}).items():
+        at.session_state[key] = value
+    at.run()
+    return at
+
+
+# --- Item 1: Delete permission/safeguards, one test per record group ---
+
+def test_production_run_view_only_role_cannot_delete(view_only_role_fixture):
+    """With a role denied 'use' on production_run, Production Run's real
+    Edit/Delete tab still opens (the table and Edit form render - view-only
+    is not "hidden", per access_control's own three-state model) but the
+    confirm-checkbox + delete-button pair (key_prefix=f"run_{id}") never
+    renders at all - the page's own `if page_usable: delete_with_confirm(
+    ...) else: st.caption(...)` branch takes the caption path instead.
+    Direct evidence the real UI, not just can_use_page() in isolation,
+    blocks the delete surface for this role."""
+    ids = view_only_role_fixture
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "production_run", role_id=ids["role_id"], session=session, is_super_admin=False
+    )
+    before_count = session.query(db.ProductionRun).count()
+    session.close()
+
+    at = _run_as_role({"runs_overview_table": {"selection": {"rows": [0], "columns": []}}}, ids)
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["pr_selected_run_id"] == ids["run_id"]
+
+    assert not any(c.key == f"run_{ids['run_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the Delete confirm-checkbox for Production Run"
+    )
+    assert not any(b.key == f"run_{ids['run_id']}_btn" for b in at.button), (
+        "View-only role should not see the Delete button for Production Run"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ProductionRun).count()
+    session.close()
+    assert after_count == before_count, "Nothing should have been deletable/deleted for a view-only role"
+
+
+def test_setup_data_view_only_role_cannot_delete(view_only_role_fixture):
+    """Same evidence as above, for Setup Data's own delete surface
+    (key_prefix=f"setup_{id}"). Setup Data's Edit form renders directly (no
+    row-selection step - see the module docstring), so no table preset is
+    needed before .run()."""
+    ids = view_only_role_fixture
+    session = db.get_session()
+    before_count = session.query(db.ProductionPhase).filter(db.ProductionPhase.id == ids["setup_phase_id"]).count()
+    session.close()
+
+    at = _run_as_role(None, ids)
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+
+    assert not any(c.key == f"setup_{ids['setup_phase_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the Delete confirm-checkbox for Setup Data"
+    )
+    assert not any(b.key == f"setup_{ids['setup_phase_id']}_btn" for b in at.button), (
+        "View-only role should not see the Delete button for Setup Data"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ProductionPhase).filter(db.ProductionPhase.id == ids["setup_phase_id"]).count()
+    session.close()
+    assert after_count == before_count == 1, "The Setup data row must still exist for a view-only role"
+
+
+def test_stream_reading_view_only_role_cannot_delete(view_only_role_fixture):
+    """Same evidence as above, for Stream Reading's own delete surface
+    (key_prefix=f"stream_{id}"). Requires presetting the
+    streams_table_{run_id} dataframe widget's own selection state (same
+    CR-10-derived technique the group's own edit/delete test above uses)
+    so the Edit/Delete panel is actually visible to check."""
+    ids = view_only_role_fixture
+    session = db.get_session()
+    before_count = session.query(db.ComponentStreamReading).filter(
+        db.ComponentStreamReading.id == ids["stream_reading_id"]
+    ).count()
+    session.close()
+
+    table_key = f"streams_table_{ids['run_id']}"
+    at = _run_as_role({table_key: {"selection": {"rows": [0], "columns": []}}}, ids)
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["pr_selected_stream_id"] == ids["stream_reading_id"]
+
+    assert not any(c.key == f"stream_{ids['stream_reading_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the Delete confirm-checkbox for Stream Reading"
+    )
+    assert not any(b.key == f"stream_{ids['stream_reading_id']}_btn" for b in at.button), (
+        "View-only role should not see the Delete button for Stream Reading"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ComponentStreamReading).filter(
+        db.ComponentStreamReading.id == ids["stream_reading_id"]
+    ).count()
+    session.close()
+    assert after_count == before_count == 1, "The stream reading must still exist for a view-only role"
+
+
+def test_production_event_view_only_role_cannot_delete(view_only_role_fixture):
+    """Same evidence as above, for Production Event's own delete surface
+    (key_prefix=f"event_{id}"). Requires presetting the
+    events_table_{run_id} dataframe widget's own selection state, same
+    technique."""
+    ids = view_only_role_fixture
+    session = db.get_session()
+    before_count = session.query(db.ProductionEvent).filter(db.ProductionEvent.id == ids["event_id"]).count()
+    session.close()
+
+    table_key = f"events_table_{ids['run_id']}"
+    at = _run_as_role({table_key: {"selection": {"rows": [0], "columns": []}}}, ids)
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["pr_selected_event_id"] == ids["event_id"]
+
+    assert not any(c.key == f"event_{ids['event_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the Delete confirm-checkbox for Production Event"
+    )
+    assert not any(b.key == f"event_{ids['event_id']}_btn" for b in at.button), (
+        "View-only role should not see the Delete button for Production Event"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ProductionEvent).filter(db.ProductionEvent.id == ids["event_id"]).count()
+    session.close()
+    assert after_count == before_count == 1, "The production event must still exist for a view-only role"
+
+
+def test_runtime_data_view_only_role_cannot_delete(view_only_role_fixture):
+    """Same evidence as above, for Runtime Data's own delete surface
+    (key_prefix=f"runtime_{id}"). Like Setup Data, its Edit form renders
+    directly (no row-selection step), so no table preset is needed."""
+    ids = view_only_role_fixture
+    session = db.get_session()
+    before_count = session.query(db.ProductionPhase).filter(
+        db.ProductionPhase.id == ids["finalized_phase_id"]
+    ).count()
+    session.close()
+
+    at = _run_as_role(None, ids)
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+
+    assert not any(c.key == f"runtime_{ids['finalized_phase_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the Delete confirm-checkbox for Runtime Data"
+    )
+    assert not any(b.key == f"runtime_{ids['finalized_phase_id']}_btn" for b in at.button), (
+        "View-only role should not see the Delete button for Runtime Data"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ProductionPhase).filter(
+        db.ProductionPhase.id == ids["finalized_phase_id"]
+    ).count()
+    session.close()
+    assert after_count == before_count == 1, "The Runtime Data row must still exist for a view-only role"
+
+
+# --- Item 2: Import validation handling, one test per record group ---
+
+def test_production_run_csv_import_validation_rejects_invalid_row(seeded_grade_chain):
+    """Production Run's own bad-row check (pages/4, tab_import under
+    tab_runs): `ok = bool(grade_row and version_row and
+    version_row.foam_grade_id == grade_row.id and machine_ok)`. This row
+    supplies a real foam_grade_id but a recipe_version_id that does not
+    exist at all, so version_row resolves to None and the row is flagged/
+    rejected rather than silently imported."""
+    ids = seeded_grade_chain
+    at = _run()
+    assert not at.exception
+
+    session = db.get_session()
+    before_count = session.query(db.ProductionRun).count()
+    session.close()
+
+    csv_bytes = (
+        "foam_grade_id,recipe_version_id,machine_id,run_date,block_reference\n"
+        f"{ids['grade_id']},999999,{ids['machine_id']},2026-08-02,CR11D-Bad-Recipe-Version\n"
+    ).encode()
+    uploader = next(u for u in at.file_uploader if u.key == "run_upload")
+    uploader.set_value(("runs_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading the invalid CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_run_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "recipe_version_id" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ProductionRun).count()
+    session.close()
+    assert after_count == before_count, "A row with an unresolvable recipe_version_id must not be persisted"
+
+
+def test_setup_data_csv_import_validation_rejects_invalid_row(seeded_run):
+    """Setup Data's own bad-row check (pages/4, tab_import under
+    tab_setup): `if row.get("production_run_id") in valid_run_ids`. This
+    row's required column is present, but its value is a production_run_id
+    that does not exist, so it is flagged/rejected rather than silently
+    imported."""
+    ids = seeded_run
+    at = _run()
+    assert not at.exception
+
+    session = db.get_session()
+    before_count = session.query(db.ProductionPhase).filter(db.ProductionPhase.phase_name == "Setup").count()
+    session.close()
+
+    bad_run_id = ids["run_id"] + 999999
+    csv_bytes = f"production_run_id,mixer_rpm,conveyor_speed\n{bad_run_id},1400,2.9\n".encode()
+    uploader = next(u for u in at.file_uploader if u.key == "setup_upload")
+    uploader.set_value(("setup_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading the invalid CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_setup_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "production_run_id" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ProductionPhase).filter(db.ProductionPhase.phase_name == "Setup").count()
+    session.close()
+    assert after_count == before_count, "A row with a nonexistent production_run_id must not be persisted"
+
+
+def test_stream_reading_csv_import_validation_rejects_invalid_row(seeded_finalized_phase):
+    """Stream Reading's own bad-row check (pages/4, tab_import under
+    tab_streams): `match = finalized_by_run.get(row.get("production_run_id"))`
+    - readings only ever resolve against a run's Finalized phase. This row
+    references a production_run_id that does not exist at all (so it has no
+    Finalized phase, and never will), which is exactly the condition this
+    importer's own check is guarding - distinct from every other group's
+    "unknown run" check in that it's checking for a *phase*, not just the
+    run row. seeded_finalized_phase gives the ONE real run here its own
+    Finalized phase so the Import sub-tab actually renders (tab_streams
+    shows nothing but an info box with zero Finalized phases anywhere for
+    the selected run - see the module docstring)."""
+    ids = seeded_finalized_phase
+    at = _run()
+    assert not at.exception
+
+    session = db.get_session()
+    before_count = session.query(db.ComponentStreamReading).count()
+    session.close()
+
+    bad_run_id = ids["run_id"] + 999999
+    csv_bytes = f"production_run_id,stream_name,flow\n{bad_run_id},Water blend (bad),8.2\n".encode()
+    uploader = next(u for u in at.file_uploader if u.key == "stream_upload")
+    uploader.set_value(("streams_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading the invalid CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_stream_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "finalized" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ComponentStreamReading).count()
+    session.close()
+    assert after_count == before_count, "A row referencing a run with no Finalized phase must not be persisted"
+
+
+def test_production_event_csv_import_validation_rejects_invalid_row(seeded_run):
+    """Production Event's own bad-row check (pages/4, tab_import under
+    tab_events): `if run_ok and row.get("event_type") in EVENT_TYPES and ts
+    is not None`. This row has a valid production_run_id and a parseable
+    event_ts, but an event_type outside the controlled EVENT_TYPES list, so
+    it is flagged/rejected rather than silently imported."""
+    ids = seeded_run
+    at = _run()
+    assert not at.exception
+
+    session = db.get_session()
+    before_count = session.query(db.ProductionEvent).count()
+    session.close()
+
+    csv_bytes = (
+        "production_run_id,event_type,event_ts,description\n"
+        f"{ids['run_id']},NotARealEventType,2026-08-01 10:00:00,Bad event type\n"
+    ).encode()
+    uploader = next(u for u in at.file_uploader if u.key == "event_upload")
+    uploader.set_value(("events_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading the invalid CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_event_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "event_type" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ProductionEvent).count()
+    session.close()
+    assert after_count == before_count, "A row with an out-of-list event_type must not be persisted"
+
+
+def test_runtime_data_csv_import_validation_rejects_invalid_row(seeded_run):
+    """Runtime Data's own bad-row check (pages/4, tab_import under
+    tab_runtime): `if row.get("production_run_id") in valid_run_ids` -
+    identical shape to Setup Data's own check above (same required-columns
+    contract, RUNTIME_REQUIRED_COLUMNS = ["production_run_id"]). This row's
+    required column is present, but its value is a production_run_id that
+    does not exist, so it is flagged/rejected rather than silently
+    imported."""
+    ids = seeded_run
+    at = _run()
+    assert not at.exception
+
+    session = db.get_session()
+    before_count = session.query(db.ProductionPhase).filter(db.ProductionPhase.phase_name == "Finalized").count()
+    session.close()
+
+    bad_run_id = ids["run_id"] + 999999
+    csv_bytes = f"production_run_id,mixer_rpm,foam_height_mm\n{bad_run_id},1600,55\n".encode()
+    uploader = next(u for u in at.file_uploader if u.key == "runtime_upload")
+    uploader.set_value(("runtime_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading the invalid CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_runtime_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "production_run_id" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ProductionPhase).filter(db.ProductionPhase.phase_name == "Finalized").count()
+    session.close()
+    assert after_count == before_count, "A row with a nonexistent production_run_id must not be persisted"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

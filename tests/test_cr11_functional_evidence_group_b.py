@@ -24,6 +24,20 @@ under the new tab structure, not new-feature coverage:
      keeps a page-specific 4th "Sample Report" tab CR-11 explicitly allows
      to remain - not touched here).
 
+CORRECTION v2 (2026-08-12, per Charlie's CR11_Closeout_Correction_Review_
+Return_to_JC.docx): the block near the bottom of this file adds the two
+pieces of direct evidence Charlie's second review found still missing for
+all four pages above (neither had either piece before this pass):
+  1. Delete permission/safeguards - a role denied "use" access (can_view=
+     True, can_use=False) on each page's own page_key cannot actually
+     delete a record through the real UI (test_..._view_only_role_cannot_
+     delete, one per record type).
+  2. Import validation handling - a direct invalid-row-rejection test for
+     each importer (test_..._csv_import_validation_rejects_invalid_row,
+     one per record type), since none of these four importers are among
+     CR-11's six net-new importers (they pre-existed and were only
+     relabeled), so they had no such evidence before this pass.
+
 Follows the exact conventions of tests/test_cr10_product_family_grade_split.py
 (the reviewer-accepted template for this kind of evidence, from the prior
 CR-10 closeout correction):
@@ -902,6 +916,556 @@ def test_sample_csv_import_via_ui(seeded_run_for_sample):
     )
     assert imported is not None, "Imported sample was not persisted"
     session.close()
+
+
+# ===========================================================================
+# CR-11 CORRECTION v2 (2026-08-12, per Charlie's CR11_Closeout_Correction_
+# Review_Return_to_JC.docx) - gaps 1 and 2, for the same four Group B pages.
+#
+# Gap 1 - Delete permission/safeguards: direct evidence that a role denied
+# "use" access (can_view=True, can_use=False - access_control.py's "View
+# only" state) on each of these four pages' own page_key cannot actually
+# delete a record through the real UI, not just that can_use_page() itself
+# returns False in isolation. Follows tests/test_cr10_product_family_grade_
+# split.py's own view_only_role_fixture / _run_as_role pattern exactly: a
+# real db.Role + db.RolePagePermission row, presetting
+# role_id/is_super_admin/is_platform_owner/company_id in session_state
+# BEFORE .run() to override the AUTH_DISABLED dev-bypass's own setdefault()
+# calls (see auth.py's require_login docstring - setdefault() only fills a
+# session_state key that isn't already set, so presetting it first makes
+# require_login() leave it alone).
+#
+# Gap 2 - Import validation handling: none of these four pages' importers
+# are among CR-11's six net-new importers (all four pre-existed CR-11 and
+# were only relabeled/reordered onto the shared tab helper), so unlike
+# those six, they had no direct invalid-row-rejection evidence anywhere in
+# this project before this correction - only the valid-import path (the
+# four "..._csv_import_via_ui" tests above). Each test below uploads one
+# row that fails that importer's own bad-row check (read from each page's
+# own source, not assumed) and confirms the row is rejected: the "Confirm
+# import" button doesn't render (every importer on these four pages gates
+# it behind `if good_rows and st.button(...)`, so zero good rows means the
+# button call itself never executes - short-circuit, not a disabled
+# button) and the row count is unchanged.
+# ===========================================================================
+
+def _run_as_role(page_path, ids, session_state=None):
+    """Identical to test_cr10_product_family_grade_split.py's own
+    _run_as_role helper - overrides the AUTH_DISABLED dev-bypass's own
+    is_super_admin=True / is_platform_owner=True / role_id=None /
+    company_id=None setdefault() defaults with a real, restricted role
+    BEFORE .run()."""
+    at = AppTest.from_file(page_path, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.session_state["role_id"] = ids["role_id"]
+    at.session_state["is_super_admin"] = False
+    at.session_state["is_platform_owner"] = False
+    at.session_state["company_id"] = ids["company_id"]
+    for key, value in (session_state or {}).items():
+        at.session_state[key] = value
+    at.run()
+    return at
+
+
+# ---------------------------------------------------------------------------
+# Gap 1.1 - Recipe (page_key "recipes"). The "Edit details / delete this
+# recipe version" expander gates delete_with_confirm() itself behind
+# `if not page_usable: caption else: ... delete_with_confirm(...)` (see
+# pages/3_Recipe_Version_Record.py) - the "Recipe versions" list itself
+# (and its row selection) is NOT gated on page_usable, so a view-only role
+# can still select and view a row, just not delete it.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def view_only_role_fixture_recipe():
+    """One company/plant/grade with one active RecipeVersion (same shape
+    as seeded_active_recipe_version above), plus a real Role with an
+    explicit RolePagePermission row denying use on page_key "recipes"
+    (can_view=True, can_use=False) - direct evidence against the real
+    can_use_page()/RolePagePermission plumbing pages/3 actually calls, not
+    a hypothetical role."""
+    db.init_db()
+    _reset_schema()
+    u = uuid.uuid4().hex[:8]
+    session = db.get_session()
+    company, plant, _family, grade = _seed_company_plant_family_grade(session, u)
+    version = db.RecipeVersion(
+        foam_grade_id=grade.id,
+        version_label=f"CR11B-RV-{u}",
+        change_note="Seeded for CR-11 correction v2 delete-permission evidence.",
+        approval_status="Draft",
+        is_active=True,
+        effective_date=dt.date.today(),
+    )
+    session.add(version); session.flush()
+    role = db.Role(company_id=company.id, name="CR11B Correction View Only Recipe", is_builtin=False)
+    session.add(role); session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="recipes", can_view=True, can_use=False))
+    session.commit()
+    ids = {
+        "company_id": company.id, "plant_id": plant.id, "grade_id": grade.id,
+        "version_id": version.id, "role_id": role.id,
+    }
+    session.close()
+    return ids
+
+
+def test_recipe_view_only_role_cannot_delete(view_only_role_fixture_recipe):
+    """CR-11 correction v2 item 1, page_key "recipes": with a role denied
+    'use' on this page, the real 'Recipe versions' list lets the role
+    select the seeded version, but its 'Edit details / delete this recipe
+    version' expander must not render the real confirm-checkbox/delete-
+    button pair - direct UI evidence, not just a can_use_page() check in
+    isolation - and the version must still exist in the database
+    afterward."""
+    ids = view_only_role_fixture_recipe
+    session = db.get_session()
+    assert not access_control.can_use_page("recipes", role_id=ids["role_id"], session=session, is_super_admin=False)
+    session.close()
+
+    at = _run_as_role(
+        PAGE_RECIPE, ids,
+        session_state={"recipe_versions_table": {"selection": {"rows": [0], "columns": []}}},
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["rv_selected_id"] == ids["version_id"], (
+        "The view-only role should still be able to select and view the seeded recipe version"
+    )
+
+    assert not any(c.key == f"version_{ids['version_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the delete confirm-checkbox"
+    )
+    assert not any(b.key == f"version_{ids['version_id']}_btn" for b in at.button), (
+        "View-only role should not see the delete button"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+
+    session = db.get_session()
+    assert session.get(db.RecipeVersion, ids["version_id"]) is not None, (
+        "The recipe version must still exist - a view-only role must not be able to delete it"
+    )
+    session.close()
+
+
+# ---------------------------------------------------------------------------
+# Gap 1.2 - Quality Test Result (page_key "quality_test_result").
+# pages/5_Physical_Property_Result.py gates delete_with_confirm() behind
+# `if page_usable: delete_with_confirm(...) else: st.caption(...)` inside
+# the Edit/Delete tab's selected-row branch - the browsable results table
+# and row selection above it are not gated.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def view_only_role_fixture_qtr():
+    """Same seed shape as seeded_quality_test_result above, plus a real
+    Role denying use on page_key "quality_test_result"."""
+    db.init_db()
+    _reset_schema()
+    u = uuid.uuid4().hex[:8]
+    session = db.get_session()
+    company, plant, _family, grade = _seed_company_plant_family_grade(session, u)
+    version = db.RecipeVersion(
+        foam_grade_id=grade.id, version_label=f"CR11B-RV-{u}", change_note="For run seeding.",
+        approval_status="Approved", is_active=True,
+    )
+    session.add(version); session.flush()
+    run = db.ProductionRun(
+        plant_id=plant.id, foam_grade_id=grade.id, recipe_version_id=version.id,
+        run_date=dt.date.today(), batch_reference=f"CR11B-Run-{u}",
+    )
+    session.add(run); session.flush()
+    prop_def = db.PhysicalPropertyDefinition(
+        name=f"CR11B Density {u}", what_it_measures="Test property for CR-11 closeout evidence.",
+        category="Technical", is_common=False, sort_order=1,
+    )
+    session.add(prop_def); session.flush()
+    result = db.PhysicalPropertyResult(
+        production_run_id=run.id, property_definition_id=prop_def.id, property_name=prop_def.name,
+        target_value=30.0, actual_value=31.5, unit="kg/m3", pass_fail="Pass",
+        test_method="Original Method", replicate_no=1, tested_at=dt.date.today(),
+        notes="Seeded for CR-11 correction v2 delete-permission evidence.",
+    )
+    session.add(result); session.flush()
+    role = db.Role(company_id=company.id, name="CR11B Correction View Only QTR", is_builtin=False)
+    session.add(role); session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="quality_test_result", can_view=True, can_use=False))
+    session.commit()
+    ids = {
+        "company_id": company.id, "plant_id": plant.id, "grade_id": grade.id, "run_id": run.id,
+        "result_id": result.id, "role_id": role.id,
+    }
+    session.close()
+    return ids
+
+
+def test_quality_test_result_view_only_role_cannot_delete(view_only_role_fixture_qtr):
+    """CR-11 correction v2 item 1, page_key "quality_test_result": same
+    evidence as the Recipe test above - the view-only role can select the
+    seeded result, but sees neither the delete confirm-checkbox nor the
+    delete button, and the result still exists afterward."""
+    ids = view_only_role_fixture_qtr
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "quality_test_result", role_id=ids["role_id"], session=session, is_super_admin=False
+    )
+    session.close()
+
+    at = _run_as_role(
+        PAGE_QTR, ids, session_state={"results_table": {"selection": {"rows": [0], "columns": []}}},
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["result_selected_id"] == ids["result_id"], (
+        "The view-only role should still be able to select and view the seeded result"
+    )
+
+    assert not any(c.key == f"result_{ids['result_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the delete confirm-checkbox"
+    )
+    assert not any(b.key == f"result_{ids['result_id']}_btn" for b in at.button), (
+        "View-only role should not see the delete button"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+
+    session = db.get_session()
+    assert session.get(db.PhysicalPropertyResult, ids["result_id"]) is not None, (
+        "The result must still exist - a view-only role must not be able to delete it"
+    )
+    session.close()
+
+
+# ---------------------------------------------------------------------------
+# Gap 1.3 - Quality Issue (page_key "quality_issue"). Same delete gating
+# pattern as Quality Test Result, on pages/6_Quality_Observation.py.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def view_only_role_fixture_qi():
+    """Same seed shape as seeded_quality_issue above, plus a real Role
+    denying use on page_key "quality_issue"."""
+    db.init_db()
+    _reset_schema()
+    u = uuid.uuid4().hex[:8]
+    session = db.get_session()
+    company, plant, _family, grade = _seed_company_plant_family_grade(session, u)
+    version = db.RecipeVersion(
+        foam_grade_id=grade.id, version_label=f"CR11B-RV-{u}", change_note="For run seeding.",
+        approval_status="Approved", is_active=True,
+    )
+    session.add(version); session.flush()
+    run = db.ProductionRun(
+        plant_id=plant.id, foam_grade_id=grade.id, recipe_version_id=version.id,
+        run_date=dt.date.today(), batch_reference=f"CR11B-Run-{u}",
+    )
+    session.add(run); session.flush()
+    obs = db.QualityObservation(
+        production_run_id=run.id, observation_type="Shrinkage", severity="Medium", frequency="One-off",
+        location_in_block="Seeded location", confidence_level="Likely", observed_at=dt.date.today(),
+    )
+    session.add(obs); session.flush()
+    role = db.Role(company_id=company.id, name="CR11B Correction View Only QI", is_builtin=False)
+    session.add(role); session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="quality_issue", can_view=True, can_use=False))
+    session.commit()
+    ids = {
+        "company_id": company.id, "plant_id": plant.id, "grade_id": grade.id, "run_id": run.id,
+        "obs_id": obs.id, "role_id": role.id,
+    }
+    session.close()
+    return ids
+
+
+def test_quality_issue_view_only_role_cannot_delete(view_only_role_fixture_qi):
+    """CR-11 correction v2 item 1, page_key "quality_issue": same evidence
+    pattern - the view-only role can select the seeded issue, but sees
+    neither the delete confirm-checkbox nor the delete button, and the
+    issue still exists afterward."""
+    ids = view_only_role_fixture_qi
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "quality_issue", role_id=ids["role_id"], session=session, is_super_admin=False
+    )
+    session.close()
+
+    at = _run_as_role(
+        PAGE_QI, ids, session_state={"obs_table": {"selection": {"rows": [0], "columns": []}}},
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["obs_selected_id"] == ids["obs_id"], (
+        "The view-only role should still be able to select and view the seeded quality issue"
+    )
+
+    assert not any(c.key == f"obs_{ids['obs_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the delete confirm-checkbox"
+    )
+    assert not any(b.key == f"obs_{ids['obs_id']}_btn" for b in at.button), (
+        "View-only role should not see the delete button"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+
+    session = db.get_session()
+    assert session.get(db.QualityObservation, ids["obs_id"]) is not None, (
+        "The quality issue must still exist - a view-only role must not be able to delete it"
+    )
+    session.close()
+
+
+# ---------------------------------------------------------------------------
+# Gap 1.4 - Sample (page_key "samples_conditioning" - unchanged identity in
+# the User Roles matrix per this page's own module docstring, even though
+# its title/scope changed). Same delete gating pattern, on
+# pages/9_Samples_Conditioning.py.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def view_only_role_fixture_sample():
+    """Same seed shape as seeded_sample above, plus a real Role denying
+    use on page_key "samples_conditioning"."""
+    db.init_db()
+    _reset_schema()
+    u = uuid.uuid4().hex[:8]
+    session = db.get_session()
+    company, plant, _family, grade = _seed_company_plant_family_grade(session, u)
+    version = db.RecipeVersion(
+        foam_grade_id=grade.id, version_label=f"CR11B-RV-{u}", change_note="For run seeding.",
+        approval_status="Approved", is_active=True,
+    )
+    session.add(version); session.flush()
+    run = db.ProductionRun(
+        plant_id=plant.id, foam_grade_id=grade.id, recipe_version_id=version.id,
+        run_date=dt.date.today(), batch_reference=f"CR11B-Run-{u}",
+    )
+    session.add(run); session.flush()
+    sample = db.Sample(
+        production_run_id=run.id, zone_label="Top", sample_ts=dt.datetime.now(),
+        notes="Seeded for CR-11 correction v2 delete-permission evidence.",
+    )
+    session.add(sample); session.flush()
+    role = db.Role(company_id=company.id, name="CR11B Correction View Only Sample", is_builtin=False)
+    session.add(role); session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="samples_conditioning", can_view=True, can_use=False))
+    session.commit()
+    ids = {
+        "company_id": company.id, "plant_id": plant.id, "grade_id": grade.id, "run_id": run.id,
+        "sample_id": sample.id, "role_id": role.id,
+    }
+    session.close()
+    return ids
+
+
+def test_sample_view_only_role_cannot_delete(view_only_role_fixture_sample):
+    """CR-11 correction v2 item 1, page_key "samples_conditioning": same
+    evidence pattern - the view-only role can select the seeded sample, but
+    sees neither the delete confirm-checkbox nor the delete button, and the
+    sample still exists afterward."""
+    ids = view_only_role_fixture_sample
+    session = db.get_session()
+    assert not access_control.can_use_page(
+        "samples_conditioning", role_id=ids["role_id"], session=session, is_super_admin=False
+    )
+    session.close()
+
+    at = _run_as_role(
+        PAGE_SAMPLE, ids, session_state={"samples_table": {"selection": {"rows": [0], "columns": []}}},
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["sample_selected_id"] == ids["sample_id"], (
+        "The view-only role should still be able to select and view the seeded sample"
+    )
+
+    assert not any(c.key == f"sample_{ids['sample_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the delete confirm-checkbox"
+    )
+    assert not any(b.key == f"sample_{ids['sample_id']}_btn" for b in at.button), (
+        "View-only role should not see the delete button"
+    )
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+
+    session = db.get_session()
+    assert session.get(db.Sample, ids["sample_id"]) is not None, (
+        "The sample must still exist - a view-only role must not be able to delete it"
+    )
+    session.close()
+
+
+# ---------------------------------------------------------------------------
+# Gap 2.1 - Recipe CSV import validation. Bad-row check (pages/3_Recipe_
+# Version_Record.py, "CSV / Excel import" tab): `row.get("foam_grade_id")
+# in valid_grade_ids and str(row.get("version_label", "")).strip()`.
+# ---------------------------------------------------------------------------
+
+def test_recipe_csv_import_validation_rejects_invalid_row(seeded_grade_no_recipe):
+    """CR-11 correction v2 item 2: Recipe's CSV import (recipe version
+    HEADER rows) pre-existed CR-11 (only relabeled/reordered), so it had no
+    direct invalid-row evidence before this correction - only the valid-
+    import path (test_recipe_csv_import_via_ui above). Uploads one row with
+    an out-of-scope foam_grade_id and confirms it's flagged/rejected, not
+    silently imported: no RecipeVersion is persisted and the real 'Confirm
+    import (recipe versions)' button does not render (good_rows is empty,
+    so the page's own `if good_rows and st.button(...)` guard never calls
+    st.button at all)."""
+    ids = seeded_grade_no_recipe
+    session = db.get_session()
+    before_count = session.query(db.RecipeVersion).count()
+    session.close()
+
+    at = AppTest.from_file(PAGE_RECIPE, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    csv_bytes = b"foam_grade_id,version_label\n999999,CR11-Correction-Bad-Grade-Recipe\n"
+    uploader = next(u for u in at.file_uploader if u.key == "recipe_version_upload")
+    uploader.set_value(("recipe_versions_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-grade-id CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_recipe_version_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "foam_grade_id" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.RecipeVersion).count()
+    session.close()
+    assert after_count == before_count, "An invalid-foam_grade_id row must not be persisted"
+
+
+# ---------------------------------------------------------------------------
+# Gap 2.2 - Quality Test Result CSV import validation. Bad-row check
+# (pages/5_Physical_Property_Result.py, tab_import): a row is only "ok" if
+# property_name resolves against the property master list (case-
+# insensitively), exactly one of the three parent FKs is in-scope, any
+# sample_id given is in-scope, and test_method/unit/actual_value are all
+# present. This test isolates the property_name check - every other field
+# is otherwise valid.
+# ---------------------------------------------------------------------------
+
+def test_quality_test_result_csv_import_validation_rejects_invalid_row(seeded_run_with_property):
+    """CR-11 correction v2 item 2: same evidence as above, for Quality Test
+    Result's own importer. Uploads one row whose property_name does not
+    match any entry in the seeded physical property master list -
+    test_method, unit, actual_value, and production_run_id are all
+    otherwise valid, isolating the unmatched property_name as the single
+    reason this row is rejected."""
+    ids = seeded_run_with_property
+    session = db.get_session()
+    before_count = session.query(db.PhysicalPropertyResult).count()
+    session.close()
+
+    at = AppTest.from_file(PAGE_QTR, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    csv_bytes = (
+        f"property_name,test_method,unit,actual_value,production_run_id\n"
+        f"CR11-Correction-No-Such-Property,CSV Import Method,kg/m3,32.4,{ids['run_id']}\n"
+    ).encode()
+    uploader = next(u for u in at.file_uploader if u.key == "result_upload")
+    uploader.set_value(("results_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-property CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_result_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "property_name" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.PhysicalPropertyResult).count()
+    session.close()
+    assert after_count == before_count, "An invalid-property_name row must not be persisted"
+
+
+# ---------------------------------------------------------------------------
+# Gap 2.3 - Quality Issue CSV import validation. Bad-row check (pages/6_
+# Quality_Observation.py, tab_import): a row is only "ok" if exactly one
+# parent FK is in-scope AND observation_type matches the controlled
+# taxonomy case-insensitively (quality_issue_taxonomy.lookup_case_
+# insensitive()). This test isolates the taxonomy check.
+# ---------------------------------------------------------------------------
+
+def test_quality_issue_csv_import_validation_rejects_invalid_row(seeded_run_for_quality_issue):
+    """CR-11 correction v2 item 2: same evidence as above, for Quality
+    Issue's own importer. Uploads one row with a valid, in-scope
+    production_run_id but an observation_type that matches no entry in the
+    controlled issue-type taxonomy, isolating that as the single reason
+    this row is rejected."""
+    ids = seeded_run_for_quality_issue
+    session = db.get_session()
+    before_count = session.query(db.QualityObservation).count()
+    session.close()
+
+    at = AppTest.from_file(PAGE_QI, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    csv_bytes = (
+        f"observation_type,production_run_id\n"
+        f"CR11-Correction-Not-A-Real-Issue-Type,{ids['run_id']}\n"
+    ).encode()
+    uploader = next(u for u in at.file_uploader if u.key == "observation_upload")
+    uploader.set_value(("issues_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-issue-type CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_observation_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "observation_type" in warnings.lower() or "issue-type" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.QualityObservation).count()
+    session.close()
+    assert after_count == before_count, "An invalid-observation_type row must not be persisted"
+
+
+# ---------------------------------------------------------------------------
+# Gap 2.4 - Sample CSV import validation. Bad-row check (pages/9_Samples_
+# Conditioning.py, tab_import): `run_id_val in import_run_ids and
+# str(row.get("zone_label", "")).strip()`. This test isolates the
+# out-of-scope production_run_id check.
+# ---------------------------------------------------------------------------
+
+def test_sample_csv_import_validation_rejects_invalid_row(seeded_run_for_sample):
+    """CR-11 correction v2 item 2: same evidence as above, for Sample's own
+    importer. Uploads one row with a non-existent/out-of-scope
+    production_run_id (a real, non-empty zone_label is given) and confirms
+    it's flagged/rejected, not silently imported."""
+    ids = seeded_run_for_sample
+    session = db.get_session()
+    before_count = session.query(db.Sample).count()
+    session.close()
+
+    at = AppTest.from_file(PAGE_SAMPLE, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    csv_bytes = b"production_run_id,zone_label\n999999,Bottom\n"
+    uploader = next(u for u in at.file_uploader if u.key == "sample_upload")
+    uploader.set_value(("samples_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-run-id CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_sample_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "production_run_id" in warnings.lower() or "zone_label" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.Sample).count()
+    session.close()
+    assert after_count == before_count, "An invalid-production_run_id row must not be persisted"
 
 
 if __name__ == "__main__":

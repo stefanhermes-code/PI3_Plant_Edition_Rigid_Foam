@@ -64,6 +64,53 @@ NaN and the working "True if pd.isna(...)" branch is taken), so this
 bug is never hit by these tests - flagged here for Charlie/JC, not
 silently worked around.
 
+CR-11 CLOSEOUT CORRECTION V2 (2026-08-12, per Charlie's
+"CR11_Closeout_Correction_Review_Return_to_JC.docx" - the first correction
+round above was returned again for two remaining gaps). The tests added at
+the bottom of this file (see the "CORRECTION V2" section header) supply
+that further evidence, one item per numbered gap in that document:
+
+  1. Delete permission/safeguards: a direct test, per record type (Role,
+     User, Raw Material, Supplier), proving a permission-denied role
+     cannot delete a record through the real UI - not just that the
+     underlying access_control function returns the expected bool.
+
+  2. Import validation handling: direct invalid-row-rejection evidence for
+     every remaining CSV/Excel import surface that only had a
+     valid-import test before (Raw Material, Supplier), plus a
+     malformed-reference-row test for User distinct from the existing
+     one-admin-per-company BUSINESS RULE test.
+
+Second deviation note (a real, structural gap found while building item 1's
+evidence, not fixed here - out of scope for a test-only correction, flagged
+for Charlie/JC): pages/24_User_Roles.py and pages/25_User_Accounts.py are
+the two exceptions, of this file's four record types, whose write controls
+(Create/Edit/Delete/Import tabs) are NOT gated by
+access_control.can_use_page(<their own page_key>, ...) at all - verified by
+reading both files in full, start to finish. Every other page this file (and
+CR-10's own correction file) touches computes a `page_usable =
+can_use_page("<page_key>", ...)` boolean and wraps its write controls in it
+(see pages/14_Raw_Materials.py's single `page_usable` variable, which
+gates BOTH the outer Raw Material group and the nested Supplier group off
+the SAME "raw_materials" page_key). pages/24_User_Roles.py and
+pages/25_User_Accounts.py instead call only auth.require_role("Company
+Admin", "Platform Admin") - a check against the session's role NAME
+string - and never reference access_control.can_use_page or
+usable_page_keys_denied anywhere in their own source. Practically: the
+access_control.PAGE_CATALOG entries "user_roles_admin" and
+"user_accounts_admin" (both selectable as Hidden / View only / Full access
+on this very page's own "Page access" grid, via helpers.page_access_grid)
+control ONLY sidebar visibility for those two keys (app_rigid_foam.py's
+denied_page_keys() check, which is can_view=False only); a role given
+"View only" (can_view=True, can_use=False) on either key is still fully
+able to create/edit/delete on these two pages once it's on them, because
+neither page ever asks. The item-1 tests below for Role and User therefore
+exercise the ONE permission gate these two pages actually have today -
+require_role()'s role-name check - rather than the can_view/can_use state
+CR-10's view_only_role_fixture pattern exercises for every other page,
+since a test asserting the can_view/can_use state blocks Delete here would
+not reflect what the shipped code does.
+
 Usage: python -m pytest tests/test_cr11_functional_evidence_group_c.py -v
 """
 import os
@@ -1061,6 +1108,445 @@ def test_supplier_csv_import_via_ui(seeded_company_for_supplier):
         .first()
     )
     assert imported is not None, "Imported supplier was not persisted"
+    session.close()
+
+
+# ---------------------------------------------------------------------------
+# CR-11 CLOSEOUT CORRECTION V2 (2026-08-12) - item 1: Delete
+# permission/safeguards. A direct test per record type (Role, User, Raw
+# Material, Supplier) proving a permission-denied role cannot delete a
+# record through the real UI.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def seeded_role_for_edit_delete_and_denied_actor(seeded_role_for_edit_delete):
+    """Adds a SECOND Role, scoped to the same company, representing the
+    denied ACTOR's own assigned role - distinct from the first Role (the
+    fixture's original `role_id`), which stays the record this test tries,
+    and must fail, to delete. Named something that is neither of
+    auth.require_role("Company Admin", "Platform Admin")'s two allowed
+    names - see this file's module docstring "Second deviation note" for
+    why role-NAME matching, not access_control.can_use_page, is the actual
+    (and only) permission gate pages/24_User_Roles.py has today."""
+    ids = seeded_role_for_edit_delete
+    session = db.get_session()
+    denied_role = db.Role(company_id=ids["company_id"], name="CR11c Plant Operator", is_builtin=False)
+    session.add(denied_role)
+    session.commit()
+    out = dict(ids)
+    out["denied_role_id"] = denied_role.id
+    out["denied_role_name"] = denied_role.name
+    session.close()
+    return out
+
+
+def test_role_permission_denied_role_cannot_delete_via_ui(seeded_role_for_edit_delete_and_denied_actor):
+    """CR-11 correction v2, item 1 (Role): presets session_state["role"]
+    to a real Role's name that is neither "Company Admin" nor "Platform
+    Admin" BEFORE .run() - overriding the AUTH_DISABLED dev-bypass's own
+    setdefault("role", "Platform Admin"), the same override technique
+    tests/test_cr10_product_family_grade_split.py's _run_as_role uses for
+    role_id/is_super_admin/is_platform_owner/company_id. Confirms
+    auth.require_role()'s real, current enforcement (the only permission
+    gate this page has - see module docstring) stops the whole script
+    with the actual error message BEFORE any tab renders, so the seeded
+    role (a completely separate DB row from the denied actor's own role)
+    is never reachable to select, let alone delete - not merely that no
+    delete button happens to be visible."""
+    ids = seeded_role_for_edit_delete_and_denied_actor
+    at = _run(
+        PAGE_ROLES,
+        session_state={
+            "role": ids["denied_role_name"],
+            "role_id": ids["denied_role_id"],
+            "is_super_admin": False,
+            "is_platform_owner": False,
+            "company_id": ids["company_id"],
+        },
+    )
+    assert not at.exception, f"Unhandled exception for a permission-denied role: {at.exception}"
+
+    errors = " ".join(e.value for e in at.error)
+    assert "does not have access to this screen" in errors.lower(), (
+        "require_role()'s real denial message should have fired for a non-admin-named role"
+    )
+    assert not any(b.key == f"role_{ids['role_id']}_btn" for b in at.button), (
+        "A permission-denied role must never reach the target role's Delete button"
+    )
+    assert not at.tabs, "A permission-denied role must never reach the Create/Edit-Delete/Import tabs at all"
+
+    session = db.get_session()
+    assert session.get(db.Role, ids["role_id"]) is not None, "The target role must still exist - a blocked page must never delete it"
+    session.close()
+
+
+@pytest.fixture()
+def seeded_user_for_edit_delete_and_denied_actor(seeded_user_for_edit_delete):
+    """Same composition as seeded_role_for_edit_delete_and_denied_actor
+    above, for the User Accounts page: a second Role, scoped to the same
+    company, representing the denied actor's own role - distinct from the
+    fixture's existing_user/role_id, which stays the record this test
+    tries, and must fail, to delete."""
+    ids = seeded_user_for_edit_delete
+    session = db.get_session()
+    denied_role = db.Role(company_id=ids["company_id"], name="CR11c Plant Operator", is_builtin=False)
+    session.add(denied_role)
+    session.commit()
+    out = dict(ids)
+    out["denied_role_id"] = denied_role.id
+    out["denied_role_name"] = denied_role.name
+    session.close()
+    return out
+
+
+def test_user_permission_denied_role_cannot_delete_via_ui(seeded_user_for_edit_delete_and_denied_actor):
+    """CR-11 correction v2, item 1 (User): same evidence and reasoning as
+    the Role test above, against pages/25_User_Accounts.py - which has the
+    identical require_role()-only gate (see module docstring)."""
+    ids = seeded_user_for_edit_delete_and_denied_actor
+    at = _run(
+        PAGE_USERS,
+        session_state={
+            "role": ids["denied_role_name"],
+            "role_id": ids["denied_role_id"],
+            "is_super_admin": False,
+            "is_platform_owner": False,
+            "company_id": ids["company_id"],
+        },
+    )
+    assert not at.exception, f"Unhandled exception for a permission-denied role: {at.exception}"
+
+    errors = " ".join(e.value for e in at.error)
+    assert "does not have access to this screen" in errors.lower(), (
+        "require_role()'s real denial message should have fired for a non-admin-named role"
+    )
+    assert not any(b.key == f"user_{ids['user_id']}_btn" for b in at.button), (
+        "A permission-denied role must never reach the target user's Delete button"
+    )
+    assert not at.tabs, "A permission-denied role must never reach the Create/Edit-Delete/Import tabs at all"
+
+    session = db.get_session()
+    assert session.get(db.User, ids["user_id"]) is not None, "The target user must still exist - a blocked page must never delete it"
+    session.close()
+
+
+@pytest.fixture()
+def view_only_role_fixture_for_rawmat(seeded_raw_material):
+    """A real company-scoped Role with an explicit RolePagePermission row
+    denying *use* (can_view=True, can_use=False - access_control.py's
+    "View only" state) on page_key "raw_materials" - direct evidence
+    against the real can_use_page()/RolePagePermission plumbing
+    pages/14_Raw_Materials.py actually calls (a single `page_usable`
+    variable, computed once, that gates BOTH the outer Raw Material group
+    below and the nested Supplier group's own Edit/Delete section - see
+    view_only_role_fixture_for_supplier below, which reuses the exact same
+    page_key for that reason)."""
+    ids = seeded_raw_material
+    session = db.get_session()
+    role = db.Role(company_id=ids["company_id"], name="CR11c RawMat View Only", is_builtin=False)
+    session.add(role)
+    session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="raw_materials", can_view=True, can_use=False))
+    session.commit()
+    out = dict(ids)
+    out["role_id"] = role.id
+    session.close()
+    return out
+
+
+def test_raw_material_view_only_role_cannot_delete_via_ui(view_only_role_fixture_for_rawmat):
+    """CR-11 correction v2, item 1 (Raw Material): presets the rawmat_table
+    dataframe widget's own on_select state (same verified technique as
+    this file's Group C.3a tests above) alongside role_id/is_super_admin/
+    is_platform_owner/company_id overriding the AUTH_DISABLED dev-bypass's
+    setdefault() defaults - the same override technique
+    tests/test_cr10_product_family_grade_split.py's _run_as_role uses.
+    Confirms the row is genuinely selected (so this isn't merely "the
+    delete button never rendered because nothing was selected"), then
+    confirms neither the delete confirm-checkbox nor the delete button
+    render for this page_usable=False role, and that the seeded raw
+    material is still in the database afterward."""
+    ids = view_only_role_fixture_for_rawmat
+    session = db.get_session()
+    assert not access_control.can_use_page("raw_materials", role_id=ids["role_id"], session=session, is_super_admin=False)
+    session.close()
+
+    at = _run(
+        PAGE_RAWMAT,
+        session_state={
+            "role_id": ids["role_id"],
+            "is_super_admin": False,
+            "is_platform_owner": False,
+            "company_id": ids["company_id"],
+            "rawmat_table": {"selection": {"rows": [0], "columns": []}},
+        },
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["rawmat_selected_id"] == ids["material_id"], (
+        "Presetting the dataframe widget's own selection state should have selected the seeded raw material"
+    )
+
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+    assert not any(c.key == f"rawmat_{ids['material_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the delete confirm checkbox"
+    )
+    assert not any(b.key == f"rawmat_{ids['material_id']}_btn" for b in at.button), (
+        "View-only role should not see the delete button"
+    )
+
+    session = db.get_session()
+    assert session.get(db.RawMaterial, ids["material_id"]) is not None, (
+        "The seeded raw material must still exist - a view-only role must never be able to delete it"
+    )
+    session.close()
+
+
+@pytest.fixture()
+def view_only_role_fixture_for_supplier(seeded_supplier):
+    """Same composition as view_only_role_fixture_for_rawmat above, built
+    on seeded_supplier instead of seeded_raw_material - still against
+    page_key "raw_materials" (verified from source: the nested Suppliers
+    tab's own Edit/Delete section is gated by the SAME `page_usable`
+    variable as the outer Raw Material group, not a separate
+    "suppliers"-named page_key)."""
+    ids = seeded_supplier
+    session = db.get_session()
+    role = db.Role(company_id=ids["company_id"], name="CR11c Supplier View Only", is_builtin=False)
+    session.add(role)
+    session.flush()
+    session.add(db.RolePagePermission(role_id=role.id, page_key="raw_materials", can_view=True, can_use=False))
+    session.commit()
+    out = dict(ids)
+    out["role_id"] = role.id
+    session.close()
+    return out
+
+
+def test_supplier_view_only_role_cannot_delete_via_ui(view_only_role_fixture_for_supplier):
+    """CR-11 correction v2, item 1 (Supplier): same evidence and reasoning
+    as the Raw Material test above, against the NESTED supplier_table/
+    Suppliers tab - its own separate widget key, independently proving the
+    same page_key ("raw_materials") blocks Delete for the second,
+    independent record group living on this page too."""
+    ids = view_only_role_fixture_for_supplier
+    session = db.get_session()
+    assert not access_control.can_use_page("raw_materials", role_id=ids["role_id"], session=session, is_super_admin=False)
+    session.close()
+
+    at = _run(
+        PAGE_RAWMAT,
+        session_state={
+            "role_id": ids["role_id"],
+            "is_super_admin": False,
+            "is_platform_owner": False,
+            "company_id": ids["company_id"],
+            "supplier_table": {"selection": {"rows": [0], "columns": []}},
+        },
+    )
+    assert not at.exception, f"Unhandled exception for a view-only role: {at.exception}"
+    assert at.session_state["supplier_selected_id"] == ids["supplier_id"], (
+        "Presetting the nested dataframe widget's own selection state should have selected the seeded supplier"
+    )
+
+    captions = " ".join(c.value for c in at.caption)
+    assert "view-only access" in captions.lower()
+    assert not any(c.key == f"supplier_{ids['supplier_id']}_confirm" for c in at.checkbox), (
+        "View-only role should not see the nested delete confirm checkbox"
+    )
+    assert not any(b.key == f"supplier_{ids['supplier_id']}_btn" for b in at.button), (
+        "View-only role should not see the nested delete button"
+    )
+
+    session = db.get_session()
+    assert session.get(db.Supplier, ids["supplier_id"]) is not None, (
+        "The seeded supplier must still exist - a view-only role must never be able to delete it"
+    )
+    session.close()
+
+
+# ---------------------------------------------------------------------------
+# CR-11 CLOSEOUT CORRECTION V2 (2026-08-12) - item 2: Import validation
+# handling. Direct invalid-row-rejection evidence for Raw Material and
+# Supplier (pre-existing importers that, before this correction, only had
+# a valid-import test each), plus a malformed-role-reference test for User
+# distinct from the existing one-admin-per-company business-rule test.
+# ---------------------------------------------------------------------------
+
+def test_raw_material_csv_import_validation_rejects_invalid_row(seeded_company_with_taxonomy):
+    """Raw Material predates CR-11 (CR-11 only relabeled its tabs), so it
+    was never one of the six net-new importers - but Charlie's return
+    asked for direct invalid-row evidence on every remaining import
+    surface, not just the net-new ones. Per the page's own logic
+    (pages/14_Raw_Materials.py's tab_import block): each row's free-text
+    category/subcategory columns are matched, case-insensitively, against
+    the live CR-08 controlled taxonomy via _match_taxonomy_text() - a row
+    that matches neither is bucketed into review_rows and never imported,
+    regardless of the "Confirm import" click. Uploads one valid row
+    (matching the seeded Category/Subcategory by name) alongside one row
+    whose category/subcategory text matches nothing in the controlled
+    taxonomy, and confirms the valid row imports while the bad one is
+    flagged/rejected and never created."""
+    ids = seeded_company_with_taxonomy
+    at = AppTest.from_file(PAGE_RAWMAT, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    csv_bytes = (
+        "name,category,subcategory\n"
+        f"CR11-GroupC-Valid-RawMaterial,{ids['category_name']},{ids['subcategory_name']}\n"
+        "CR11-GroupC-Bad-Taxonomy-RawMaterial,CR11-GroupC-Unknown-Category,CR11-GroupC-Unknown-Subcategory\n"
+    ).encode()
+    uploader = next(u for u in at.file_uploader if u.key == "rawmat_upload")
+    uploader.set_value(("rawmat_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-taxonomy CSV: {at.exception}"
+
+    warnings_text = " ".join(w.value for w in at.warning)
+    assert "controlled taxonomy" in warnings_text.lower(), (
+        "The real 'didn't match the controlled taxonomy exactly' warning should have fired"
+    )
+
+    confirm_btn = next(b for b in at.button if b.key == "confirm_rawmat_import")
+    confirm_btn.click()
+    at.run()
+    assert not at.exception, f"Unhandled exception confirming the import: {at.exception}"
+
+    session = db.get_session()
+    valid_material = (
+        session.query(db.RawMaterial)
+        .filter(db.RawMaterial.company_id == ids["company_id"], db.RawMaterial.name == "CR11-GroupC-Valid-RawMaterial")
+        .first()
+    )
+    bad_material = session.query(db.RawMaterial).filter(db.RawMaterial.name == "CR11-GroupC-Bad-Taxonomy-RawMaterial").first()
+    assert valid_material is not None, "The row with a matching category/subcategory should have imported"
+    assert bad_material is None, "The row with unmatched category/subcategory text must never be created"
+    session.close()
+
+
+@pytest.fixture()
+def seeded_company_with_existing_supplier():
+    """One Company + one existing Supplier - the minimum needed to exercise
+    the nested Supplier CSV/Excel import's own bad-row check (this
+    importer's only one, per pages/14_Raw_Materials.py's sub_import block:
+    a row whose name matches an existing supplier's name, case-
+    insensitively, is bucketed into dup_supplier_rows and never created;
+    blank names are silently skipped rather than flagged, so a name
+    collision is the only real "invalid row" case this importer has)."""
+    db.init_db()
+    _reset_schema()
+    u = uuid.uuid4().hex[:8]
+    session = db.get_session()
+    company = db.Company(name=f"CR11c SupplierImportBad Co {u}", is_platform_owner=True)
+    session.add(company)
+    session.flush()
+    supplier = db.Supplier(company_id=company.id, name=f"CR11c Existing Supplier {u}", active=True)
+    session.add(supplier)
+    session.commit()
+    ids = {"company_id": company.id, "supplier_id": supplier.id, "supplier_name": supplier.name}
+    session.close()
+    return ids
+
+
+def test_supplier_csv_import_validation_rejects_invalid_row(seeded_company_with_existing_supplier):
+    """Supplier is also not one of CR-11's six net-new importers (only
+    relabeled) - same correction-v2 rationale as the Raw Material test
+    above. Uploads one row whose name exactly matches the already-seeded
+    Supplier (the page's own dup_supplier_rows check) alongside one
+    genuinely new row, and confirms the duplicate is flagged/skipped
+    (never creating a second row with that name) while the new one
+    imports."""
+    ids = seeded_company_with_existing_supplier
+    at = AppTest.from_file(PAGE_RAWMAT, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    csv_bytes = (
+        "name,notes\n"
+        f"{ids['supplier_name']},duplicate of an existing supplier\n"
+        "CR11-GroupC-New-Supplier-Valid,from CSV\n"
+    ).encode()
+    uploader = next(u for u in at.file_uploader if u.key == "supplier_upload")
+    uploader.set_value(("suppliers_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading a duplicate-name CSV: {at.exception}"
+
+    warnings_text = " ".join(w.value for w in at.warning)
+    assert "already in the list" in warnings_text.lower(), (
+        "The real 'match a supplier name already in the list' duplicate warning should have fired"
+    )
+
+    confirm_btn = next(b for b in at.button if b.key == "confirm_supplier_import")
+    confirm_btn.click()
+    at.run()
+    assert not at.exception, f"Unhandled exception confirming the import: {at.exception}"
+
+    session = db.get_session()
+    matching_existing = (
+        session.query(db.Supplier)
+        .filter(db.Supplier.company_id == ids["company_id"], db.Supplier.name == ids["supplier_name"])
+        .all()
+    )
+    new_valid = (
+        session.query(db.Supplier)
+        .filter(db.Supplier.company_id == ids["company_id"], db.Supplier.name == "CR11-GroupC-New-Supplier-Valid")
+        .first()
+    )
+    assert len(matching_existing) == 1, "The duplicate-named row must not have created a second supplier with that name"
+    assert new_valid is not None, "The genuinely new row should have imported"
+    session.close()
+
+
+def test_user_csv_import_validation_rejects_row_with_unknown_role(seeded_company_and_role_for_user_import):
+    """CR-11 correction v2, item 2 (User): the existing
+    test_user_csv_import_enforces_one_admin_per_company_within_batch test
+    proves a BUSINESS RULE (one admin per company) rejects a row - real
+    evidence, but not the same thing as a malformed/unresolvable-reference
+    row being rejected, which is what Charlie's other net-new-importer
+    example (Role's own company_id validation test) demonstrates. This is
+    that same kind of evidence for User: uploads one row with a role name
+    that matches a real seeded Role, alongside one row referencing a role
+    name that does not exist for this company at all, and confirms the
+    real per-row reason ("role '...' not found for ...", from this page's
+    own tab_import loop) is shown and that row is never created, while the
+    valid row is."""
+    ids = seeded_company_and_role_for_user_import
+    at = AppTest.from_file(PAGE_USERS, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    email_valid = f"cr11-groupc-goodrole-{uuid.uuid4().hex[:6]}@example.com"
+    email_bad = f"cr11-groupc-badrole-{uuid.uuid4().hex[:6]}@example.com"
+    csv_bytes = (
+        "email,role\n"
+        f"{email_valid},{ids['role_name']}\n"
+        f"{email_bad},CR11-GroupC-Nonexistent-Role\n"
+    ).encode()
+    uploader = next(u for u in at.file_uploader if u.key == "user_upload")
+    uploader.set_value(("users_bad_role.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading a CSV with an unknown role: {at.exception}"
+
+    warnings_text = " ".join(w.value for w in at.warning)
+    assert "flagged rows" in warnings_text.lower(), "The generic flagged-rows warning should have fired"
+    markdown_text = " ".join(m.value for m in at.markdown)
+    assert "not found for" in markdown_text.lower(), (
+        "The bad-rows table should show the real 'role ... not found for ...' reason"
+    )
+
+    confirm_btn = next(b for b in at.button if b.key == "confirm_user_import")
+    confirm_btn.click()
+    at.run()
+    assert not at.exception, f"Unhandled exception confirming the import: {at.exception}"
+
+    session = db.get_session()
+    good_user = session.query(db.User).filter(db.User.email == email_valid).first()
+    bad_user = session.query(db.User).filter(db.User.email == email_bad).first()
+    assert good_user is not None, "The row with a real role name should have imported"
+    assert bad_user is None, "The row referencing a nonexistent role must never be created"
     session.close()
 
 

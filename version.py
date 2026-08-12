@@ -3998,4 +3998,67 @@ unrelated numpy divide-by-zero RuntimeWarnings present before this batch
 too.
 """
 
-APP_VERSION = "0.33.3"
+VERSION_0_33_4_NOTES = """
+v0.33.3 -> v0.33.4 (2026-08-12, CR-11 closeout correction round 2, per
+Charlie's "CR11_Closeout_Correction_Review_Return_to_JC.docx" - the
+resubmitted CR-11 correction "materially improves the evidence base"
+(Create/Edit/valid-import now mapped across all 22 record groups, full
+regression clean) but remained OPEN on two specific residual gaps).
+
+1. Delete permission/safeguards: the first correction round proved
+   selection -> confirm -> delete -> DB-state verification for every
+   group, but never proved a permission-denied/view-only role is
+   actually blocked from deleting, per page key - citing the CR-10
+   correction's pattern as "supporting methodology" wasn't accepted as
+   page-specific CR-11 evidence. Added 20 new Delete-permission tests
+   (one per record group that didn't already have one - Product
+   Families/Grades were already covered by the CR-10 correction) across
+   the 5 existing test_cr11_functional_evidence_group_*.py files, each
+   building a real db.Role + db.RolePagePermission(can_view=True,
+   can_use=False) (or, for User Roles/User Accounts - a genuine finding,
+   not an assumption - the actual gate on those two pages is auth.
+   require_role("Company Admin", "Platform Admin"), not access_control.
+   can_use_page(), so those two tests exercise the real mechanism
+   instead) and asserting the real delete confirm-checkbox/button don't
+   render for that role, with the record still present in the database
+   afterward. Two page keys are shared by more than one record group
+   (Production Equipment reuses "plant_overview"; Raw Material/Supplier
+   share "raw_materials"; Production Run's five groups share
+   "production_run"; each Trial page's own key covers its nested Sample
+   group too) - confirmed from each page's own can_use_page() call site,
+   not assumed from the page name.
+
+2. CSV/Excel import validation handling: the first correction round
+   only added invalid-row-rejection evidence for the six net-new CR-11
+   importers (per the return's own item 4 wording); the other 16
+   pre-existing import surfaces had valid-import evidence only. Added
+   16 new import-validation tests (Recipe, Quality Test Result, Quality
+   Issue, Sample, all 5 Production Run groups, Customer Trial + its
+   nested Sample group, Optimization Trial + its nested Sample group,
+   Raw Material, Supplier, Product Family, Product Grade - the last two
+   added to tests/test_cr10_product_family_grade_split.py since Charlie's
+   item 4 named all six net-new importers and that file's own CR-10
+   correction round only proved the valid-import path for them), plus
+   one additional User Accounts import-validation test judged necessary
+   because the existing one-admin-per-company test proves a business
+   rule, not row-level validation rejection. Each new test uploads one
+   CSV row that fails that importer's own real bad-row check (read from
+   each page's own import code - out-of-scope foreign-key ids, values
+   outside a controlled vocabulary, or a missing required field,
+   depending on the importer), confirms the "Confirm import" button does
+   not render (every importer in this app gates it behind `if
+   good_rows and st.button(...)`, so an empty good_rows list is direct
+   proof of rejection), and confirms the database row count is
+   unchanged.
+
+38 new tests total across 6 files (3 in group_a, 8 in group_b, 7 in
+group_c, 10 in group_d, 8 in group_e, 2 in test_cr10_product_family_
+grade_split.py).
+
+Full regression suite: 312 passed, 0 failed (274 pre-existing + 38 new),
+verified stable across 2 consecutive full runs. Same 4 pre-existing
+unrelated numpy divide-by-zero RuntimeWarnings present before this batch
+too.
+"""
+
+APP_VERSION = "0.33.4"

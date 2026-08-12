@@ -594,6 +594,82 @@ def test_product_grade_selection_edit_and_delete_via_ui(seeded_one_family_one_gr
     session.close()
 
 
+def test_product_family_csv_import_validation_rejects_invalid_row(seeded_two_families):
+    """CR-11 correction v2 (2026-08-12, per Charlie's CR11_Closeout_
+    Correction_Review_Return_to_JC.docx item 2): Product Families is one
+    of CR-11's own six net-new importers, but the first CR-11 correction
+    round only proved the valid-import path for it (test above) - no
+    invalid-row/validation-handling evidence existed for this exact
+    surface. Uploads one row with an out-of-scope plant_id (the page's
+    own bad-row check: `row.get("plant_id") in valid_plant_ids`) and
+    confirms it's flagged/rejected, not silently imported."""
+    ids = seeded_two_families
+    at = AppTest.from_file(PAGE_FAMILIES, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    before_count = None
+    session = db.get_session()
+    before_count = session.query(db.ProductFamily).count()
+    session.close()
+
+    csv_bytes = b"plant_id,name\n999999,CR10-Correction-Bad-Plant-Family\n"
+    uploader = next(u for u in at.file_uploader if u.key == "family_upload")
+    uploader.set_value(("families_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-plant-id CSV: {at.exception}"
+
+    # The bad row alone should have produced zero good_rows - the
+    # "Confirm import" button only renders when good_rows is non-empty
+    # (see pages/2_Product_Families.py's `if good_rows and st.button(...)`
+    # guard), so its absence here is direct proof the row was rejected,
+    # not silently accepted.
+    assert not any(b.key == "confirm_family_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "unknown plant_id" in warnings.lower() or "plant_id" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.ProductFamily).count()
+    session.close()
+    assert after_count == before_count, "An invalid-plant-id row must not be persisted"
+
+
+def test_product_grade_csv_import_validation_rejects_invalid_row(seeded_one_family):
+    """CR-11 correction v2 - same evidence as above, for Product Grades'
+    own bad-row check (`row.get("product_family_id") in valid_family_ids`).
+    Uploads one row with an out-of-scope product_family_id and confirms
+    it's flagged/rejected, not silently imported."""
+    ids = seeded_one_family
+    session = db.get_session()
+    before_count = session.query(db.FoamGrade).count()
+    session.close()
+
+    at = AppTest.from_file(PAGE_GRADES, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    assert not at.exception
+
+    csv_bytes = b"product_family_id,grade_name\n999999,CR10-Correction-Bad-Family-Grade\n"
+    uploader = next(u for u in at.file_uploader if u.key == "grade_upload")
+    uploader.set_value(("grades_bad.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading an invalid-family-id CSV: {at.exception}"
+
+    assert not any(b.key == "confirm_grade_import" for b in at.button), (
+        "Confirm import button should not render when every uploaded row is invalid"
+    )
+    warnings = " ".join(w.value for w in at.warning)
+    assert "unknown product_family_id" in warnings.lower() or "product_family_id" in warnings.lower()
+
+    session = db.get_session()
+    after_count = session.query(db.FoamGrade).count()
+    session.close()
+    assert after_count == before_count, "An invalid-family-id row must not be persisted"
+
+
 def test_product_grade_csv_import_via_ui(seeded_one_family):
     """Drives the real st.file_uploader widget with an in-memory CSV -
     the actual upload path, not a stand-in for dedupe_import_rows() - then
