@@ -251,7 +251,7 @@ with tab_import:
                 email_val = str(row.get("email", "") or "").strip().lower()
                 role_val = str(row.get("role", "") or "").strip().lower()
                 matched_role = role_by_lower_name.get(role_val)
-                active_val = True if pd.isna(row.get("active")) else parse_bool_cell(row.get("active"))
+                active_val = True if pd.isna(row.get("active")) else parse_bool(row.get("active"))
                 row_is_admin = matched_role is not None and matched_role.name.strip().lower() in ADMIN_ROLE_NAMES
                 reason = None
                 if not email_val:

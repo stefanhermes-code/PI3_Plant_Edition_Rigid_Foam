@@ -54,7 +54,9 @@ os.environ.setdefault("DATABASE_URL", "sqlite://")
 import pytest
 from streamlit.testing.v1 import AppTest
 
+import access_control
 import db
+import tenant_scope
 from helpers import cr11_function_tab_labels
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,9 +67,31 @@ def _page(name):
     return os.path.join(PAGES_DIR, name)
 
 
+def _clear_relevant_caches():
+    """CR-11 correction (2026-08-12): added when the new
+    tests/test_cr11_functional_evidence_group_*.py files (which run
+    alphabetically BEFORE this file) exposed the same cross-test/cross-file
+    @st.cache_data id-collision hazard first documented in CR-12 and
+    defended against in test_cr10_product_family_grade_split.py -
+    full_chain below is module-scoped and resets the schema (autoincrement
+    ids restart at 1), but without this clear, tenant_scope's id-scoping
+    helpers can still serve another module's stale cached scope for the
+    same small-int company_id/plant_ids, which starves this file's own
+    seeded chain of visibility and makes a target page hit its own
+    'nothing to show yet' st.stop() guard instead of rendering tabs."""
+    tenant_scope.plant_ids_for_company.clear()
+    tenant_scope.family_ids_for_plants.clear()
+    tenant_scope.grade_ids_for_families.clear()
+    tenant_scope.run_ids_for_plants.clear()
+    tenant_scope.customer_trial_ids_for_plants.clear()
+    tenant_scope.optimization_trial_ids_for_plants.clear()
+    access_control.denied_page_keys.clear()
+
+
 def _reset_schema():
     db.Base.metadata.drop_all(db.ENGINE)
     db.Base.metadata.create_all(db.ENGINE)
+    _clear_relevant_caches()
 
 
 @pytest.fixture(scope="module")

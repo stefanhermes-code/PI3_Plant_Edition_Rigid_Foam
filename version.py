@@ -3843,4 +3843,103 @@ correction tests), 0 failed. Verified stable across 3 consecutive runs of
 the whole suite, plus the new test file run alone.
 """
 
-APP_VERSION = "0.33.1"
+VERSION_0_33_2_NOTES = """
+v0.33.1 -> v0.33.2 (2026-08-12, CR-11 closeout correction, per Charlie's
+"CR11_Closeout_Review_Return_to_JC.docx" - the first CR-11 closeout
+package was returned OPEN: it had wording/order tests only, not direct
+executed evidence that Create/Edit/Delete/CSV-Excel-import actually work
+through the real UI, for every applicable page/record group in CR-11's
+own final inventory).
+
+Charlie's return asked for six things: (1) Create evidence, (2) Edit
+evidence, (3) Delete evidence (including permissions/confirmation/
+safeguards), (4) CSV/Excel import evidence (valid import, validation
+handling, persisted records) - explicitly naming the six net-new
+importers CR-11 built - (5) coverage across every record group in the
+inventory, including nested groups and the five Production Run groups,
+and (6) a page/record-group evidence matrix mapping each surface to its
+executed test name and result.
+
+Of CR-11's 15 inventoried pages/groups, Product Families and Product
+Grades already carried direct UI-driven Create/Edit/Delete/Import
+evidence from the CR-10 closeout correction (tests/test_cr10_product_
+family_grade_split.py) - not duplicated here. The remaining 13 pages/
+groups (18 counting nested sub-groups and the Production Run page's five
+independent groups separately) had none - every one of the tests below
+is new.
+
+Added five new test files, one per logical cluster of pages, all built on
+the same AppTest technique the CR-10 correction established and verified
+against streamlit==1.59.2: presetting a clickable_table dataframe
+widget's OWN on_select state (session_state[<table_key>] =
+{"selection": {"rows": [i], "columns": []}}) before .run() to drive real
+row-click selection for Edit/Delete, and driving the real st.file_uploader
+via FileUploader.set_value((filename, bytes, mime)) for CSV/Excel import -
+both genuine UI paths, not data-layer stand-ins - plus each file's own
+_clear_relevant_caches() guard against the known cross-test/cross-file
+@st.cache_data id-collision hazard (small-int cache keys repeat once
+autoincrement ids restart across test files) first documented in CR-12
+and defended against again in the CR-10 correction:
+
+- tests/test_cr11_functional_evidence_group_a.py (12 tests): Plants,
+  Expert Notes, Production Unit/Cell - three of the six net-new CR-11
+  importers. Each gets Create/Edit-Delete/valid-import tests plus a
+  csv_import_validation_rejects_invalid_row test (net-new importers get
+  extra scrutiny per Charlie's item 4).
+- tests/test_cr11_functional_evidence_group_b.py (12 tests): Recipe,
+  Quality Test Result, Quality Issue, Sample - four pages that already had
+  all three functions pre-CR-11 (relabel-only), each with Create/Edit-
+  Delete/Import evidence proving the pre-existing machinery still works
+  correctly under the new tab structure.
+- tests/test_cr11_functional_evidence_group_c.py (14 tests): Role, User
+  (the other two net-new importers - User is the security-sensitive
+  bulk-account-creation surface), and Raw Materials' two independent
+  record groups (outer Raw Material, nested Supplier). Includes a
+  dedicated test proving the User import enforces the one-admin-per-
+  company rule within a single import batch, not just against pre-
+  existing rows.
+- tests/test_cr11_functional_evidence_group_d.py (15 tests): all five of
+  page 4's independent record groups by name, per Charlie's item 5 -
+  Production Run, Setup Data, Stream Reading, Production Event, Runtime
+  Data - each with its own Create/Edit-Delete/Import evidence against the
+  real seeded dependency chain (Company/Plant/ProductionMethod/Machine/
+  ProductFamily/FoamGrade/RecipeVersion/ProductionRun, with Stream
+  Reading and Runtime Data's own real FK onto the Finalized phase, not
+  the run directly).
+- tests/test_cr11_functional_evidence_group_e.py (12 tests): Customer
+  Trials & Samples and Optimization Trials & Samples, outer Trial group
+  and nested Sample group independently for each page.
+
+65 new functional-evidence tests total (plus the 6 pre-existing CR-10-
+correction tests covering Product Families/Grades - 71 pages/groups'
+worth of direct Create/Edit/Delete/Import evidence across all 15
+inventoried surfaces, 18 counting nested groups and Production Run's
+five groups separately).
+
+One real, previously-unexercised defect was found while writing the User
+Accounts import evidence and fixed directly (not just flagged): pages/
+25_User_Accounts.py's CSV import called a non-existent helper,
+parse_bool_cell(), instead of the real helpers.parse_bool() - a latent
+NameError that would have fired on any import row whose "active" column
+carried a non-blank value (the default/blank-column path was bug-free,
+which is why no prior test caught it). Fixed to call parse_bool().
+
+One correction was also needed to a PRE-EXISTING CR-11 test file,
+tests/test_cr11_tab_wording_compliance.py: its module-scoped full_chain
+fixture reset the schema but never cleared tenant_scope's cached id-
+scoping helpers, so once the five new group files above (which sort
+alphabetically before it) left a stale cache entry for the same small-int
+company_id/plant_id, this file's own seeded chain became invisible to the
+Samples & Conditioning page under full-suite runs (it would hit its own
+"nothing to show yet" guard and render zero tabs) even though the file
+passed cleanly in isolation. Added the same _clear_relevant_caches()
+guard this correction's own new files use. Full regression suite verified
+stable across 2 consecutive full runs after this fix (273 passed both
+times), plus each new file's own isolated run.
+
+Full regression suite: 273 passed, 0 failed (208 pre-existing + 65 new
+CR-11 functional-evidence tests), same 4 pre-existing unrelated numpy
+divide-by-zero RuntimeWarnings present before this batch too.
+"""
+
+APP_VERSION = "0.33.2"
