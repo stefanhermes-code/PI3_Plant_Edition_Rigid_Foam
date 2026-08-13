@@ -39,8 +39,10 @@ os.environ.setdefault("DATABASE_URL", "sqlite://")
 import pytest
 from streamlit.testing.v1 import AppTest
 
+import access_control
 import analytics
 import db
+import tenant_scope
 from helpers import production_method_label
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -49,9 +51,36 @@ PAGE18 = os.path.join(APP_DIR, "pages", "18_Root_Cause_Assistant.py")
 PAGE21 = os.path.join(APP_DIR, "pages", "21_Report.py")
 
 
+def _clear_relevant_caches():
+    """CR-15 regression-suite hygiene fix (2026-08-13, discovered while
+    getting a clean full-suite run for CR-15): this file's own
+    _reset_schema() never cleared any @st.cache_data cache, unlike every
+    other test file's own _reset_schema() in this suite (see e.g.
+    tests/test_cr14_customers_section.py's identically-named helper and
+    its docstring on this exact hazard). Harmless on its own, but a prior
+    test file's cached tenant_scope/analytics results for small ids like
+    company_id=1/plant_id=1/foam_grade_id=1 (which this file's own fixture
+    also produces, since ids restart at 1 after drop_all/create_all) could
+    silently leak into this file's assertions once pytest happened to run
+    another file with matching ids first - exactly the scenario CR-15's
+    own new tests/test_cr15_expert_notes_trial_links.py triggered. Fixed
+    here rather than left as a latent, order-dependent test flake."""
+    tenant_scope.plant_ids_for_company.clear()
+    tenant_scope.family_ids_for_plants.clear()
+    tenant_scope.grade_ids_for_families.clear()
+    tenant_scope.run_ids_for_plants.clear()
+    tenant_scope.customer_trial_ids_for_plants.clear()
+    tenant_scope.optimization_trial_ids_for_plants.clear()
+    access_control.denied_page_keys.clear()
+    analytics.run_settings_dataframe.clear()
+    analytics.property_results_dataframe.clear()
+    analytics.actual_usage_dataframe.clear()
+
+
 def _reset_schema():
     db.Base.metadata.drop_all(db.ENGINE)
     db.Base.metadata.create_all(db.ENGINE)
+    _clear_relevant_caches()
 
 
 @pytest.fixture()

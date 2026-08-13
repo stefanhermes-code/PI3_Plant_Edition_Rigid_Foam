@@ -2,10 +2,11 @@
 
 Captures qualitative expert knowledge - the kind of thing that lives in a
 technical person's head or a stray email, not a structured measurement -
-linked to a production run (the common case), a product grade, or a foam
+linked to a production run (the common case), a product grade, a product
 family (added 2026-08-02, alongside "analyze by foam family" on Trend
 Analysis/Process-Property Correlation/Process Parameter Optimization - see
-helpers.analysis_unit_picker). This is the raw material
+helpers.analysis_unit_picker), a commercial trial, or an optimization
+trial (both added CR-15, 2026-08-13). This is the raw material
 PI3 needs: when PI3 connectivity is enabled for the relevant plant, saving
 a note here also feeds it into PI3 so future Root-Cause Assistant reasoning
 can retrieve it.
@@ -27,10 +28,26 @@ with the pre-existing "Expert Notes Report" (page-specific, an aggregate
 breakdown rather than a record-creation function) retained as a 4th tab,
 same pattern as pages/9_Samples_Conditioning.py's "Sample Report" tab.
 CSV/Excel import is net-new here: each row creates one note linked to an
-existing production run/product grade/foam family (validated against the
-same scoped id sets the manual Create tab already uses) and, exactly like
-a manually-added note, gets pushed into PI3's vector store when PI3
-connectivity is enabled for the relevant plant."""
+existing production run/product grade/product family/commercial trial/
+optimization trial (validated against the same scoped id sets the manual
+Create tab already uses) and, exactly like a manually-added note, gets
+pushed into PI3's vector store when PI3 connectivity is enabled for the
+relevant plant.
+
+CR-15 (Standardize Expert Notes Product Family Terminology and Add Trial
+Links, 2026-08-13): replaced every customer-facing "Foam Family" string
+in this page (and in the shared helpers it calls - see
+helpers.expert_note_link_label) with "Product Family" - internal
+identifiers such as the linked_entity_type value "product_family" and
+CSV import's documented accepted values are unchanged, since those are
+internal/compatibility identifiers, not customer-facing wording. Also
+added Commercial Trial (internal linked_entity_type "customer_trial",
+the existing CustomerTrial table from pages/11_Customer_Trials.py) and
+Optimization Trial (internal linked_entity_type "optimization_trial",
+the existing OptimizationTrial table from pages/12_Optimization_Trials.py)
+as two new "Link to" targets, positioned after Product Family per CR-15
+section 4's required order. Neither trial page's own navigation or name
+was changed by this CR - only Expert Notes' ability to link to them."""
 
 import json
 
@@ -41,7 +58,16 @@ import ai_assistant
 import reports
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
-from db import CONFIDENCE_LEVELS, ExpertNote, FoamGrade, ProductionRun, get_session, init_db
+from db import (
+    CONFIDENCE_LEVELS,
+    CustomerTrial,
+    ExpertNote,
+    FoamGrade,
+    OptimizationTrial,
+    ProductionRun,
+    get_session,
+    init_db,
+)
 from helpers import (
     clickable_table,
     company_id_for_plant,
@@ -59,7 +85,14 @@ from helpers import (
     show_pending_banner,
     view_only_notice,
 )
-from tenant_scope import apply_scope, company_picker, grade_ids_for_company, run_ids_for_company
+from tenant_scope import (
+    apply_scope,
+    company_picker,
+    customer_trial_ids_for_company,
+    grade_ids_for_company,
+    optimization_trial_ids_for_company,
+    run_ids_for_company,
+)
 
 NOTE_REQUIRED_COLUMNS = ["linked_entity_type", "linked_entity_id", "note_text"]
 NOTE_OPTIONAL_COLUMNS = ["confidence_level", "author"]
@@ -74,7 +107,8 @@ render_function_action_intro(
     function_text=(
         "Captures qualitative expert knowledge that doesn't fit a structured field - a hunch "
         "about why a batch behaved oddly, a supplier quirk, a process tip - linked to a "
-        "production run, a product grade, or a foam family. It also shows the PI3-sourced notes "
+        "production run, a product grade, a product family, a commercial trial, or an "
+        "optimization trial. It also shows the PI3-sourced notes "
         "a reviewer chose to keep from Recipe Optimization, Trend Analysis, Process-Property "
         "Correlation, Root-Cause Assistant, or Process Parameter Optimization, each tagged with "
         "its originating question and re-exportable as the same Word report the reviewer "
@@ -84,12 +118,14 @@ render_function_action_intro(
         "down by confidence level, source, and linked-entity type."
     ),
     action_text=(
-        "Pick what the note is about (a production run, product grade, or foam family), write it, set a "
+        "Pick what the note is about (a production run, product grade, product family, commercial "
+        "trial, or optimization trial), write it, set a "
         "confidence level, and save - there's no other structured field to fill in, so use this "
         "for anything worth remembering that the rest of the app has no place for. Use CSV/Excel "
-        "import to bulk-load notes referencing existing production runs/product grades/foam "
-        "families from a spreadsheet. Click a PI3-sourced note to re-download its original Word "
-        "report, or edit/delete any note the same way as elsewhere in the app."
+        "import to bulk-load notes referencing existing production runs/product grades/product "
+        "families/commercial trials/optimization trials from a spreadsheet. Click a PI3-sourced "
+        "note to re-download its original Word report, or edit/delete any note the same way as "
+        "elsewhere in the app."
     ),
 )
 session = get_session()
@@ -103,11 +139,24 @@ company, _all_companies = company_picker(
 active_company_id = company.id if company else None
 scoped_run_ids = run_ids_for_company(session, active_company_id)
 scoped_grade_ids = grade_ids_for_company(session, active_company_id)
+scoped_customer_trial_ids = customer_trial_ids_for_company(session, active_company_id)
+scoped_optimization_trial_ids = optimization_trial_ids_for_company(session, active_company_id)
 
+# CR-15 (2026-08-13): required order is Production Run, Product Grade,
+# Product Family, Commercial Trial, Optimization Trial. "Foam Family" is
+# renamed to "Product Family" here - the customer-facing label only; the
+# internal linked_entity_type value stays "product_family" (an existing
+# identifier documented for CSV import, out of this CR's terminology
+# scope per section 3). Commercial Trial/Optimization Trial map to the
+# existing CustomerTrial/OptimizationTrial tables (internal
+# linked_entity_type "customer_trial"/"optimization_trial") - CR-15 does
+# not rename or restructure either trial page itself.
 LINK_TYPES = {
     "Production Run": "production_run",
     "Product Grade": "foam_grade",
-    "Foam Family": "product_family",
+    "Product Family": "product_family",
+    "Commercial Trial": "customer_trial",
+    "Optimization Trial": "optimization_trial",
 }
 
 
@@ -121,12 +170,22 @@ grades = (
     .order_by(FoamGrade.grade_name)
     .all()
 )
-# Foam families offered here are derived from this same scoped grades list
-# (any family with at least one in-scope grade), not a separate company
-# scope query - keeps "what's offered to link to" consistent with the
-# Product Grade option above rather than a second, possibly-diverging notion
-# of company scope for families specifically.
+# Product families offered here are derived from this same scoped grades
+# list (any family with at least one in-scope grade), not a separate
+# company scope query - keeps "what's offered to link to" consistent with
+# the Product Grade option above rather than a second, possibly-diverging
+# notion of company scope for families specifically.
 families = sorted({g.product_family for g in grades if g.product_family}, key=lambda f: f.name)
+customer_trials = (
+    apply_scope(session.query(CustomerTrial), CustomerTrial.id, scoped_customer_trial_ids)
+    .order_by(CustomerTrial.created_at.desc())
+    .all()
+)
+optimization_trials = (
+    apply_scope(session.query(OptimizationTrial), OptimizationTrial.id, scoped_optimization_trial_ids)
+    .order_by(OptimizationTrial.created_at.desc())
+    .all()
+)
 
 
 def _push_note_to_vector_store(entity_type, entity_id, note_text, confidence_level, author):
@@ -156,10 +215,11 @@ tab_create, tab_edit_delete, tab_import, tab_report = st.tabs(
 with tab_create:
     # The "Link to" selector lives outside the form on purpose: widgets inside
     # an st.form don't trigger a rerun until the form is submitted, so with it
-    # inside the form, switching from "Production Run" to "Foam Family" would
-    # leave the wrong entity dropdown (still "Production run") showing until
-    # the reviewer hit Save - by then it's too late to pick the right one.
-    # Keeping it outside means the entity dropdown below updates immediately.
+    # inside the form, switching from "Production Run" to "Product Family"
+    # would leave the wrong entity dropdown (still "Production run") showing
+    # until the reviewer hit Save - by then it's too late to pick the right
+    # one. Keeping it outside means the entity dropdown below updates
+    # immediately.
     link_type_choice = st.selectbox("Link to *", list(LINK_TYPES.keys()), key="new_note_link_type")
     entity_type = LINK_TYPES[link_type_choice]
 
@@ -175,17 +235,36 @@ with tab_create:
             if not grades:
                 st.warning("No product grades yet - create one on the Product Grades page first.")
             entity = st.selectbox("Product grade *", grades, format_func=lambda g: g.grade_name)
-        else:
+        elif entity_type == "product_family":
             if not families:
-                st.warning("No foam families yet - create one on the Product Families page first.")
-            entity = st.selectbox("Foam family *", families, format_func=lambda f: f.name)
+                st.warning("No product families yet - create one on the Product Families page first.")
+            entity = st.selectbox("Product family *", families, format_func=lambda f: f.name)
+        elif entity_type == "customer_trial":
+            if not customer_trials:
+                st.warning(
+                    "No commercial trials yet - create one on the Customer Trials & Samples page first."
+                )
+            entity = st.selectbox(
+                "Commercial trial *", customer_trials,
+                format_func=lambda t: f"#{t.id} — {t.customer_name} ({t.foam_grade.grade_name}, {t.status})",
+            )
+        else:
+            if not optimization_trials:
+                st.warning(
+                    "No optimization trials yet - create one on the Optimization Trials & Samples page first."
+                )
+            entity = st.selectbox(
+                "Optimization trial *", optimization_trials,
+                format_func=lambda t: f"#{t.id} — {t.foam_grade.grade_name}"
+                + (f" ({t.improvement_initiative_reference})" if t.improvement_initiative_reference else ""),
+            )
         note_text = st.text_area("Note *")
         confidence_level = st.selectbox("Confidence level", CONFIDENCE_LEVELS, index=2)
         author = st.text_input("Author", value=user["display_name"])
         submitted = st.form_submit_button("Save note", disabled=not page_usable)
         if submitted and page_usable:
             if not entity:
-                st.error("Nothing to link to - add a production run or product grade first.")
+                st.error("Nothing to link to - add a record of the selected type first.")
             elif not note_text.strip():
                 st.error("Note text is required.")
             else:
@@ -211,10 +290,18 @@ with tab_import:
         st.caption("View-only access - importing expert notes is restricted for your role.")
     else:
         show_pending_banner("expert_note_import_msg")
+        # CR-15 (2026-08-13): added "customer_trial" (Commercial Trial) and
+        # "optimization_trial" (Optimization Trial) as valid linked_entity_type
+        # import values, alongside the 3 pre-existing types - same scoped-id
+        # membership check pattern as every other type here, so an
+        # out-of-scope or unknown trial id is rejected exactly like an
+        # out-of-scope grade/run id always was.
         valid_ids_by_type = {
             "production_run": {r.id for r in runs},
             "foam_grade": {g.id for g in grades},
             "product_family": {f.id for f in families},
+            "customer_trial": {t.id for t in customer_trials},
+            "optimization_trial": {t.id for t in optimization_trials},
         }
         ndf, nfilename = csv_excel_uploader(NOTE_REQUIRED_COLUMNS, NOTE_OPTIONAL_COLUMNS, key="expert_note_upload")
         if ndf is not None:
@@ -232,7 +319,8 @@ with tab_import:
             if bad_rows:
                 st.warning(
                     "Flagged rows have an unrecognized linked_entity_type (must be production_run, "
-                    "foam_grade, or product_family), reference an id not in scope, or have no note_text."
+                    "foam_grade, product_family, customer_trial, or optimization_trial), reference an "
+                    "id not in scope, or have no note_text."
                 )
                 render_data_table(pd.DataFrame(bad_rows), max_height="300px")
 
@@ -285,12 +373,19 @@ with tab_report:
         scoped_run_id_set = set(scoped_run_ids) if scoped_run_ids else set()
         scoped_grade_id_set = set(scoped_grade_ids) if scoped_grade_ids else set()
         scoped_family_id_set = {f.id for f in families}
+        # CR-15: scope the two new trial link types the same way every
+        # other type here already is - against this same company's own
+        # customer_trials/optimization_trials lists computed above.
+        scoped_customer_trial_id_set = {t.id for t in customer_trials}
+        scoped_optimization_trial_id_set = {t.id for t in optimization_trials}
         notes_for_report = [
             n
             for n in all_notes
             if (n.linked_entity_type == "production_run" and n.linked_entity_id in scoped_run_id_set)
             or (n.linked_entity_type == "foam_grade" and n.linked_entity_id in scoped_grade_id_set)
             or (n.linked_entity_type == "product_family" and n.linked_entity_id in scoped_family_id_set)
+            or (n.linked_entity_type == "customer_trial" and n.linked_entity_id in scoped_customer_trial_id_set)
+            or (n.linked_entity_type == "optimization_trial" and n.linked_entity_id in scoped_optimization_trial_id_set)
         ]
 
     st.subheader("Expert Notes Report")
@@ -322,21 +417,27 @@ with tab_edit_delete:
         notes = all_notes
     else:
         # ExpertNote is polymorphic (linked_entity_type + linked_entity_id can
-        # point at a production run, trial record, product grade, or foam family).
+        # point at a production run, product grade, product family, commercial
+        # trial, or optimization trial - the last two added CR-15, 2026-08-13).
         # Scope each kind against the id set already computed above for that
         # company. Missing the product_family branch here would make any note
-        # PI3 saved from a "foam family" analysis (see analysis_unit_picker,
+        # PI3 saved from a "product family" analysis (see analysis_unit_picker,
         # helpers.py) invisible to the very company that created it - not just
-        # a cosmetic gap, a real "where did my note go" bug.
+        # a cosmetic gap, a real "where did my note go" bug. The same applies
+        # to the two trial branches now that they're valid link targets too.
         scoped_run_id_set = set(scoped_run_ids) if scoped_run_ids else set()
         scoped_grade_id_set = set(scoped_grade_ids) if scoped_grade_ids else set()
         scoped_family_id_set = {f.id for f in families}
+        scoped_customer_trial_id_set = {t.id for t in customer_trials}
+        scoped_optimization_trial_id_set = {t.id for t in optimization_trials}
         notes = [
             n
             for n in all_notes
             if (n.linked_entity_type == "production_run" and n.linked_entity_id in scoped_run_id_set)
             or (n.linked_entity_type == "foam_grade" and n.linked_entity_id in scoped_grade_id_set)
             or (n.linked_entity_type == "product_family" and n.linked_entity_id in scoped_family_id_set)
+            or (n.linked_entity_type == "customer_trial" and n.linked_entity_id in scoped_customer_trial_id_set)
+            or (n.linked_entity_type == "optimization_trial" and n.linked_entity_id in scoped_optimization_trial_id_set)
         ]
 
     if not notes:

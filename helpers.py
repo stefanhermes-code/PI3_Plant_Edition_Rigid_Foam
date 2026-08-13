@@ -14,11 +14,13 @@ import audit_log
 import reports
 from auth import current_user
 from db import (
+    CustomerTrial,
     ExpertNote,
     FoamGrade,
     Location,
     Machine,
     Orientation,
+    OptimizationTrial,
     Plant,
     PlantProductionMethod,
     ProductFamily,
@@ -34,7 +36,15 @@ def expert_note_plant_id_for_link(entity_type, entity_id, session):
     """Which plant a given Expert Note "link to" target belongs to, for the
     is_enabled_for_plant() check before pushing to PI3's vector store.
     Shared by pages/20_Expert_Notes.py and render_save_to_expert_notes_button
-    below, so both resolve a link the same way."""
+    below, so both resolve a link the same way.
+
+    CR-15 (Standardize Expert Notes Product Family Terminology and Add
+    Trial Links, 2026-08-13) added the "customer_trial" (customer-facing
+    "Commercial Trial") and "optimization_trial" (customer-facing
+    "Optimization Trial") branches, both existing independent lab-trial
+    tables (CustomerTrial/OptimizationTrial) that were not previously
+    Expert Notes link targets - each already carries its own plant_id
+    directly, same as production_run."""
     if entity_type == "production_run":
         r = session.get(ProductionRun, entity_id)
         return r.plant_id if r else None
@@ -44,6 +54,12 @@ def expert_note_plant_id_for_link(entity_type, entity_id, session):
     if entity_type == "product_family":
         f = session.get(ProductFamily, entity_id)
         return f.plant_id if f else None
+    if entity_type == "customer_trial":
+        t = session.get(CustomerTrial, entity_id)
+        return t.plant_id if t else None
+    if entity_type == "optimization_trial":
+        t = session.get(OptimizationTrial, entity_id)
+        return t.plant_id if t else None
     return None
 
 
@@ -64,7 +80,18 @@ def company_id_for_plant(plant_id, session):
 def expert_note_link_label(entity_type, entity_id, session):
     """Human-readable label for a given Expert Note "link to" target, used
     both on the Expert Notes screen and as the document title when a note
-    is pushed into PI3's vector store."""
+    is pushed into PI3's vector store.
+
+    CR-15 (2026-08-13): the product_family branch's label was corrected
+    from "Foam Family" to "Product Family" - CR-15's required customer-
+    facing term, replacing the last "Foam Family" wording left in the
+    Expert Notes path (internal linked_entity_type values like
+    "product_family" are unaffected - those are documented CSV import
+    identifiers, not customer-facing display text). Also added
+    customer_trial ("Commercial Trial") and optimization_trial
+    ("Optimization Trial") branches, both new CR-15 link targets, labeled
+    consistently with how their own pages (pages/11_Customer_Trials.py,
+    pages/12_Optimization_Trials.py) already identify a trial."""
     if entity_type == "production_run":
         r = session.get(ProductionRun, entity_id)
         return f"Run #{r.id} — {r.foam_grade.grade_name} · {r.run_date}" if r else f"Run #{entity_id} (deleted)"
@@ -73,19 +100,45 @@ def expert_note_link_label(entity_type, entity_id, session):
         return f"Product Grade: {g.grade_name}" if g else f"Product Grade #{entity_id} (deleted)"
     if entity_type == "product_family":
         f = session.get(ProductFamily, entity_id)
-        return f"Foam Family: {f.name}" if f else f"Foam Family #{entity_id} (deleted)"
+        return f"Product Family: {f.name}" if f else f"Product Family #{entity_id} (deleted)"
+    if entity_type == "customer_trial":
+        t = session.get(CustomerTrial, entity_id)
+        return (
+            f"Commercial Trial #{t.id} — {t.customer_name} ({t.foam_grade.grade_name})"
+            if t else f"Commercial Trial #{entity_id} (deleted)"
+        )
+    if entity_type == "optimization_trial":
+        t = session.get(OptimizationTrial, entity_id)
+        if not t:
+            return f"Optimization Trial #{entity_id} (deleted)"
+        ref_suffix = f" ({t.improvement_initiative_reference})" if t.improvement_initiative_reference else ""
+        return f"Optimization Trial #{t.id} — {t.foam_grade.grade_name}{ref_suffix}"
     return f"{entity_type} #{entity_id}"
 
 
 def expert_note_foam_grade_id_for_link(entity_type, entity_id, session):
     """Which product grade (if any) a given Expert Note "link to" target
     belongs to - used to populate the "Product grade" field when regenerating
-    a PI3-sourced note's Word report on demand."""
+    a PI3-sourced note's Word report on demand.
+
+    CR-15 (2026-08-13): extended with customer_trial/optimization_trial
+    branches for consistency with every other link type resolving a
+    grade, even though neither trial page currently offers a "Save to
+    Expert Notes" PI3 button (the only caller of this specific helper) -
+    keeps this helper correct if that ever changes, per CR-15 section 7's
+    instruction to extend shared helpers wherever required for all five
+    link types."""
     if entity_type == "foam_grade":
         return entity_id
     if entity_type == "production_run":
         r = session.get(ProductionRun, entity_id)
         return r.foam_grade_id if r else None
+    if entity_type == "customer_trial":
+        t = session.get(CustomerTrial, entity_id)
+        return t.foam_grade_id if t else None
+    if entity_type == "optimization_trial":
+        t = session.get(OptimizationTrial, entity_id)
+        return t.foam_grade_id if t else None
     return None
 
 

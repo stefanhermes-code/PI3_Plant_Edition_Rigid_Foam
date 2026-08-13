@@ -4314,4 +4314,76 @@ sibling-app-not-present skips noted in every prior CR - unrelated to this
 change.
 """
 
-APP_VERSION = "0.33.9"
+VERSION_0_34_0_NOTES = """
+v0.33.9 -> v0.34.0 (2026-08-13, CR-15: Standardize Expert Notes Product
+Family Terminology and Add Trial Links).
+
+What changed: pages/20_Expert_Notes.py's "Link to" selector previously
+offered "Foam Family" for one of its four link targets - the only
+customer-facing "Foam Family" wording left in the Expert Notes function
+after CR-01's app-wide rename (the underlying analytics.py feature it
+draws from, helpers.analysis_unit_picker, is a separate page-level
+control on Trend Analysis/Process-Property Correlation/Machine Settings
+Optimization and is out of this CR's scope per its own section 3).
+Renamed to "Product Family" everywhere a reviewer sees it (the selectbox
+option, its entity-picker label, and helpers.expert_note_link_label's
+resolved label text) - the internal linked_entity_type value
+"product_family" is unchanged, since it is an internal/CSV-import-
+documented identifier, not customer-facing copy.
+
+Added two new "Link to" targets, positioned after Product Family per the
+CR's required order (Production Run, Product Grade, Product Family,
+Commercial Trial, Optimization Trial): Commercial Trial (internal
+linked_entity_type "customer_trial", linking to the existing CustomerTrial
+table from pages/11_Customer_Trials.py) and Optimization Trial (internal
+linked_entity_type "optimization_trial", linking to the existing
+OptimizationTrial table from pages/12_Optimization_Trials.py). Both
+tables already carried plant_id directly, so this CR required zero
+database schema change or Supabase migration - purely an application-
+logic extension. Both new types have full parity with the three
+pre-existing ones: company-scoped Create-tab entity picker, CSV/Excel
+import (same valid_ids_by_type membership-check pattern, extended
+bad-row warning text), Edit/Delete tab visibility (with company-scope
+exclusion) and edit/delete, and Expert Notes Report tab inclusion. The
+shared helper functions PI3's vector-store tagging depends on
+(expert_note_plant_id_for_link, expert_note_link_label,
+expert_note_foam_grade_id_for_link, all in helpers.py) were extended with
+a branch for each new type, resolving plant/company/grade context for a
+trial-linked note exactly as they already did for the three pre-existing
+types. Neither pages/11_Customer_Trials.py nor pages/12_Optimization_
+Trials.py's own navigation, name, or structure was touched by this CR -
+only Expert Notes' ability to link to their existing records.
+
+Tests: new tests/test_cr15_expert_notes_trial_links.py (12 tests) -
+exact 5-option Link-to order, no remaining customer-facing "Foam Family"
+text, Commercial Trial and Optimization Trial create+persist via the real
+Create tab, company scoping on that tab's entity dropdown, Edit/Delete
+tab visibility/edit/delete for both new types (with company-scope
+exclusion), Expert Notes Report tab total-count inclusion, CSV/Excel
+import valid-row and out-of-scope-id-rejection paths for both new types,
+direct evidence of the 4 shared helper functions' plant/company/grade/
+label resolution for both new types (including their deleted-record
+fallback), and a direct regression proof that the pre-existing Product
+Family Create path still works post-rename. The 15 pre-existing Expert
+Note/Plant/Production Equipment tests in tests/test_cr11_functional_
+evidence_group_a.py were re-run standalone first and pass unchanged
+against the reordered/renamed LINK_TYPES dict.
+
+Also fixed, discovered while getting a clean full-suite run for this CR:
+tests/test_flat_pm_propagation_smoke.py's own _reset_schema() never
+cleared any @st.cache_data cache (unlike every other test file's own
+_reset_schema() in this suite), a latent, order-dependent test-isolation
+gap that this CR's own new test file happened to trigger (both files
+create a fresh Company/Plant at company_id=1/plant_id=1 after a schema
+reset, and tenant_scope's/analytics's cached results for those small ids
+were leaking across files). Added the same standard cache-clear every
+other test file in this suite already uses - a regression-suite hygiene
+fix, not an application-code change.
+
+Full regression suite: 377 passed, 2 skipped, 0 failures (365 pre-existing
++ 12 new via test_cr15_expert_notes_trial_links.py). The 2 skips are the
+same pre-existing Flexible-Foam-sibling-app-not-present skips noted in
+every prior CR - unrelated to this change.
+"""
+
+APP_VERSION = "0.34.0"
