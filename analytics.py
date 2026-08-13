@@ -45,6 +45,8 @@ from db import (
     OptimizationTrial,
     PerformanceLog,
     PhysicalPropertyResult,
+    ProcessSettingApplicability,
+    ProcessSettingDefinition,
     ProductionMethod,
     ProductionPhase,
     ProductionRun,
@@ -325,6 +327,72 @@ def eligible_phase_setting_fields(session, foam_grade_id):
     if grades and all(g.chemistry_id is not None for g in grades):
         return [f for f in PHASE_SETTING_FIELDS if f not in PHASE1_RIGID_INELIGIBLE_SETTINGS]
     return list(PHASE_SETTING_FIELDS)
+
+
+def eligible_process_settings(session, production_method_id, machine_id=None):
+    """WP7 Phase 1 (2026-08-13). Returns the method-aware
+    ProcessSettingDefinition rows eligible for a given Production Method
+    (and, optionally, a specific Machine / "Production Unit or Cell"),
+    each paired with its winning ProcessSettingApplicability row.
+
+    Per Charlie's WP7 Phase 1 Design Review and Architecture Decision
+    (PI3_Rigid_Foam_Development_Docs/Phase 1/WP7_Phase1_Design_Review_
+    Architecture_Decision_for_JC.docx), section 3.1/4: applicability is
+    looked up on the separate ProcessSettingApplicability table (NOT
+    ProcessSettingDefinition.production_method_id, which is a deprecated,
+    dormant field left over from before this correction - see that
+    column's docstring in db.py). Eligibility precedence for the same
+    setting_definition_id is deterministic: Machine-specific first, then
+    Method-specific, then Global (production_method_id NULL and
+    machine_id NULL) - exactly one eligible row is returned per
+    definition. No name matching and no supersedes_id mechanism (an
+    explicit decision, closing the open question JC raised in the Phase 1
+    design deliverables).
+
+    Returns a list of (ProcessSettingDefinition, ProcessSettingApplicability)
+    tuples, ordered by definition.sort_order then definition.name. Both
+    the definition and the applicability row must be active=True; retired
+    (active=False) rows never surface here, on either side."""
+    query = (
+        session.query(ProcessSettingApplicability)
+        .join(ProcessSettingDefinition, ProcessSettingApplicability.setting_definition_id == ProcessSettingDefinition.id)
+        .filter(ProcessSettingApplicability.active == True)  # noqa: E712
+        .filter(ProcessSettingDefinition.active == True)  # noqa: E712
+        .filter(
+            (ProcessSettingApplicability.production_method_id == production_method_id)
+            | (ProcessSettingApplicability.production_method_id.is_(None))
+        )
+    )
+    if machine_id is not None:
+        query = query.filter(
+            (ProcessSettingApplicability.machine_id == machine_id)
+            | (ProcessSettingApplicability.machine_id.is_(None))
+        )
+    else:
+        query = query.filter(ProcessSettingApplicability.machine_id.is_(None))
+
+    rows = query.all()
+
+    # Deterministic precedence per definition: Machine-specific (2) >
+    # Method-specific (1) > Global (0). Highest-specificity row wins; ties
+    # (shouldn't occur with clean data, but guard anyway) keep the first
+    # one encountered.
+    def _specificity(row):
+        if row.machine_id is not None:
+            return 2
+        if row.production_method_id is not None:
+            return 1
+        return 0
+
+    winners = {}
+    for row in rows:
+        current = winners.get(row.setting_definition_id)
+        if current is None or _specificity(row) > _specificity(current):
+            winners[row.setting_definition_id] = row
+
+    results = [(row.setting_definition, row) for row in winners.values()]
+    results.sort(key=lambda pair: (pair[0].sort_order if pair[0].sort_order is not None else 999999, pair[0].name))
+    return results
 
 
 def format_setting_range(field, series):

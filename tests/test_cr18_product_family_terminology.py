@@ -99,15 +99,18 @@ def _extract_docx_text(docx_bytes):
 # ---------------------------------------------------------------------------
 
 ALLOWED_FOAM_FAMILY_HITS = {
-    # analytics.py line numbers shifted +7 by WP7 Phase 0 (2026-08-13),
-    # which added explanatory comment lines above these when removing
-    # top_flat_system_used from PHASE_SETTING_FIELDS/BOOLEAN_SETTING_FIELDS/
-    # PHASE1_RIGID_INELIGIBLE_SETTINGS - same unchanged comment text, new
-    # line positions.
-    ("analytics.py", 15), ("analytics.py", 168), ("analytics.py", 302),
-    ("analytics.py", 316), ("analytics.py", 347), ("analytics.py", 615),
-    ("analytics.py", 690), ("analytics.py", 1176), ("analytics.py", 1341),
-    ("db.py", 1952),
+    # analytics.py/db.py line numbers shifted again by WP7 Phase 1
+    # (2026-08-13), which added the ProcessSettingApplicability model,
+    # ProductionOutputSummary corrections, and the eligible_process_
+    # settings() helper (plus its imports) above/around these lines - same
+    # unchanged comment/docstring text, new line positions. One of the
+    # previously-listed analytics.py lines (the old "347" entry) no longer
+    # exists as a separate hit after this edit; the set below is the
+    # verified, current, exact hit list, not an arithmetic shift guess.
+    ("analytics.py", 15), ("analytics.py", 170), ("analytics.py", 304),
+    ("analytics.py", 318), ("analytics.py", 415), ("analytics.py", 683),
+    ("analytics.py", 758), ("analytics.py", 1244), ("analytics.py", 1409),
+    ("db.py", 1995),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 184), ("pages/16_Trend_Analysis.py", 319),
     ("pages/17_Process_Property_Correlation.py", 110),

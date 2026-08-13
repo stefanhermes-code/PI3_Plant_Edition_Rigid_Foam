@@ -1299,10 +1299,30 @@ class ProductionPhase(Base):
 # 6c. component_stream_readings (per raw-material stream, per Setup/Finalized phase)
 # ---------------------------------------------------------------------------
 class ComponentStreamReading(Base):
+    """WP7 Phase 1 (2026-08-13), per Charlie's design review decision doc
+    section 3.4 ("Decouple Material Metering from ProductionPhase"): WP7
+    Phase 5 retires ProductionPhase as an active machine-setting
+    structure, while Phase 2 keeps Material Metering as an active
+    Production Run module - leaving this table anchored only to
+    ProductionPhase would preserve an unnecessary active dependency on the
+    structure WP7 is retiring. production_phase_id became nullable and
+    production_run_id was added directly; every existing row is
+    unaffected (their production_phase_id is untouched). Phase 2 writes
+    new metering records against ProductionRun; Phase 3 backfills
+    production_run_id on historical rows via their existing
+    ProductionPhase relationship; Phase 5 can then drop the active
+    dependency on ProductionPhase without breaking Material Metering
+    history."""
+
     __tablename__ = "component_stream_readings"
 
     id = Column(Integer, primary_key=True)
-    production_phase_id = Column(Integer, ForeignKey("production_phases.id"), nullable=False)
+    # Nullable as of WP7 Phase 1 - see class docstring. Not nullable=False
+    # any more; existing rows keep their value, new Phase-2-era rows may
+    # leave this NULL and use production_run_id instead.
+    production_phase_id = Column(Integer, ForeignKey("production_phases.id"))
+    # --- WP7 Phase 1 addition (2026-08-13) --------------------------------
+    production_run_id = Column(Integer, ForeignKey("production_runs.id"))
     stream_name = Column(String(200), nullable=False)  # e.g. Polyol A, TDI 80/20, Water blend, Catalyst
     flow_unit = Column(String(20), default="kg/min")
     flow = Column(Float)
@@ -1318,6 +1338,7 @@ class ComponentStreamReading(Base):
     source_file_reference = Column(String(300))
 
     phase = relationship("ProductionPhase")
+    production_run = relationship("ProductionRun")
 
 
 # ---------------------------------------------------------------------------
@@ -1415,8 +1436,30 @@ class ProductionEvent(Base):
     action_taken = Column(Text)
     source_file_reference = Column(String(300))
 
+    # --- WP7 Phase 1 additions (2026-08-13). Both nullable - governing doc
+    # section 3's ProductionEvent/Deviation entity: "optional links to
+    # parameter/material/quality context". Forward references to tables
+    # defined later in this file (process_setting_definitions,
+    # raw_material_lot_uses) resolve fine in SQLAlchemy regardless of
+    # class definition order, same as every other forward FK in this
+    # schema. See design doc section 3.4.
+    setting_definition_id = Column(Integer, ForeignKey("process_setting_definitions.id"))
+    raw_material_lot_use_id = Column(Integer, ForeignKey("raw_material_lot_uses.id"))
+
+    # --- WP7 Phase 1 correction (2026-08-13), per Charlie's design review
+    # decision doc section 3.5: "WP7 also requires optional quality
+    # context." Both nullable, populated only when an event/deviation is
+    # genuinely tied to that quality record - production_run_id remains
+    # the primary run anchor.
+    quality_observation_id = Column(Integer, ForeignKey("quality_observations.id"))
+    physical_property_result_id = Column(Integer, ForeignKey("physical_property_results.id"))
+
     production_run = relationship("ProductionRun")
     phase = relationship("ProductionPhase")
+    setting_definition = relationship("ProcessSettingDefinition")
+    raw_material_lot_use = relationship("RawMaterialLotUse")
+    quality_observation = relationship("QualityObservation")
+    physical_property_result = relationship("PhysicalPropertyResult")
 
 
 # ---------------------------------------------------------------------------
@@ -3939,6 +3982,50 @@ class OutputItem(Base):
 
 
 # ---------------------------------------------------------------------------
+# WP7 Phase 1. production_output_summaries (2026-08-13)
+#
+# OutputItem above is a per-physical-item fact table (one row per panel/
+# board/part) with a single quantity/unit and no Planned/Actual pair or
+# disposition field - the right shape for "how many discrete items came
+# out", but not the governing doc's ProductionOutput logical entity
+# ("Planned quantity/UOM, actual quantity/UOM... run disposition fields"),
+# which is a per-run summary. Rather than overload OutputItem with fields
+# that don't apply to a single physical item, this is a new, small,
+# one-row-per-run table - see the design doc's section 3.3 for the full
+# reasoning. OutputItem is unchanged and can still optionally roll up into
+# this summary; nothing here requires OutputItem rows to exist.
+# ---------------------------------------------------------------------------
+class ProductionOutputSummary(Base):
+    """WP7 Phase 1 (2026-08-13). Charlie's design review decision doc
+    section 3.3: "For production_output_summaries, use one controlled
+    unit_id for the Planned and Actual quantity pair. Planned and Actual
+    values must be directly comparable in the same canonical UOM." This
+    replaced JC's original proposal of two free-text unit strings
+    (planned_unit/actual_unit) with a single FK to the existing
+    UnitOfMeasure master, and disposition is now drawn from the
+    PRODUCTION_OUTPUT_DISPOSITIONS controlled list rather than free text."""
+
+    __tablename__ = "production_output_summaries"
+
+    id = Column(Integer, primary_key=True)
+    production_run_id = Column(Integer, ForeignKey("production_runs.id"), nullable=False, unique=True)
+    planned_quantity = Column(Float)
+    actual_quantity = Column(Float)
+    # Single canonical unit for both planned_quantity and actual_quantity -
+    # source data arriving in another unit must be normalized to this UOM
+    # before storage (decision doc section 3.3), not stored in a mismatched
+    # unit alongside a label.
+    unit_id = Column(Integer, ForeignKey("units_of_measure.id"))
+    disposition = Column(String(30))  # see PRODUCTION_OUTPUT_DISPOSITIONS - controlled list, no free entry
+    disposition_notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+    updated_at = Column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
+
+    production_run = relationship("ProductionRun")
+    unit = relationship("UnitOfMeasure")
+
+
+# ---------------------------------------------------------------------------
 # WP3f. Method-aware process settings (EAV) (task list #547)
 #
 # Per the Converged Plan's architecture principle (section 5): "Machines
@@ -3957,9 +4044,31 @@ class OutputItem(Base):
 # ---------------------------------------------------------------------------
 PROCESS_SETTING_DATA_TYPES = ["Float", "Integer", "String", "Boolean"]
 PROCESS_PARAMETER_SNAPSHOT_TYPES = ["Planned", "Actual"]  # mirrors Setup/Finalized on ProductionPhase
+# Charlie's WP7 Phase 1 design review decision (2026-08-13), section 3.2:
+# "so the UI and downstream logic can distinguish controllable process
+# settings from environment, process observations, outcomes and other
+# groups." This is the approved controlled list for
+# ProcessSettingDefinition.parameter_category.
+PROCESS_PARAMETER_CATEGORIES = ["Process Setting", "Environment", "Process Observation", "Outcome", "Other"]
+# Charlie's decision doc section 3.3 / 4 ("ProductionOutput summary...
+# Approved, with controlled UOM and controlled disposition"). Mirrors the
+# disposition values already drafted in the original design doc.
+PRODUCTION_OUTPUT_DISPOSITIONS = ["Released", "Quarantined", "Rejected", "Rework"]
 
 
 class ProcessSettingDefinition(Base):
+    """WP7 Phase 1 (2026-08-13) extended this table with parameter_category -
+    see Charlie's WP7 Phase 1 Design Review and Architecture Decision
+    (PI3_Rigid_Foam_Development_Docs/Phase 1/WP7_Phase1_Design_Review_
+    Architecture_Decision_for_JC.docx), section 3.2. Per section 3.1 of
+    that same decision, this table stays the canonical SEMANTIC master
+    only (what a parameter means) - Method/Unit APPLICABILITY (where it
+    applies) now lives on the separate ProcessSettingApplicability table
+    below, not here. All pre-existing rows/columns are untouched; the new
+    column is nullable, so this remains a pure additive migration (there
+    were zero rows in this table in production before this change - this
+    schema has been dormant/unwired since WP3f, 2026-08-06)."""
+
     __tablename__ = "process_setting_definitions"
 
     id = Column(Integer, primary_key=True)
@@ -3967,17 +4076,83 @@ class ProcessSettingDefinition(Base):
     name = Column(String(200), nullable=False)
     data_type = Column(String(20), default="Float")  # see PROCESS_SETTING_DATA_TYPES
     unit_id = Column(Integer, ForeignKey("units_of_measure.id"))
-    min_value = Column(Float)  # validation range - nullable, not every setting has known bounds yet
-    max_value = Column(Float)
-    # Nullable: a method-agnostic setting (e.g. ambient temperature) has no
-    # production_method_id; a method-specific setting (e.g. a DCP-only
-    # laydown parameter) is scoped to that one ProductionMethod row.
+    min_value = Column(Float)  # validation range - nullable, not every setting has known bounds yet;
+    max_value = Column(Float)  # decision doc 3.1: "existing min/max may remain as default metadata during transition"
+    # DEPRECATED / DORMANT as of WP7 Phase 1 (2026-08-13) per Charlie's
+    # decision doc section 3.1: mixing one Method directly onto the
+    # definition "would force duplicate definitions or create override
+    # ambiguity" once a definition needs to apply to several methods.
+    # ProcessSettingApplicability.production_method_id is now the source
+    # of truth for Method scoping. This column is left in place (not
+    # dropped) only so any pre-existing dormant WP3f row/reference is not
+    # broken; new code must not read or write it as authoritative.
     production_method_id = Column(Integer, ForeignKey("production_methods.id"))
     description = Column(Text)
     sort_order = Column(Integer)
 
+    # --- WP7 Phase 1 addition (2026-08-13), per decision doc section 3.2 ---
+    parameter_category = Column(String(30))  # see PROCESS_PARAMETER_CATEGORIES - controlled list, no free entry
+    # Soft-retire a definition without deleting its historical
+    # ProcessParameterValue rows or breaking their FK.
+    active = Column(Boolean, default=True)
+
     unit = relationship("UnitOfMeasure")
     production_method = relationship("ProductionMethod")
+
+
+# ---------------------------------------------------------------------------
+# WP7 Phase 1 addition (2026-08-13), per Charlie's WP7 Phase 1 Design Review
+# and Architecture Decision, section 3.1: "Decision: keep
+# ProcessSettingDefinition as the canonical semantic master and add a
+# separate ProcessSettingApplicability table." A single definition can
+# legitimately apply to several Production Methods and several Production
+# Units/Cells - storing one Method and one Machine directly on the
+# definition (JC's original Phase 1 proposal) would have forced duplicate
+# definitions or override ambiguity, so applicability is modeled as its own
+# one-or-many-per-definition table instead.
+#
+# Eligibility precedence for the same setting_definition_id is
+# deterministic (decision doc section 3.1 table + section 4): Machine-
+# specific first, then Method-specific, then Global. Exactly one eligible
+# row is returned per definition for a given (production_method_id,
+# machine_id) - no name-matching, no supersedes_id mechanism. See
+# analytics.eligible_process_settings().
+# ---------------------------------------------------------------------------
+class ProcessSettingApplicability(Base):
+    __tablename__ = "process_setting_applicabilities"
+
+    id = Column(Integer, primary_key=True)
+    setting_definition_id = Column(Integer, ForeignKey("process_setting_definitions.id"), nullable=False)
+    # Both nullable. NULL/NULL = Global applicability. production_method_id
+    # set, machine_id NULL = Method applicability. machine_id set = Unit/
+    # Cell applicability (Machine is the existing customer-facing
+    # "Production Unit or Cell" concept - decision doc section 3.6, NOT the
+    # dormant WP3c ProductionUnit asset-grouping table).
+    production_method_id = Column(Integer, ForeignKey("production_methods.id"))
+    machine_id = Column(Integer, ForeignKey("machines.id"))
+    applicable_to_planned = Column(Boolean, default=True)
+    applicable_to_actual = Column(Boolean, default=True)
+    # False for a measured-outcome/environment parameter (e.g. ambient
+    # temperature, foam height) that should never be offered as a
+    # controllable setting - see the Phase 1 design doc's section 5
+    # migration matrix for which legacy ProductionPhase fields map to
+    # False here.
+    controllable = Column(Boolean, default=True)
+    # Gates inclusion in Process Parameter Optimization / Correlation
+    # rankings (pages 17/19) once Phase 4 cuts those pages over to this
+    # table - replaces the old hardcoded PHASE1_RIGID_INELIGIBLE_SETTINGS
+    # set in analytics.py with a per-row flag.
+    analytics_eligible = Column(Boolean, default=True)
+    # Optional narrower validation range for this specific Method/Unit
+    # scope, overriding the definition's own min/max when set - decision
+    # doc section 3.1: "min/max override if required".
+    min_value_override = Column(Float)
+    max_value_override = Column(Float)
+    active = Column(Boolean, default=True)
+
+    setting_definition = relationship("ProcessSettingDefinition")
+    production_method = relationship("ProductionMethod")
+    machine = relationship("Machine")
 
 
 class ProcessParameterValue(Base):
@@ -4004,6 +4179,18 @@ class ProcessParameterValue(Base):
     unit = Column(String(50))  # snapshot text, auto-filled from the definition's unit at entry time
     notes = Column(Text)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    # --- WP7 Phase 1 additions (2026-08-13). Mirrors the source/capture-
+    # metadata precedent already used by ProductionPhase.source_file_
+    # reference and ComponentStreamReading.source_file_reference elsewhere
+    # in this schema - see the design doc's section 3.2. captured_at is
+    # deliberately distinct from created_at (row-insert time): it's the
+    # timestamp the VALUE was actually observed/set, needed once real
+    # machine-capture integration exists (governing doc section 5,
+    # "Machine/data-interface capture... timestamps... capture source
+    # remains traceable").
+    source = Column(String(100))  # e.g. "Manual entry" / "CSV import" / "Machine capture"
+    captured_at = Column(DateTime)
 
     setting_definition = relationship("ProcessSettingDefinition")
     production_run = relationship("ProductionRun")
@@ -4091,6 +4278,9 @@ ALL_MODELS = [
     OutputItem,
     ProcessSettingDefinition,
     ProcessParameterValue,
+    # --- WP7 Phase 1 additions (2026-08-13) ---
+    ProcessSettingApplicability,
+    ProductionOutputSummary,
     # --- WP5 Wave 1 additions (2026-08-07) ---
     RawMaterialAttributeDefinition,
     RawMaterialAttributeValue,

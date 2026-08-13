@@ -4738,4 +4738,109 @@ comparison tests noted in prior version-notes blocks - unrelated to WP7
 Phase 0.
 """
 
-APP_VERSION = "0.38.0"
+VERSION_0_39_0_NOTES = """
+v0.39.0 (2026-08-13) - WP7 Phase 1: Add method-aware schema
+
+JC delivered 6 design artifacts for technical review before writing any
+Phase 1 production code (per WP7 governing doc section 10) - see
+PI3_Rigid_Foam_Development_Docs/Phase 1/WP7_Phase1_Design_Deliverables.docx.
+Charlie's review (WP7_Phase1_Design_Review_Architecture_Decision_for_JC.docx,
+2026-08-13) approved the central recommendation - reuse and extend the
+dormant WP3f method-aware EAV schema (ProcessSettingDefinition,
+ProcessParameterValue, ProductionCycle, ProductionShot, OutputItem) rather
+than build a parallel Production Run parameter model - but required 6
+structural corrections before/within Phase 1. This release implements
+Charlie's corrected architecture, not JC's original (superseded) Phase 1
+design proposal.
+
+Schema changes in db.py (all additive - nullable columns or brand-new
+tables, zero impact on existing rows; there were zero rows in every WP3f
+table in production before this change):
+
+  - ProcessSettingDefinition: added parameter_category (see the new
+    PROCESS_PARAMETER_CATEGORIES controlled list) and active. Stays the
+    canonical SEMANTIC master only (what a parameter means) -
+    production_method_id is now DEPRECATED/DORMANT on this table per
+    Charlie's decision doc section 3.1 (left in place, not dropped, but
+    no longer authoritative).
+  - New ProcessSettingApplicability table (process_setting_
+    applicabilities): setting_definition_id, production_method_id
+    (nullable), machine_id (nullable), applicable_to_planned/actual,
+    controllable, analytics_eligible, min/max override, active. A single
+    definition can now legitimately apply to several Production Methods
+    and several Production Units/Cells without duplicating the
+    definition - this table carries WHERE a parameter applies, separate
+    from the definition's WHAT-it-means. NULL/NULL = Global, method set/
+    machine NULL = Method-specific, machine set = Unit/Cell-specific.
+  - ProcessParameterValue: added source and captured_at (unchanged from
+    JC's original proposal, confirmed by Charlie).
+  - New ProductionOutputSummary table (production_output_summaries):
+    run-level Planned/Actual output quantity and disposition, retaining
+    OutputItem as optional item-level detail. Corrected from JC's
+    original two-free-text-unit-field proposal to a single controlled
+    unit_id (FK to UnitOfMeasure) governing both Planned and Actual, plus
+    a controlled disposition (see the new PRODUCTION_OUTPUT_DISPOSITIONS
+    list) - per Charlie's decision doc section 3.3.
+  - ProductionEvent: added setting_definition_id, raw_material_lot_use_id
+    (JC's original proposal) plus quality_observation_id and
+    physical_property_result_id (Charlie's addition, decision doc section
+    3.5) - all 4 nullable, optional context links, existing event
+    behavior unchanged.
+  - ComponentStreamReading: production_phase_id is now nullable and a new
+    production_run_id FK was added directly (decision doc section 3.4,
+    "Decouple Material Metering from ProductionPhase") - Phase 2 will
+    write new metering records against ProductionRun; Phase 3 backfills
+    production_run_id on historical rows via their existing
+    ProductionPhase link; Phase 5 can then drop the active dependency on
+    ProductionPhase (which Phase 5 retires) without breaking Material
+    Metering history. Every existing row keeps its production_phase_id
+    unchanged.
+
+analytics.py: new eligible_process_settings(session, production_method_id,
+machine_id=None) helper. Queries ProcessSettingApplicability (not the
+deprecated ProcessSettingDefinition.production_method_id) and applies
+deterministic precedence for the same setting_definition_id -
+Machine-specific > Method-specific > Global - returning exactly one
+eligible row per definition. No name-matching, no supersedes_id mechanism
+(closes the open question from JC's Phase 1 design deliverables per
+Charlie's explicit decision: "Applicability specificity provides
+deterministic precedence without duplicate semantic definitions").
+
+Tests: new tests/test_wp7_phase1_method_aware_schema.py (15 tests),
+covering Charlie's Phase 1 closeout gate (decision doc section 6) point by
+point - one definition serving multiple Methods without duplication via
+applicability rows; the Machine > Method > Global precedence proof (3
+scenarios) plus a retired-row-never-surfaces guard; Planned/Actual
+ProcessParameterValue distinctness with source/captured_at; a structural
+assertion that ProcessParameterValue has no independent unit_id (UOM stays
+definition-controlled); ProductionOutputSummary's single controlled
+unit_id and controlled disposition; ComponentStreamReading's direct
+ProductionRun link coexisting with legacy ProductionPhase-linked rows;
+ProductionEvent's 4 optional context links resolving correctly while a
+legacy-style event with none of them set is unaffected; and a source-grep
+proof (parametrized over pages/4, reports.py, and pages 15-19) that none
+of the new Phase 1 schema/helper symbols are yet wired into live UI/
+report/Intelligence code - Phase 1 stays schema-only, per Charlie's
+acceptance item 8 ("No Production Run UI, report, PI3 or Industrial
+Intelligence behavior is cut over in Phase 1").
+
+Also corrected in this batch: tests/test_cr18_product_family_terminology.py's
+ALLOWED_FOAM_FAMILY_HITS allowlist needed its analytics.py/db.py line
+numbers updated again, shifted by this batch's own additions (new
+imports, the ProcessSettingApplicability/ProductionOutputSummary comment
+blocks, and the eligible_process_settings() function) - same allowlisted
+comment/docstring text, new positions, verified against the actual scan
+output rather than an arithmetic shift guess.
+
+Full regression suite: 441 passed, 2 skipped, 0 failures (426 pre-existing
++ 15 new via test_wp7_phase1_method_aware_schema.py). The 2 skips are the
+same pre-existing, environment-conditional Flexible-Foam-sibling-app-
+comparison tests noted in prior version-notes blocks - unrelated to WP7
+Phase 1.
+
+Not in this release (still pending): the Supabase migration applying
+these schema changes to the shared rigid_foam schema, and the Phase 1
+closeout package for Charlie/Stefan.
+"""
+
+APP_VERSION = "0.39.0"
