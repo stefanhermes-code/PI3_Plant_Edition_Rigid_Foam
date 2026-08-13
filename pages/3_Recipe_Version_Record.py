@@ -46,6 +46,22 @@ path links a ReferenceFormulation row to RecipeVersion.is_active at all;
 the only real link is the pre-existing, user-set RecipeVersion.
 reference_formulation_id "informed by" FK) - satisfying CR-03 rule 3
 structurally, with no extra guard code needed.
+
+CR-19 (Correct Recipe Version, Product Grade, and Reference Formulation
+Display), implemented 2026-08-13: CR-03's combined "Recipe versions" table
+put the imported ReferenceFormulation's own name inside the "Product
+grade" column (prefixed "— ... (imported reference)"), which falsely
+implied that value came from the Product Grade master. The combined table
+still shows both record types together, but now with separate Type,
+Product Grade, and Reference Formulation columns: Plant Recipe rows show
+their real linked FoamGrade.grade_name in Product Grade (and, if the row
+has a reference_formulation_id set, that linked reference formulation's
+name as supplemental context in Reference Formulation); Imported Reference
+rows show "N/A" in Product Grade and the reference formulation's own name
+in Reference Formulation. Product Grade never resolves to anything but a
+true FoamGrade master relationship. No schema change, no change to which
+records exist or how they're queried - purely a display/column-mapping
+correction in the version_rows list comprehension below.
 """
 
 import datetime as dt
@@ -560,8 +576,10 @@ st.divider()
 st.subheader("Recipe versions")
 st.caption(
     "Full formulation history across every product grade, plus imported scientific reference "
-    "formulations (Approval Status: Pending Review until reviewed). Click a row to view or manage "
-    "details, ingredients, or delete/approve it."
+    "formulations (Approval Status: Pending Review until reviewed). Product Grade always reflects "
+    "the actual product grade master; imported reference rows show \"N/A\" there and carry their "
+    "own name under Reference Formulation instead. Click a row to view or manage details, "
+    "ingredients, or delete/approve it."
 )
 
 ref_formulations = (
@@ -589,13 +607,24 @@ if status_filter != "All":
 if not combined:
     st.info("No recipe versions or reference formulations match this filter.")
 else:
+    # CR-19: Type/Product Grade/Reference Formulation are kept as distinct
+    # fields so "Product Grade" can never resolve to anything but the real
+    # FoamGrade master relationship. Plant Recipe rows may additionally carry
+    # a linked reference formulation (the pre-existing, optional
+    # RecipeVersion.reference_formulation_id "informed by" FK) as
+    # supplemental context - that link is shown here, never in place of the
+    # row's own Product Grade identity.
     version_rows = [
         {
             "Version": obj.version_label if kind == "version" else obj.controlled_id,
-            "Product grade": (
-                (obj.foam_grade.grade_name if obj.foam_grade else "—")
+            "Type": "Plant Recipe" if kind == "version" else "Imported Reference",
+            "Product Grade": (
+                (obj.foam_grade.grade_name if obj.foam_grade else "—") if kind == "version" else "N/A"
+            ),
+            "Reference Formulation": (
+                (obj.reference_formulation.name if obj.reference_formulation else "—")
                 if kind == "version"
-                else f"— {obj.name} (imported reference)"
+                else obj.name
             ),
             "Active": "Yes" if (kind == "version" and obj.is_active) else "No",
             "Status": obj.approval_status or ("Draft" if kind == "version" else "Pending Review"),

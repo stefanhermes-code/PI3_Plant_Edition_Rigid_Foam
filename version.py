@@ -4557,4 +4557,92 @@ Flexible-Foam-sibling-app-comparison tests that were conditionally
 skipped in every prior CR now run and pass in this environment.
 """
 
-APP_VERSION = "0.36.0"
+VERSION_0_37_0_NOTES = """
+v0.37.0 (2026-08-13): CR-19 (Correct Recipe Version, Product Grade, and
+Reference Formulation Display -
+CR19_Correct_Recipe_Version_Product_Grade_and_Reference_Formulation_
+Display.docx).
+
+What changed: pages/3_Recipe_Version_Record.py's ("Recipes") combined
+"Recipe versions" table (built by CR-03, 2026-08-10) put every imported
+ReferenceFormulation row's own name inside the column labeled "Product
+grade" - prefixed "- <name> (imported reference)". That created a false
+semantic relationship: the value shown under "Product grade" for those
+rows never came from the Product Grade master at all, it came from the
+Reference Formulation library. Confirmed Current Condition in the CR
+matches exactly what this app showed.
+
+Fix: the single combined table (still one list, still one Approval Status
+filter - the combined-list concept itself is unchanged) now carries three
+separate fields instead of one: Type, Product Grade, and Reference
+Formulation.
+- Plant Recipe rows: Type = "Plant Recipe"; Product Grade = the row's
+  real linked FoamGrade.grade_name (resolves exclusively via
+  RecipeVersion.foam_grade - never anything else, never "-"); Reference
+  Formulation = the linked reference formulation's name if this
+  RecipeVersion's pre-existing, optional reference_formulation_id
+  ("informed by" FK, added WP5 Wave 4/RHF-015) is set, else "-". That
+  link is supplemental context only - Product Grade identity stays
+  primary, per CR-19 section 3's row-semantics rule.
+- Imported Reference rows: Type = "Imported Reference"; Product Grade =
+  "N/A" (literal, always); Reference Formulation = the
+  ReferenceFormulation's own name.
+
+No schema change. No change to which RecipeVersion or ReferenceFormulation
+records exist, how they're queried, their approval-status governance, or
+the structural rule that a ReferenceFormulation can never become an
+active production recipe (CR-03 rule 3, still enforced the same way - no
+code path links one to RecipeVersion.is_active). Every other page
+behavior - Create/Edit/Delete/CSV-Excel-import Recipe, single-active-
+recipe-per-grade, row selection and detail rendering for both record
+types, Reference Formulation detail/provenance/governance controls - is
+untouched; this is purely the version_rows list-comprehension's column
+mapping in pages/3_Recipe_Version_Record.py.
+
+Files changed:
+- pages/3_Recipe_Version_Record.py: version_rows dict comprehension
+  rebuilt with Type/Product Grade/Reference Formulation as distinct
+  fields (previously one conflated "Product grade" field); "Recipe
+  versions" section caption reworded to state the Product Grade / N/A
+  distinction explicitly (CR-19 section 6); module docstring gained a
+  CR-19 paragraph documenting the correction and why it was needed,
+  alongside the existing CR-03 paragraph it corrects.
+
+Customer-facing consistency (CR-19 section 6): the Recipes page's
+combined "Recipe versions" table is the only place in the app where
+RecipeVersion and ReferenceFormulation rows are presented together -
+confirmed by a repo-wide grep for reference_formulation/
+ReferenceFormulation outside db.py, this page, and tests/. No other page
+needed a matching fix.
+
+Tests: new tests/test_cr19_recipe_product_grade_reference_display.py (11
+tests) - column-structure check (Type/Product Grade/Reference Formulation
+present, old "Product grade" gone); a seeded Product Grade master +
+linked plant Recipe Version proving the table's Product Grade value
+resolves to that exact master record (cross-checked directly against the
+FoamGrade row, not just the fixture's own copy of the name); Type mapping
+for both Plant Recipe and Imported Reference rows; preservation of an
+existing RecipeVersion.reference_formulation_id link, verified both in
+the rendered table and at the ORM level; Imported Reference rows showing
+"N/A" in Product Grade and their own name in Reference Formulation;
+a direct assertion (both against every Imported Reference row's rendered
+Product Grade value AND the page's own source text) that Product Grade
+never resolves from anything but the FoamGrade relationship; Approval
+Status filtering proven to still isolate the correct rows of both types
+after the column change; and row selection/detail rendering for both a
+plant recipe and an imported reference driven via session_state (AppTest
+can't drive the dataframe's own on_select click - same documented
+limitation as test_cr03_recipe_consolidation.py). tests/
+test_cr03_recipe_consolidation.py's own 9 tests were re-run unmodified
+and still pass, confirming CR-03's governance/removal/approval-transition
+guarantees are untouched by this display-only correction.
+
+Full regression suite: 412 passed, 2 skipped, 0 failures (401 pre-existing
++ 11 new via test_cr19_recipe_product_grade_reference_display.py). The 2
+skips are the pre-existing, environment-conditional Flexible-Foam-
+sibling-app-comparison tests in test_cr12_reporting_parity.py (the
+sibling app checkout isn't present in this session) - unrelated to CR-19,
+zero CR-19 acceptance paths skipped.
+"""
+
+APP_VERSION = "0.37.0"
