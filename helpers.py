@@ -143,22 +143,30 @@ def expert_note_foam_grade_id_for_link(entity_type, entity_id, session):
 
 
 def analysis_unit_picker(grades, key_prefix):
-    """Shared "Analyze by: Product Grade / Foam Family" control for the three
-    Industrial Intelligence pages built on analytics.py's pooled per-grade
-    pipeline (Trend Analysis, Machine Settings vs Physical Properties
-    Correlation, Machine Settings Optimization) - added 2026-08-02 so a
-    reviewer can pool an entire product family's grades into one analysis
-    instead of checking each grade one at a time. Recipe Optimization and
-    Root-Cause Assistant don't use this: their sections (current
-    formulation/cost, version diff, run-vs-prior-run diff) are inherently
-    about one specific grade, not something that pools sensibly.
+    """Shared "Analyze by: Product Grade / Product Family" control for the
+    three Industrial Intelligence pages built on analytics.py's pooled
+    per-grade pipeline (Trend Analysis, Machine Settings vs Physical
+    Properties Correlation, Machine Settings Optimization) - added
+    2026-08-02 so a reviewer can pool an entire product family's grades
+    into one analysis instead of checking each grade one at a time. Recipe
+    Optimization and Root-Cause Assistant don't use this: their sections
+    (current formulation/cost, version diff, run-vs-prior-run diff) are
+    inherently about one specific grade, not something that pools sensibly.
+
+    CR-18 (2026-08-13): the control's own options, empty-state warning, and
+    family selectbox label were corrected from "Foam Family"/"foam family"
+    to "Product Family"/"product family" - CR-18's required customer-facing
+    term. This docstring and the `mode`/`link_type` dict values below
+    ("family", "product_family") are internal identifiers, not customer-
+    facing text, so they are unchanged (see CR-18's Internal Compatibility
+    Boundary).
 
     `grades` must be the CALLER's already-scoped-and-filtered list of
     FoamGrade objects (e.g. already restricted to grades with quality test
-    results) - foam families are derived from this same list via groupby,
-    so a family only ever offers the grades that already passed the
-    caller's own filter, and "Foam family X" never silently pulls in a
-    grade that "Product grade" mode wouldn't have offered on its own.
+    results) - product families are derived from this same list via
+    groupby, so a family only ever offers the grades that already passed
+    the caller's own filter, and "Product family X" never silently pulls in
+    a grade that "Product grade" mode wouldn't have offered on its own.
 
     Returns a dict:
     - mode: "grade" or "family"
@@ -177,7 +185,7 @@ def analysis_unit_picker(grades, key_prefix):
       that want to spell out exactly which grades were pooled
     """
     mode_choice = st.radio(
-        "Analyze by", ["Product grade", "Foam family"], key=f"{key_prefix}_unit_mode", horizontal=True
+        "Analyze by", ["Product grade", "Product family"], key=f"{key_prefix}_unit_mode", horizontal=True
     )
     if mode_choice == "Product grade":
         grade = st.selectbox(
@@ -196,10 +204,10 @@ def analysis_unit_picker(grades, key_prefix):
 
     families = sorted({g.product_family for g in grades if g.product_family}, key=lambda f: f.name)
     if not families:
-        st.warning("No foam family available for these grades yet.")
+        st.warning("No product family available for these grades yet.")
         st.stop()
     family = st.selectbox(
-        "Foam family", families,
+        "Product family", families,
         format_func=lambda f: f"{f.name} ({sum(1 for g in grades if g.product_family_id == f.id)} grade(s))",
         key=f"{key_prefix}_family_select",
     )

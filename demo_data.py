@@ -60,7 +60,7 @@ def seed_demo_data(session) -> str:
         name="Mattress Comfort Foam",
         application="Mattress comfort layer",
         customer_segment="Mattress OEM",
-        description="Flexible slabstock foam family for mattress comfort layers.",
+        description="Flexible slabstock product family for mattress comfort layers.",
     )
     session.add(family)
     session.flush()

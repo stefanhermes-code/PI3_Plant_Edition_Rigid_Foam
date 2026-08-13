@@ -4479,4 +4479,82 @@ same pre-existing Flexible-Foam-sibling-app-not-present skips noted in
 every prior CR - unrelated to this change.
 """
 
-APP_VERSION = "0.35.1"
+VERSION_0_36_0_NOTES = """
+v0.36.0 (2026-08-13): CR-18 (Eliminate "Foam Family" Terminology Across
+Rigid Foam - PI3_Rigid_Foam_Phase_1_CR18_Eliminate_Foam_Family_
+Terminology_Across_Rigid_Foam.docx).
+
+What changed: "Foam Family"/"Foam family"/"foam family" - a Flexible Foam
+Edition term this app inherited at fork time and never fully renamed -
+had leaked into several customer-facing surfaces, standardized here to
+"Product Family"/"Product family"/"product family" per the CR's
+terminology rule. Every internal identifier (mode: "family", link_type:
+"product_family", the FoamGrade class, foam_grade_id columns/params,
+product_family internal keys, comments/docstrings describing internal
+behavior) is unchanged, per the CR's own Internal Compatibility Boundary.
+
+Repository-wide inventory (task #888): a full case-insensitive scan
+found 22 pre-fix occurrences of "foam family" across 9 .py files. 10 were
+customer-facing (fixed below); 12 were pure comment/docstring prose
+describing internal behavior (analytics.py x9, db.py x1, helpers.py x2 -
+plus 3 already-clean CR-15 history notes in pages/20_Expert_Notes.py) and
+were left untouched. One additional occurrence, demo_data.py's unused
+"Flexible slabstock foam family" seed description (dead code - demo_data.
+py is not imported anywhere in the live app), was fixed for hygiene even
+though out of the CR's customer-facing scope.
+
+Files changed:
+- helpers.py: analysis_unit_picker()'s shared "Analyze by" radio
+  ("Foam family" -> "Product family"), its empty-state warning ("No foam
+  family available..." -> "No product family available..."), and its
+  family selectbox's own label ("Foam family" -> "Product family") - the
+  single shared source consumed verbatim by pages 16, 17, and 19 per the
+  CR's "fix once at the shared source" instruction (section 6). Docstring
+  updated to match; no change to the mode/link_type dict values it
+  returns.
+- pages/16_Trend_Analysis.py, pages/17_Process_Property_Correlation.py,
+  pages/19_Machine_Settings_Optimization.py: each page's own action text,
+  pooling caption, and PI3-subject-context `subject_desc` f-string
+  (independently duplicated per page, not centralized) - all now read
+  "product family". Page 19's action text is the exact leak CR-18
+  section 2 quotes verbatim.
+- pages/5_Physical_Property_Result.py, pages/6_Quality_Observation.py:
+  the "Foam scope" radio's "Foam family" option, empty-state caption, and
+  family selectbox label - same pattern as the shared control, fixed
+  per-page since this "Foam scope" filter is a separate, non-centralized
+  implementation.
+- reports.py: the same `subject_desc` f-string pattern, duplicated in 3
+  report-building functions (Trend Analysis, Process-Property
+  Correlation, Machine Settings Optimization Word reports); and the
+  Expert Notes aggregate report's link-type label dict ("product_family":
+  "Foam Family" -> "Product Family").
+- demo_data.py: one unused seed description string, for hygiene (not
+  customer-facing - see above).
+
+ai_assistant.py was checked directly and has zero "foam family"
+occurrences - the PI3-prompt leak mechanism is entirely the `subject_desc`
+strings above (3 pages + 3 report functions), not a hardcoded prompt
+template.
+
+Tests: new tests/test_cr18_product_family_terminology.py (11 tests) -
+a repository-wide scan asserting every remaining "foam family" hit is on
+one of a fixed, reviewed set of internal comment/docstring lines (and a
+second test confirming none of those lines actually construct a
+customer-facing string); live AppTest scans of all 3 Industrial
+Intelligence pages and both Quality pages for the leaked wording; a
+direct check of Process Parameter Optimization's action text and shared
+radio (the CR's own quoted example); helpers.analysis_unit_picker()'s
+family mode driven live through Trend Analysis, proving the pooling
+caption reads "product family" AND still pools the correct grade_ids
+(business logic unchanged) while the picker's internal mode/link_type
+dict values are unchanged; and generated Word report text checks
+(build_trend_analysis_report_data's subject_desc, and the Expert Notes
+aggregate report's link-type label) both confirmed clean.
+
+Full regression suite: 403 passed, 0 failures, 0 skipped (392
+pre-existing + 11 new via test_cr18_product_family_terminology.py). The 2
+Flexible-Foam-sibling-app-comparison tests that were conditionally
+skipped in every prior CR now run and pass in this environment.
+"""
+
+APP_VERSION = "0.36.0"

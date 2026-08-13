@@ -3568,7 +3568,7 @@ def build_trend_analysis_report_data(
     page already assembled."""
     subject_desc = (
         f"product grade {unit['label']}" if unit["mode"] == "grade"
-        else f"foam family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
+        else f"product family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
     )
 
     control_categories, control_series = [], []
@@ -3823,7 +3823,7 @@ def build_correlation_report_data(session, unit, property_name, ranked, pooling_
     field)."""
     subject_desc = (
         f"product grade {unit['label']}" if unit["mode"] == "grade"
-        else f"foam family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
+        else f"product family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
     )
 
     ranked_with_data = ranked.dropna(subset=["correlation"]) if ranked is not None else pd.DataFrame()
@@ -4070,7 +4070,7 @@ def build_machine_settings_report_data(session, unit, property_name, ranked, poo
     best_range_setting/best_range_avg_dev_pct/spread_pct/field)."""
     subject_desc = (
         f"product grade {unit['label']}" if unit["mode"] == "grade"
-        else f"foam family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
+        else f"product family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
     )
 
     ranked_with_data = ranked.dropna(subset=["spread_pct"]) if ranked is not None else pd.DataFrame()
@@ -4206,7 +4206,7 @@ def build_expert_notes_report_data(session, notes, scope_label):
     link_type_counts = {}
     in_pi3_count = 0
     link_type_labels = {
-        "production_run": "Production Run", "foam_grade": "Product Grade", "product_family": "Foam Family",
+        "production_run": "Production Run", "foam_grade": "Product Grade", "product_family": "Product Family",
     }
     for n in notes:
         conf = n.confidence_level or "—"

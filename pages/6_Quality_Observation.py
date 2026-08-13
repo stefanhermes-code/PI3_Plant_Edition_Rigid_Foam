@@ -430,7 +430,7 @@ with tab_edit_delete:
     with filter_col1:
         severity_filter = st.multiselect("Severity filter", SEVERITIES, default=SEVERITIES)
     with filter_col2:
-        # Foam scope - same "All product grades / Product grade / Foam family" pattern
+        # Foam scope - same "All product grades / Product grade / Product family" pattern
         # as the Quality Test Result page's breakdown chart, so both pages let
         # you ask "which issue is most common for this grade/family" the same
         # way. This filter set and the Pareto chart below both read from the
@@ -441,7 +441,7 @@ with tab_edit_delete:
             .all()
         )
         foam_scope_mode = st.radio(
-            "Foam scope", ["All product grades", "Product grade", "Foam family"], key="qi_foam_scope_mode"
+            "Foam scope", ["All product grades", "Product grade", "Product family"], key="qi_foam_scope_mode"
         )
         if foam_scope_mode == "All product grades" or not scoped_grades:
             scope_grade_ids = None
@@ -455,12 +455,12 @@ with tab_edit_delete:
         else:
             families = sorted({g.product_family for g in scoped_grades if g.product_family}, key=lambda f: f.name)
             if not families:
-                st.caption("No foam family available for these grades yet.")
+                st.caption("No product family available for these grades yet.")
                 scope_grade_ids = []
                 scope_label = "—"
             else:
                 scope_family = st.selectbox(
-                    "Foam family", families, format_func=lambda f: f.name, key="qi_foam_scope_family"
+                    "Product family", families, format_func=lambda f: f.name, key="qi_foam_scope_family"
                 )
                 scope_grade_ids = [g.id for g in scoped_grades if g.product_family_id == scope_family.id]
                 scope_label = scope_family.name
