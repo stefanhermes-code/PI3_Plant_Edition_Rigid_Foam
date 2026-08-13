@@ -225,13 +225,21 @@ def _grade_id_list(foam_grade_id):
 # Research and Data Population Plan (method-aware settings, not this
 # Maxfoam-specific list), but that's separate, larger work - see
 # version.py for the baseline note.
+#
+# WP7 Phase 0 (2026-08-13): top_flat_system_used was removed from this list
+# entirely (not just Phase-1-rigid-excluded, see PHASE1_RIGID_INELIGIBLE_
+# SETTINGS below) - it was a universal Flexible Foam/slabstock boolean, not
+# a Rigid-relevant setting for this Rigid-only app. It no longer appears in
+# any correlation/optimization ranking, for any grade. See the module
+# docstring on pages/4_Production_Run_Trial_Record.py for the full WP7
+# Phase 0 rationale; the column itself remains on ProductionPhase and
+# historical values are still readable directly off that model.
 PHASE_SETTING_FIELDS = [
     "mixer_rpm",
     "conveyor_speed",
     "air_injection_rate",
     "air_pressure_bar",
     "sidewall_width_mm",
-    "top_flat_system_used",
 ]
 
 PHASE_SETTING_LABELS = {
@@ -240,34 +248,34 @@ PHASE_SETTING_LABELS = {
     "air_injection_rate": "Air injection rate",
     "air_pressure_bar": "Air pressure (bar)",
     "sidewall_width_mm": "Tunnel width (mm)",
-    "top_flat_system_used": "Top-flat system in use",
 }
 
-# Yes/No fields in the list above - added 2026-08-03 (top_flat_system_used
-# has a direct impact on block geometry, per user feedback, so it belongs
-# in the same correlation/optimization pipeline as the continuous settings).
-# Every consumer of PHASE_SETTING_FIELDS still treats these as numeric
-# (0.0/1.0/NaN - see run_settings_dataframe below), so correlation (a valid
-# point-biserial correlation) and quantile bucketing both work unmodified;
-# this set exists only so the bucket-range label can read "Yes"/"No"
-# instead of the literal "0-0"/"1-1" a raw min/max format would produce.
-BOOLEAN_SETTING_FIELDS = {"top_flat_system_used"}
+# Yes/No fields in the list above - none as of WP7 Phase 0 (2026-08-13),
+# which removed the one boolean member, top_flat_system_used - see the
+# PHASE_SETTING_FIELDS comment above. Left as an empty set rather than
+# removed outright since every consumer of PHASE_SETTING_FIELDS still
+# checks membership in this set (0.0/1.0/NaN handling in
+# run_settings_dataframe below) and a future method-specific boolean
+# setting (WP7 Phase 1+) would be added back here the same way.
+BOOLEAN_SETTING_FIELDS = set()
 
 # Phase 1 rigid process-setting eligibility ---------------------------------
 #
 # PHASE_SETTING_FIELDS above was inherited wholesale from the flexible/
 # continuous-line foam app's fork baseline (see the ratio_index comment
 # above) and lists settings that only exist on a continuous foaming line:
-# conveyor speed, air injection rate, air pressure, tunnel width, and
-# top-flat system are all specific to a moving-slab/conveyor process. Phase
-# 1 rigid production (per Charlie's WP6-S09 closure instructions, section
-# 3.7 / UAT-017) is discontinuous - factory-molded / press-foamed - so none
-# of those five settings are physically applicable there; only mixer rpm
-# carries over as a real, eligible setting for Phase 1 rigid grades.
-# Showing the other five in a rigid grade's correlation/optimization
-# ranking or Root-Cause Assistant diff would present settings that were
-# never actually varied/variable on that process as if they were real
-# levers - exactly what Charlie flagged as needing to be Phase-1-scoped
+# conveyor speed, air injection rate, air pressure, and tunnel width are all
+# specific to a moving-slab/conveyor process (top_flat_system_used was the
+# fifth such setting - removed from PHASE_SETTING_FIELDS entirely under WP7
+# Phase 0, see above, rather than left here as a rigid-ineligible one).
+# Phase 1 rigid production (per Charlie's WP6-S09 closure instructions,
+# section 3.7 / UAT-017) is discontinuous - factory-molded / press-foamed -
+# so none of those four settings are physically applicable there; only
+# mixer rpm carries over as a real, eligible setting for Phase 1 rigid
+# grades. Showing the other four in a rigid grade's correlation/
+# optimization ranking or Root-Cause Assistant diff would present settings
+# that were never actually varied/variable on that process as if they were
+# real levers - exactly what Charlie flagged as needing to be Phase-1-scoped
 # before it reaches a reviewer (UAT-017/018/019).
 #
 # Legacy flexible grades (FoamGrade.chemistry_id is None - see reports.py's
@@ -279,7 +287,6 @@ PHASE1_RIGID_INELIGIBLE_SETTINGS = {
     "air_injection_rate",
     "air_pressure_bar",
     "sidewall_width_mm",
-    "top_flat_system_used",
 }
 
 

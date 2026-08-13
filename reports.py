@@ -219,7 +219,6 @@ from db import (
     SEVERITIES,
     ComponentStreamReading,
     CustomerTrial,
-    FallplateSectionPosition,
     FoamGrade,
     FoamGradeTargetProperty,
     GradeSpecification,
@@ -1298,8 +1297,15 @@ def _setup_vs_finalized_deviations(session, setup_phase, finalized_phase):
     (planned) and Finalized (actual) phase snapshots of one run - not the
     full settings table (see PHASE_SETTING_FIELDS in analytics.py), just
     the rows that differ, since those are what could explain a flagged
-    result. Includes foaming_mode (a controlled-vocabulary field, not part
-    of PHASE_SETTING_FIELDS) alongside the numeric settings."""
+    result.
+
+    WP7 Phase 0 (2026-08-13): the foaming_mode deviation check was removed
+    from here - foaming_mode was a Flexible Foam/slabstock controlled-
+    vocabulary field, not a Rigid-relevant process setting for this
+    Rigid-only app (see pages/4_Production_Run_Trial_Record.py's module
+    docstring). The column still exists on ProductionPhase; historical
+    deviations are not recomputed, this only stops the check running
+    forward."""
     if setup_phase is None or finalized_phase is None:
         return []
     deviations = []
@@ -1319,44 +1325,17 @@ def _setup_vs_finalized_deviations(session, setup_phase, finalized_phase):
             "Setting": PHASE_SETTING_LABELS.get(field, field),
             "Setup (planned)": setup_val, "Finalized (actual)": final_val,
         })
-    if setup_phase.foaming_mode != finalized_phase.foaming_mode:
-        deviations.append({
-            "Setting": "Foaming mode",
-            "Setup (planned)": setup_phase.foaming_mode or "—",
-            "Finalized (actual)": finalized_phase.foaming_mode or "—",
-        })
     return deviations
 
 
-def _fallplate_deviations(session, setup_phase, finalized_phase):
-    """Fall-plate section position changes between Setup and Finalized,
-    keyed by section_number - only rows whose position moved more than
-    _FALLPLATE_POSITION_DEVIATION_MM, the same "only what changed"
-    principle as _setup_vs_finalized_deviations."""
-    if setup_phase is None or finalized_phase is None:
-        return []
-    setup_by_section = {
-        p.section_number: p
-        for p in session.query(FallplateSectionPosition)
-        .filter(FallplateSectionPosition.production_phase_id == setup_phase.id).all()
-    }
-    final_by_section = {
-        p.section_number: p
-        for p in session.query(FallplateSectionPosition)
-        .filter(FallplateSectionPosition.production_phase_id == finalized_phase.id).all()
-    }
-    deviations = []
-    for section in sorted(set(setup_by_section) | set(final_by_section)):
-        s, f = setup_by_section.get(section), final_by_section.get(section)
-        s_pos = s.position_mm if s else None
-        f_pos = f.position_mm if f else None
-        if s_pos is None or f_pos is None or abs(s_pos - f_pos) <= _FALLPLATE_POSITION_DEVIATION_MM:
-            continue
-        deviations.append({
-            "Section": section, "Setup position (mm)": s_pos, "Finalized position (mm)": f_pos,
-            "Change (mm)": round(f_pos - s_pos, 1),
-        })
-    return deviations
+# _fallplate_deviations (fall-plate section-position changes between Setup
+# and Finalized) was removed under WP7 Phase 0, 2026-08-13, along with the
+# rest of the active "Tool Geometry and Fill Configuration" sub-workflow -
+# see pages/4_Production_Run_Trial_Record.py's module docstring.
+# FallplateSectionPosition rows already recorded remain in the database and
+# readable directly off that model; this report section simply no longer
+# runs. The Batch Release report's "story"/"_docx_section" call sites and
+# the "fallplate_deviations" data-dict key were removed alongside it.
 
 
 def _is_rigid_grade(grade):
@@ -1517,15 +1496,14 @@ def build_batch_release_record_data(session, run_id):
     if quality_issues:
         flag_reasons.append(f"{len(quality_issues)} quality issue(s) recorded")
 
-    setup_deviations, stream_readings, stream_calibration_flags, production_events, fallplate_deviations = (
-        [], [], [], [], [],
+    setup_deviations, stream_readings, stream_calibration_flags, production_events = (
+        [], [], [], [],
     )
     if has_flags:
         phases = session.query(ProductionPhase).filter(ProductionPhase.production_run_id == run_id).all()
         setup_phase = _phase_by_name(phases, "Setup")
         finalized_phase = _phase_by_name(phases, "Finalized")
         setup_deviations = _setup_vs_finalized_deviations(session, setup_phase, finalized_phase)
-        fallplate_deviations = _fallplate_deviations(session, setup_phase, finalized_phase)
 
         if finalized_phase is not None:
             readings = (
@@ -1583,7 +1561,6 @@ def build_batch_release_record_data(session, run_id):
         "has_flags": has_flags,
         "flag_reasons": flag_reasons,
         "setup_deviations": setup_deviations,
-        "fallplate_deviations": fallplate_deviations,
         "stream_readings": stream_readings,
         "stream_calibration_flags": stream_calibration_flags,
         "production_events": production_events,
@@ -1625,7 +1602,6 @@ def render_batch_release_record_pdf(data):
             story.append(Paragraph("Flagged — supporting context from other tabs", STYLES["Heading2"]))
             story.append(_p("Flagged because: " + "; ".join(data["flag_reasons"])))
             _section(story, "Process setting changes (Planned Settings → Actual Run and Cycle Data)", data["setup_deviations"])
-            _section(story, "Tool geometry and fill configuration changes (Planned Settings → Actual Run and Cycle Data)", data["fallplate_deviations"])
             _section(story, "Material metering and actual usage (Actual Run and Cycle Data phase)", data["stream_readings"])
             if data["stream_calibration_flags"]:
                 story.append(_p(
@@ -1667,7 +1643,6 @@ def render_batch_release_record_docx(data):
         _docx_heading(doc, "Flagged — supporting context from other tabs", size=15, space_before=14)
         doc.add_paragraph("Flagged because: " + "; ".join(data["flag_reasons"]))
         _docx_section(doc, "Process setting changes (Planned Settings → Actual Run and Cycle Data)", data["setup_deviations"])
-        _docx_section(doc, "Tool geometry and fill configuration changes (Planned Settings → Actual Run and Cycle Data)", data["fallplate_deviations"])
         _docx_section(doc, "Material metering and actual usage (Actual Run and Cycle Data phase)", data["stream_readings"])
         if data["stream_calibration_flags"]:
             doc.add_paragraph(

@@ -152,9 +152,6 @@ with tab_run:
         if data["has_flags"]:
             st.write("**Process setting changes (Planned Settings → Actual Run and Cycle Data)**")
             render_data_table(pd.DataFrame(data["setup_deviations"] or [{"—": "No changes"}]))
-            if data["fallplate_deviations"]:
-                st.write("**Tool geometry and fill configuration changes (Planned Settings → Actual Run and Cycle Data)**")
-                render_data_table(pd.DataFrame(data["fallplate_deviations"]))
             st.write("**Material metering and actual usage (Actual Run and Cycle Data phase)**")
             render_data_table(pd.DataFrame(data["stream_readings"] or [{"—": "No data recorded"}]))
             if data["stream_calibration_flags"]:

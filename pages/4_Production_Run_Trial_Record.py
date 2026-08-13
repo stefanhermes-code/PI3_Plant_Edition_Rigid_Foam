@@ -66,6 +66,30 @@ section positions are captured in structured form below it; and a new
 top_flat_system_used yes/no field was added. Both Setup and Runtime Data
 still carry the shared machine settings (mixer/conveyor/air/sidewall/foaming
 mode/top-flat), so the plan-vs-actual comparison still works for those.
+
+WP7 Phase 0 (Contain inherited Flexible Foam functionality), implemented
+2026-08-13: this app is Rigid Foam only, so the above 2026-08-03 additions
+turned out to be structural inheritance from the Flexible Foam/slabstock
+sibling app, not Rigid-relevant controls. Removed from both Setup and
+Runtime Data: the "Foaming mode" dropdown (FOAMING_MODES: LLD/Trough/
+Traverse - a slabstock line-configuration concept), the "Top-flat system in
+use?" universal boolean, and the entire "Tool Geometry and Fill
+Configuration" fall-plate-position sub-workflow (manual entry + CSV/Excel
+import), since active fall-plate section-position entry is itself
+Maxfoam/slabstock-specific tooling. This is a containment change only - no
+schema/table changes: FallplateSectionPosition rows, and the foaming_mode/
+top_flat_system_used columns on ProductionPhase, remain in the database
+and historical data stays readable; only the active UI, CSV import parsing,
+report generation, and analytics ranking surfaces were removed. See
+analytics.py/reports.py/pages/21_Report.py for the matching changes, and
+db.py for why FOAMING_MODES/FallplateSectionPosition/
+expected_fallplate_section_count remain defined but are no longer
+referenced from this page (FallplateSectionPosition itself is still
+referenced here, by _delete_phase_cascade, for legitimate cascade-delete
+cleanup of historical rows). Tunnel width (sidewall_width_mm), mixer rpm,
+conveyor speed, and air injection rate/pressure are unchanged in this
+phase - later WP7 phases will re-evaluate those as method-specific
+parameters rather than universal ones.
 """
 
 import datetime as dt
@@ -79,7 +103,6 @@ from auth import current_user, logout_button, require_login
 from cascades import delete_production_run_cascade, production_run_dependency_counts
 from db import (
     EVENT_TYPES,
-    FOAMING_MODES,
     SEVERITIES,
     ComponentStreamReading,
     FallplateSectionPosition,
@@ -94,7 +117,6 @@ from db import (
     RecipeComponent,
     RecipeVersion,
     Sample,
-    expected_fallplate_section_count,
     get_session,
     init_db,
 )
@@ -149,14 +171,16 @@ RUN_OPTIONAL_COLUMNS = [
 # conditions, not configured) were removed from Setup - both still exist on
 # Runtime Data, the actual/observed snapshot. ratio_index was removed from
 # both (it is now a recipe-level field - see RecipeVersion.ratio_index).
-# laydown_mode was renamed foaming_mode and section_positions_note was
-# dropped (superseded by the structured Fall-plate positions sub-tab) - see
-# db.py's ProductionPhase for the full rationale on each.
+#
+# WP7 Phase 0 (2026-08-13): foaming_mode and top_flat_system_used were
+# removed from this import contract - they were inherited Flexible Foam/
+# slabstock controls, not universal Rigid settings (see the module
+# docstring). The columns still exist on ProductionPhase for historical
+# rows; a file that still includes them simply has those columns ignored.
 SETUP_REQUIRED_COLUMNS = ["production_run_id"]
 SETUP_OPTIONAL_COLUMNS = [
     "phase_start", "phase_end",
     "mixer_rpm", "conveyor_speed", "air_injection_rate", "air_pressure_bar",
-    "foaming_mode", "top_flat_system_used",
     "sidewall_width_mm", "notes",
 ]
 
@@ -177,8 +201,11 @@ STREAM_OPTIONAL_COLUMNS = [
     "calibration_status", "calibration_note", "notes",
 ]
 
-FALLPLATE_REQUIRED_COLUMNS = ["production_run_id", "phase_name", "section_number"]
-FALLPLATE_OPTIONAL_COLUMNS = ["distance_from_trough_mm", "position_mm", "actuator_position", "angle_deg", "notes"]
+# FALLPLATE_REQUIRED_COLUMNS/FALLPLATE_OPTIONAL_COLUMNS (the "Tool Geometry
+# and Fill Configuration" CSV import contract) were removed under WP7 Phase
+# 0 along with the active fall-plate section-position sub-workflow itself -
+# see the module docstring. FallplateSectionPosition rows already imported
+# remain in the database untouched.
 
 EVENT_REQUIRED_COLUMNS = ["production_run_id", "event_type", "event_ts"]
 EVENT_OPTIONAL_COLUMNS = ["phase_name", "severity", "description", "action_taken"]
@@ -705,11 +732,12 @@ with tab_setup:
         run = _run_selector(runs, key="setup_tab_run_select")
         st.caption(f"Showing Setup data for **{_run_label(run)}**")
 
-        # CR-11: wording/order aligned via cr11_function_tab_labels();
-        # "Tool Geometry and Fill Configuration" is a page-specific 4th
-        # tab beyond the CR-11 standard 3, which the CR explicitly allows.
-        tab_create, tab_edit_delete, tab_import, sub_fallplate = st.tabs(
-            [*cr11_function_tab_labels("Setup Data", "Setup Data"), "Tool Geometry and Fill Configuration"]
+        # CR-11: wording/order aligned via cr11_function_tab_labels(). The
+        # page-specific 4th tab ("Tool Geometry and Fill Configuration",
+        # the fall-plate section-position sub-workflow) was removed under
+        # WP7 Phase 0 - see the module docstring.
+        tab_create, tab_edit_delete, tab_import = st.tabs(
+            cr11_function_tab_labels("Setup Data", "Setup Data")
         )
 
         setup_phase = (
@@ -754,29 +782,9 @@ with tab_setup:
                         value=float(setup_phase.air_pressure_bar or 0.0), key=f"edit_setup_air_pres_{setup_phase.id}",
                     )
 
-                    c5, c6, c7 = st.columns(3)
-                    sidewall_width_mm = c5.number_input(
+                    sidewall_width_mm = st.number_input(
                         "Tunnel width (mm)", min_value=0.0, step=1.0,
                         value=float(setup_phase.sidewall_width_mm or 0.0), key=f"edit_setup_sidewall_{setup_phase.id}",
-                    )
-                    foaming_mode_options = [None] + FOAMING_MODES
-                    foaming_mode = c6.selectbox(
-                        "Foaming mode", foaming_mode_options,
-                        index=(
-                            foaming_mode_options.index(setup_phase.foaming_mode)
-                            if setup_phase.foaming_mode in FOAMING_MODES else 0
-                        ),
-                        format_func=lambda m: "— not set —" if m is None else m,
-                        key=f"edit_setup_foaming_mode_{setup_phase.id}",
-                    )
-                    top_flat_system_used = c7.selectbox(
-                        "Top-flat system in use?", [None, True, False],
-                        index=(
-                            0 if setup_phase.top_flat_system_used is None
-                            else (1 if setup_phase.top_flat_system_used else 2)
-                        ),
-                        format_func=lambda v: "— not set —" if v is None else ("Yes" if v else "No"),
-                        key=f"edit_setup_topflat_{setup_phase.id}",
                     )
 
                     notes = st.text_area(
@@ -794,8 +802,6 @@ with tab_setup:
                             setup_phase.conveyor_speed = conveyor_speed or None
                             setup_phase.air_injection_rate = air_injection_rate or None
                             setup_phase.air_pressure_bar = air_pressure_bar or None
-                            setup_phase.foaming_mode = foaming_mode
-                            setup_phase.top_flat_system_used = top_flat_system_used
                             setup_phase.sidewall_width_mm = sidewall_width_mm or None
                             setup_phase.notes = notes
                             session.commit()
@@ -847,19 +853,8 @@ with tab_setup:
                         "Air pressure (bar)", min_value=0.0, step=0.05, key=f"new_setup_air_pres_{run.id}"
                     )
 
-                    c5, c6, c7 = st.columns(3)
-                    sidewall_width_mm = c5.number_input(
+                    sidewall_width_mm = st.number_input(
                         "Tunnel width (mm)", min_value=0.0, step=1.0, key=f"new_setup_sidewall_{run.id}"
-                    )
-                    foaming_mode = c6.selectbox(
-                        "Foaming mode", [None] + FOAMING_MODES,
-                        format_func=lambda m: "— not set —" if m is None else m,
-                        key=f"new_setup_foaming_mode_{run.id}",
-                    )
-                    top_flat_system_used = c7.selectbox(
-                        "Top-flat system in use?", [None, True, False],
-                        format_func=lambda v: "— not set —" if v is None else ("Yes" if v else "No"),
-                        key=f"new_setup_topflat_{run.id}",
                     )
 
                     notes = st.text_area("Notes", key=f"new_setup_notes_{run.id}")
@@ -879,8 +874,6 @@ with tab_setup:
                                     conveyor_speed=conveyor_speed or None,
                                     air_injection_rate=air_injection_rate or None,
                                     air_pressure_bar=air_pressure_bar or None,
-                                    foaming_mode=foaming_mode,
-                                    top_flat_system_used=top_flat_system_used,
                                     sidewall_width_mm=sidewall_width_mm or None,
                                     notes=notes,
                                     source_file_reference="manual entry",
@@ -943,16 +936,6 @@ with tab_setup:
                                         conveyor_speed=row.get("conveyor_speed"),
                                         air_injection_rate=row.get("air_injection_rate"),
                                         air_pressure_bar=row.get("air_pressure_bar"),
-                                        foaming_mode=(
-                                            str(row.get("foaming_mode")).strip()
-                                            if str(row.get("foaming_mode", "") or "").strip() in FOAMING_MODES
-                                            else None
-                                        ),
-                                        top_flat_system_used=(
-                                            bool(row.get("top_flat_system_used"))
-                                            if pd.notna(row.get("top_flat_system_used"))
-                                            else None
-                                        ),
                                         sidewall_width_mm=row.get("sidewall_width_mm"),
                                         notes=str(row.get("notes", "") or ""),
                                         source_file_reference=uploaded.name,
@@ -964,169 +947,6 @@ with tab_setup:
                                 msg += f" Skipped {len(dup)} row(s) whose run already has Setup data (likely a repeat click)."
                             set_pending_banner("setup_import_msg", msg)
                             st.rerun()
-
-        with sub_fallplate:
-            st.caption(
-                "A fall-plate profile is a series of vertical positions at the plate joints/support "
-                "points between the trough outlet and the horizontal conveyor (point 1 nearest the "
-                "trough), not one overall plate angle - height above the conveyor datum is the primary "
-                "setting; angle is calculated from adjacent points (or recorded directly on older "
-                "machines). Requires Setup data to exist first for this run."
-            )
-            _expected_sections = expected_fallplate_section_count(run.machine)
-            if _expected_sections:
-                st.caption(
-                    f"This run's machine ({run.machine.model}) typically has **{_expected_sections}** "
-                    "adjustable fall-plate sections."
-                )
-            if not setup_phase:
-                st.info("Add Setup data for this run first (Create tab) before recording section positions.")
-            else:
-                # Fall-plate Positions is a page-specific sub-workflow nested
-                # inside "Tool Geometry and Fill Configuration" (itself a 4th,
-                # page-specific tab beyond CR-11's standard 3) - not one of the
-                # CR-11 mandated 3 functions, so only the wording/spacing is
-                # aligned here, not the tab order.
-                sub_fp_manual, sub_fp_import = st.tabs(["Manual entry", "CSV/Excel import Fall-plate Positions"])
-
-                with sub_fp_manual:
-                    with st.form(f"add_fallplate_section_setup_{run.id}"):
-                        c1, c2 = st.columns(2)
-                        section_number = c1.number_input(
-                            "Fall-plate point ID *", min_value=1, step=1, value=1,
-                            help="1 = the point nearest the trough outlet, counting toward the conveyor.",
-                        )
-                        distance_from_trough_mm = c2.number_input(
-                            "Distance from trough outlet (mm, optional)", step=1.0
-                        )
-                        c3, c4 = st.columns(2)
-                        position_mm = c3.number_input("Height above conveyor datum (mm)", step=1.0)
-                        actuator_position = c4.number_input(
-                            "Raw actuator/encoder position (optional)", step=1.0,
-                            help="Only if this machine's HMI shows a raw screw/motor/encoder position "
-                            "rather than a calculated height.",
-                        )
-                        angle_deg = st.number_input(
-                            "Plate angle (degrees, calculated or recorded, optional)", step=0.5
-                        )
-                        fp_notes = st.text_area("Notes", key=f"fp_notes_setup_{run.id}")
-                        submitted = st.form_submit_button("Save section position", disabled=not page_usable)
-                        if submitted and page_usable:
-                            session.add(
-                                FallplateSectionPosition(
-                                    production_phase_id=setup_phase.id,
-                                    section_number=int(section_number),
-                                    distance_from_trough_mm=distance_from_trough_mm or None,
-                                    position_mm=position_mm or None,
-                                    actuator_position=actuator_position or None,
-                                    angle_deg=angle_deg or None,
-                                    notes=fp_notes,
-                                )
-                            )
-                            session.commit()
-                            st.success("Section position saved.")
-                            st.rerun()
-
-                with sub_fp_import:
-                    st.caption(
-                        "Required columns: " + ", ".join(FALLPLATE_REQUIRED_COLUMNS) + " (phase_name must be "
-                        "'Setup'). Optional columns: " + ", ".join(FALLPLATE_OPTIONAL_COLUMNS)
-                    )
-                    uploaded_fp = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx"], key="fallplate_upload_setup")
-                    if uploaded_fp and upload_within_size_limit(uploaded_fp):
-                        try:
-                            df_fp = (
-                                pd.read_csv(uploaded_fp) if uploaded_fp.name.endswith(".csv")
-                                else pd.read_excel(uploaded_fp)
-                            )
-                        except Exception as exc:
-                            st.error(f"Could not read file: {exc}")
-                            df_fp = None
-
-                        if df_fp is not None and import_within_row_limit(df_fp):
-                            missing_cols = [c for c in FALLPLATE_REQUIRED_COLUMNS if c not in df_fp.columns]
-                            if missing_cols:
-                                st.error(f"File is missing required column(s): {', '.join(missing_cols)}. Import rejected.")
-                            else:
-                                good_rows, bad_rows = [], []
-                                for _, row in df_fp.iterrows():
-                                    match = (
-                                        row.get("production_run_id") == run.id
-                                        and row.get("phase_name") == "Setup"
-                                        and row.get("section_number") is not None
-                                    )
-                                    if match:
-                                        good_rows.append(row)
-                                    else:
-                                        bad_rows.append(row)
-
-                                st.write(
-                                    f"Rows ready to import: **{len(good_rows)}** | "
-                                    f"Rows flagged/rejected: **{len(bad_rows)}**"
-                                )
-                                if bad_rows:
-                                    st.warning(
-                                        f"Flagged rows don't match Run #{run.id}'s Setup phase, or are missing "
-                                        "section_number."
-                                    )
-                                    render_data_table(pd.DataFrame(bad_rows), max_height="300px")
-
-                                if good_rows and st.button("Confirm import", key="confirm_fallplate_import_setup", disabled=not page_usable):
-                                    existing_keys = {
-                                        (s.production_phase_id, s.section_number)
-                                        for s in session.query(FallplateSectionPosition).all()
-                                    }
-                                    accept, dup = [], []
-                                    for row in good_rows:
-                                        key = (setup_phase.id, int(row["section_number"]))
-                                        if key in existing_keys:
-                                            dup.append(row)
-                                        else:
-                                            existing_keys.add(key)
-                                            accept.append(row)
-
-                                    for row in accept:
-                                        session.add(
-                                            FallplateSectionPosition(
-                                                production_phase_id=setup_phase.id,
-                                                section_number=int(row["section_number"]),
-                                                distance_from_trough_mm=row.get("distance_from_trough_mm"),
-                                                position_mm=row.get("position_mm"),
-                                                actuator_position=row.get("actuator_position"),
-                                                angle_deg=row.get("angle_deg"),
-                                                notes=str(row.get("notes", "") or ""),
-                                            )
-                                        )
-                                    session.commit()
-                                    msg = f"Imported {len(accept)} section position(s) from {uploaded_fp.name}."
-                                    if dup:
-                                        msg += f" Skipped {len(dup)} row(s) already recorded for that section (likely a repeat click)."
-                                    st.success(msg)
-                                    st.rerun()
-
-                recent_fp = (
-                    session.query(FallplateSectionPosition)
-                    .filter(FallplateSectionPosition.production_phase_id == setup_phase.id)
-                    .order_by(FallplateSectionPosition.id.desc())
-                    .all()
-                )
-                if recent_fp:
-                    render_data_table(
-                        pd.DataFrame(
-                            [
-                                {
-                                    "Point ID": fp.section_number,
-                                    "Distance from trough (mm)": fp.distance_from_trough_mm,
-                                    "Height above datum (mm)": fp.position_mm,
-                                    "Actuator position": fp.actuator_position,
-                                    "Angle (deg)": fp.angle_deg,
-                                    "Notes": fp.notes,
-                                }
-                                for fp in recent_fp
-                            ]
-                        ),
-                        max_height="300px",
-                    )
 
 # ---------------------------------------------------------------------------
 # Component stream readings
@@ -1694,11 +1514,12 @@ with tab_runtime:
         run = _run_selector(runs, key="runtime_tab_run_select")
         st.caption(f"Showing Runtime Data for **{_run_label(run)}**")
 
-        # CR-11: wording/order aligned via cr11_function_tab_labels();
-        # "Tool Geometry and Fill Configuration" is a page-specific 4th
-        # tab beyond the CR-11 standard 3, which the CR explicitly allows.
-        tab_create, tab_edit_delete, tab_import, sub_fallplate = st.tabs(
-            [*cr11_function_tab_labels("Runtime Data", "Runtime Data"), "Tool Geometry and Fill Configuration"]
+        # CR-11: wording/order aligned via cr11_function_tab_labels(). The
+        # page-specific 4th tab ("Tool Geometry and Fill Configuration",
+        # the fall-plate section-position sub-workflow) was removed under
+        # WP7 Phase 0 - see the module docstring.
+        tab_create, tab_edit_delete, tab_import = st.tabs(
+            cr11_function_tab_labels("Runtime Data", "Runtime Data")
         )
 
         finalized_phase = (
@@ -1744,29 +1565,9 @@ with tab_runtime:
                         value=float(finalized_phase.air_pressure_bar or 0.0), key=f"edit_runtime_air_pres_{finalized_phase.id}",
                     )
 
-                    c5, c6, c7 = st.columns(3)
-                    sidewall_width_mm = c5.number_input(
+                    sidewall_width_mm = st.number_input(
                         "Tunnel width (mm)", min_value=0.0, step=1.0,
                         value=float(finalized_phase.sidewall_width_mm or 0.0), key=f"edit_runtime_sidewall_{finalized_phase.id}",
-                    )
-                    foaming_mode_options = [None] + FOAMING_MODES
-                    foaming_mode = c6.selectbox(
-                        "Foaming mode", foaming_mode_options,
-                        index=(
-                            foaming_mode_options.index(finalized_phase.foaming_mode)
-                            if finalized_phase.foaming_mode in FOAMING_MODES else 0
-                        ),
-                        format_func=lambda m: "— not set —" if m is None else m,
-                        key=f"edit_runtime_foaming_mode_{finalized_phase.id}",
-                    )
-                    top_flat_system_used = c7.selectbox(
-                        "Top-flat system in use?", [None, True, False],
-                        index=(
-                            0 if finalized_phase.top_flat_system_used is None
-                            else (1 if finalized_phase.top_flat_system_used else 2)
-                        ),
-                        format_func=lambda v: "— not set —" if v is None else ("Yes" if v else "No"),
-                        key=f"edit_runtime_topflat_{finalized_phase.id}",
                     )
 
                     st.markdown("**Ambient conditions**")
@@ -1820,8 +1621,6 @@ with tab_runtime:
                             finalized_phase.ambient_temperature_c = ambient_temperature_c or None
                             finalized_phase.ambient_humidity_pct = ambient_humidity_pct or None
                             finalized_phase.rise_time = rise_time or None
-                            finalized_phase.foaming_mode = foaming_mode
-                            finalized_phase.top_flat_system_used = top_flat_system_used
                             finalized_phase.sidewall_width_mm = sidewall_width_mm or None
                             finalized_phase.foam_height_mm = foam_height_mm or None
                             finalized_phase.meters_produced = meters_produced or None
@@ -1915,19 +1714,8 @@ with tab_runtime:
                         "Air pressure (bar)", min_value=0.0, step=0.05, key=f"new_runtime_air_pres_{run.id}"
                     )
 
-                    c5, c6, c7 = st.columns(3)
-                    sidewall_width_mm = c5.number_input(
+                    sidewall_width_mm = st.number_input(
                         "Tunnel width (mm)", min_value=0.0, step=1.0, key=f"new_runtime_sidewall_{run.id}"
-                    )
-                    foaming_mode = c6.selectbox(
-                        "Foaming mode", [None] + FOAMING_MODES,
-                        format_func=lambda m: "— not set —" if m is None else m,
-                        key=f"new_runtime_foaming_mode_{run.id}",
-                    )
-                    top_flat_system_used = c7.selectbox(
-                        "Top-flat system in use?", [None, True, False],
-                        format_func=lambda v: "— not set —" if v is None else ("Yes" if v else "No"),
-                        key=f"new_runtime_topflat_{run.id}",
                     )
 
                     st.markdown("**Ambient conditions**")
@@ -1975,8 +1763,6 @@ with tab_runtime:
                                     ambient_temperature_c=ambient_temperature_c or None,
                                     ambient_humidity_pct=ambient_humidity_pct or None,
                                     rise_time=rise_time or None,
-                                    foaming_mode=foaming_mode,
-                                    top_flat_system_used=top_flat_system_used,
                                     sidewall_width_mm=sidewall_width_mm or None,
                                     foam_height_mm=foam_height_mm or None,
                                     meters_produced=meters_produced or None,
@@ -2047,16 +1833,6 @@ with tab_runtime:
                                         ambient_temperature_c=row.get("ambient_temperature_c"),
                                         ambient_humidity_pct=row.get("ambient_humidity_pct"),
                                         rise_time=row.get("rise_time"),
-                                        foaming_mode=(
-                                            str(row.get("foaming_mode")).strip()
-                                            if str(row.get("foaming_mode", "") or "").strip() in FOAMING_MODES
-                                            else None
-                                        ),
-                                        top_flat_system_used=(
-                                            bool(row.get("top_flat_system_used"))
-                                            if pd.notna(row.get("top_flat_system_used"))
-                                            else None
-                                        ),
                                         sidewall_width_mm=row.get("sidewall_width_mm"),
                                         foam_height_mm=row.get("foam_height_mm"),
                                         meters_produced=row.get("meters_produced"),
@@ -2070,166 +1846,3 @@ with tab_runtime:
                                 msg += f" Skipped {len(dup)} row(s) whose run already has Runtime Data (likely a repeat click)."
                             set_pending_banner("runtime_import_msg", msg)
                             st.rerun()
-
-        with sub_fallplate:
-            st.caption(
-                "A fall-plate profile is a series of vertical positions at the plate joints/support "
-                "points between the trough outlet and the horizontal conveyor (point 1 nearest the "
-                "trough), not one overall plate angle - height above the conveyor datum is the primary "
-                "setting; angle is calculated from adjacent points (or recorded directly on older "
-                "machines). Requires Runtime Data to exist first for this run."
-            )
-            _expected_sections_rt = expected_fallplate_section_count(run.machine)
-            if _expected_sections_rt:
-                st.caption(
-                    f"This run's machine ({run.machine.model}) typically has **{_expected_sections_rt}** "
-                    "adjustable fall-plate sections."
-                )
-            if not finalized_phase:
-                st.info("Add Runtime Data for this run first (Create tab) before recording section positions.")
-            else:
-                # Fall-plate Positions is a page-specific sub-workflow nested
-                # inside "Tool Geometry and Fill Configuration" (itself a 4th,
-                # page-specific tab beyond CR-11's standard 3) - not one of the
-                # CR-11 mandated 3 functions, so only the wording/spacing is
-                # aligned here, not the tab order.
-                sub_fp_manual, sub_fp_import = st.tabs(["Manual entry", "CSV/Excel import Fall-plate Positions"])
-
-                with sub_fp_manual:
-                    with st.form(f"add_fallplate_section_runtime_{run.id}"):
-                        c1, c2 = st.columns(2)
-                        section_number = c1.number_input(
-                            "Fall-plate point ID *", min_value=1, step=1, value=1,
-                            help="1 = the point nearest the trough outlet, counting toward the conveyor.",
-                        )
-                        distance_from_trough_mm = c2.number_input(
-                            "Distance from trough outlet (mm, optional)", step=1.0
-                        )
-                        c3, c4 = st.columns(2)
-                        position_mm = c3.number_input("Height above conveyor datum (mm)", step=1.0)
-                        actuator_position = c4.number_input(
-                            "Raw actuator/encoder position (optional)", step=1.0,
-                            help="Only if this machine's HMI shows a raw screw/motor/encoder position "
-                            "rather than a calculated height.",
-                        )
-                        angle_deg = st.number_input(
-                            "Plate angle (degrees, calculated or recorded, optional)", step=0.5
-                        )
-                        fp_notes = st.text_area("Notes", key=f"fp_notes_runtime_{run.id}")
-                        submitted = st.form_submit_button("Save section position", disabled=not page_usable)
-                        if submitted and page_usable:
-                            session.add(
-                                FallplateSectionPosition(
-                                    production_phase_id=finalized_phase.id,
-                                    section_number=int(section_number),
-                                    distance_from_trough_mm=distance_from_trough_mm or None,
-                                    position_mm=position_mm or None,
-                                    actuator_position=actuator_position or None,
-                                    angle_deg=angle_deg or None,
-                                    notes=fp_notes,
-                                )
-                            )
-                            session.commit()
-                            st.success("Section position saved.")
-                            st.rerun()
-
-                with sub_fp_import:
-                    st.caption(
-                        "Required columns: " + ", ".join(FALLPLATE_REQUIRED_COLUMNS) + " (phase_name must be "
-                        "'Finalized'). Optional columns: " + ", ".join(FALLPLATE_OPTIONAL_COLUMNS)
-                    )
-                    uploaded_fp = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx"], key="fallplate_upload_runtime")
-                    if uploaded_fp and upload_within_size_limit(uploaded_fp):
-                        try:
-                            df_fp = (
-                                pd.read_csv(uploaded_fp) if uploaded_fp.name.endswith(".csv")
-                                else pd.read_excel(uploaded_fp)
-                            )
-                        except Exception as exc:
-                            st.error(f"Could not read file: {exc}")
-                            df_fp = None
-
-                        if df_fp is not None and import_within_row_limit(df_fp):
-                            missing_cols = [c for c in FALLPLATE_REQUIRED_COLUMNS if c not in df_fp.columns]
-                            if missing_cols:
-                                st.error(f"File is missing required column(s): {', '.join(missing_cols)}. Import rejected.")
-                            else:
-                                good_rows, bad_rows = [], []
-                                for _, row in df_fp.iterrows():
-                                    match = (
-                                        row.get("production_run_id") == run.id
-                                        and row.get("phase_name") == "Finalized"
-                                        and row.get("section_number") is not None
-                                    )
-                                    if match:
-                                        good_rows.append(row)
-                                    else:
-                                        bad_rows.append(row)
-
-                                st.write(
-                                    f"Rows ready to import: **{len(good_rows)}** | "
-                                    f"Rows flagged/rejected: **{len(bad_rows)}**"
-                                )
-                                if bad_rows:
-                                    st.warning(
-                                        f"Flagged rows don't match Run #{run.id}'s Finalized phase, or are "
-                                        "missing section_number."
-                                    )
-                                    render_data_table(pd.DataFrame(bad_rows), max_height="300px")
-
-                                if good_rows and st.button("Confirm import", key="confirm_fallplate_import_runtime", disabled=not page_usable):
-                                    existing_keys = {
-                                        (s.production_phase_id, s.section_number)
-                                        for s in session.query(FallplateSectionPosition).all()
-                                    }
-                                    accept, dup = [], []
-                                    for row in good_rows:
-                                        key = (finalized_phase.id, int(row["section_number"]))
-                                        if key in existing_keys:
-                                            dup.append(row)
-                                        else:
-                                            existing_keys.add(key)
-                                            accept.append(row)
-
-                                    for row in accept:
-                                        session.add(
-                                            FallplateSectionPosition(
-                                                production_phase_id=finalized_phase.id,
-                                                section_number=int(row["section_number"]),
-                                                distance_from_trough_mm=row.get("distance_from_trough_mm"),
-                                                position_mm=row.get("position_mm"),
-                                                actuator_position=row.get("actuator_position"),
-                                                angle_deg=row.get("angle_deg"),
-                                                notes=str(row.get("notes", "") or ""),
-                                            )
-                                        )
-                                    session.commit()
-                                    msg = f"Imported {len(accept)} section position(s) from {uploaded_fp.name}."
-                                    if dup:
-                                        msg += f" Skipped {len(dup)} row(s) already recorded for that section (likely a repeat click)."
-                                    st.success(msg)
-                                    st.rerun()
-
-                recent_fp = (
-                    session.query(FallplateSectionPosition)
-                    .filter(FallplateSectionPosition.production_phase_id == finalized_phase.id)
-                    .order_by(FallplateSectionPosition.id.desc())
-                    .all()
-                )
-                if recent_fp:
-                    render_data_table(
-                        pd.DataFrame(
-                            [
-                                {
-                                    "Point ID": fp.section_number,
-                                    "Distance from trough (mm)": fp.distance_from_trough_mm,
-                                    "Height above datum (mm)": fp.position_mm,
-                                    "Actuator position": fp.actuator_position,
-                                    "Angle (deg)": fp.angle_deg,
-                                    "Notes": fp.notes,
-                                }
-                                for fp in recent_fp
-                            ]
-                        ),
-                        max_height="300px",
-                    )

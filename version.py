@@ -4645,4 +4645,97 @@ sibling app checkout isn't present in this session) - unrelated to CR-19,
 zero CR-19 acceptance paths skipped.
 """
 
-APP_VERSION = "0.37.0"
+VERSION_0_38_0_NOTES = """
+v0.38.0 (2026-08-13): WP7 Phase 0 (Contain inherited Flexible Foam
+functionality) - the first of six sequential phases of WP7, Production
+Run Domain Redesign (per WP7_Production_Run_Domain_Redesign_Converged_
+Execution_Approach_for_JC.docx, section 6).
+
+Scope (narrowed during design to 3 concrete concepts, all confirmed to be
+structural inheritance from the Flexible Foam/slabstock sibling app's
+2026-08-03 fork baseline, not Rigid-relevant controls):
+1. The FallplateSectionPosition "Tool Geometry and Fill Configuration"
+   sub-workflow (manual entry + CSV/Excel import), on both Setup Data and
+   Runtime Data.
+2. foaming_mode (FOAMING_MODES controlled vocabulary: LLD/Trough/
+   Traverse - a slabstock line-configuration concept).
+3. top_flat_system_used (universal boolean).
+
+Governing principle: "Contain, don't delete" - zero schema/DB changes.
+FOAMING_MODES, FallplateSectionPosition, and the foaming_mode/
+top_flat_system_used columns on ProductionPhase all remain fully defined
+in db.py; existing rows and column values are untouched and stay directly
+readable off the ORM. Only ACTIVE UI rendering, CSV/Excel import parsing,
+report generation, and analytics ranking were removed.
+
+Files changed:
+- pages/4_Production_Run_Trial_Record.py: removed the "Foaming mode"
+  dropdown, the "Top-flat system in use?" checkbox, and the entire "Tool
+  Geometry and Fill Configuration" fall-plate sub-tab from both Setup
+  Data's and Runtime Data's Create/Edit forms and CSV import parsing;
+  each group's st.tabs() collapsed from 4 tabs to the standard CR-11
+  3-tab (Create/Edit-Delete/Import) form. FallplateSectionPosition import
+  kept for _delete_phase_cascade's legitimate cascade-delete cleanup of
+  historical rows - the only surviving live reference.
+- analytics.py: top_flat_system_used removed from PHASE_SETTING_FIELDS,
+  PHASE_SETTING_LABELS, BOOLEAN_SETTING_FIELDS (now empty), and
+  PHASE1_RIGID_INELIGIBLE_SETTINGS - stronger than the pre-existing
+  Phase-1-rigid-conditional exclusion it replaced, since it's now
+  out of scope for every grade, not just confirmed-rigid ones.
+- reports.py: _setup_vs_finalized_deviations() no longer flags a
+  foaming_mode difference between Setup and Finalized; the
+  _fallplate_deviations() function and its "fallplate_deviations"
+  data-dict key, story/_docx_section render calls were removed entirely
+  from the Batch Release report.
+- pages/21_Report.py: removed the on-screen "Tool geometry and fill
+  configuration changes" table render tied to the removed data key.
+
+Out of scope, confirmed and left untouched (flagged for later WP7
+phases or as pre-existing, unrelated findings): conveyor_speed,
+air_injection_rate, air_pressure_bar, sidewall_width_mm, mixer_rpm;
+demo_data.py's two ProductionPhase(...) seed calls still passing
+foaming_mode=/top_flat_system_used= kwargs (dead/unused per CR-18
+precedent, columns still exist so no runtime error); quality_issue_
+taxonomy.py; pages/31_Production_Equipment.py; gen_uat011_014_reports_v4.py;
+gen_uat015_019_live_pages.py.
+
+Tests: new tests/test_wp7_phase0_containment.py (14 tests) - source-grep
+evidence that the 4 edited surfaces have zero live (non-comment) code
+references to FallplateSectionPosition/FOAMING_MODES/foaming_mode/
+top_flat_system_used outside the one confirmed exception
+(_delete_phase_cascade); Setup Data and Runtime Data st.tabs() call
+sites confirmed collapsed to the 3-tab form; AppTest evidence that
+neither tab renders a foaming-mode or top-flat-system widget; a Create-
+via-form test and a CSV-import test (using a CSV that still has the two
+retired columns, simulating an old template) both confirming the active
+path no longer populates those columns; analytics.py unit tests
+confirming all four field/label collections exclude top_flat_system_used,
+including against a phase that has the value populated; reports.py unit
+tests confirming _setup_vs_finalized_deviations() and
+build_batch_release_record_data() no longer surface foaming-mode/fall-
+plate content, run against a fixture engineered to differ on exactly
+those retired fields. The core containment proof
+(test_historical_run_with_fallplate_and_foaming_mode_data_still_loads_
+and_is_readable) seeds a run with pre-existing foaming_mode/
+top_flat_system_used values and an attached FallplateSectionPosition row
+directly via the ORM (standing in for real data written before this
+change shipped), confirms the live page loads with no exception, and
+confirms every one of those values is still directly readable and
+unaltered off the ORM afterward.
+
+Also fixed in this batch: tests/test_cr18_product_family_terminology.py's
+hardcoded ALLOWED_FOAM_FAMILY_HITS allowlist had 7 stale analytics.py
+line numbers (295/309/340/608/683/1169/1334), made stale by this same
+batch's explanatory comment insertions shifting every subsequent line in
+that file by a consistent +7. Updated to the correct current line numbers
+(302/316/347/615/690/1176/1341) - same allowlisted comment text, new
+positions, not a new finding.
+
+Full regression suite: 426 passed, 2 skipped, 0 failures (412 pre-existing
++ 14 new via test_wp7_phase0_containment.py). The 2 skips are the same
+pre-existing, environment-conditional Flexible-Foam-sibling-app-
+comparison tests noted in prior version-notes blocks - unrelated to WP7
+Phase 0.
+"""
+
+APP_VERSION = "0.38.0"
