@@ -4386,4 +4386,53 @@ same pre-existing Flexible-Foam-sibling-app-not-present skips noted in
 every prior CR - unrelated to this change.
 """
 
-APP_VERSION = "0.34.0"
+VERSION_0_35_0_NOTES = """
+v0.34.0 -> v0.35.0 (2026-08-13, CR-16: Consolidate Overview Dashboard
+Filters into a Unified Layout).
+
+What changed: app_rigid_foam.py's render_overview() previously rendered
+its filters as a 5-column primary row (Plant, Production Method,
+Production Unit / Cell, Product Grade, Date range) plus a separate
+collapsed "Advanced filter (optional)" expander containing only the
+Product Family selectbox - meaning a user had to open that expander to
+see or use Product Family at all. Per Charlie's
+CR16_Consolidate_Overview_Dashboard_Filters_into_Unified_Layout.docx, the
+expander is removed and all six filters now render directly in one
+two-row, three-column layout: Row 1 is Plant, Production Method,
+Production Unit / Cell; Row 2 is Product Family, Product Grade, Date
+range. Product Family's help text was shortened from "Commercial
+classification only - narrows Product Grade below, does not scope KPIs
+on its own." to "Optional classification - narrows Product Grade below,
+does not scope KPIs on its own." per the CR's allowance to reword for the
+new context.
+
+This is a presentation-only change. Every cascading rule CR-02 established
+(Plant -> Production Method -> Production Unit / Cell -> Product Grade,
+with Product Family narrowing Product Grade's options only) and every
+KPI-scoping rule (Product Family never independently scopes a KPI; trial
+records folded in only when neither Method nor Unit is selected; Output
+Quantity and Unit only for a single selected Production Method) is
+byte-for-byte the same logic as before - only which column each widget
+renders in moved. No schema change, no Supabase migration.
+
+Tests: new tests/test_cr16_unified_filter_layout.py (6 tests) - the
+Advanced filter expander is gone, all six filters render in the exact new
+row order, Product Family's help text matches the reworded copy, the Date
+range default is still year-to-date, a full top-to-bottom filtering
+session raises no unhandled exception, and a direct regression proving
+Product Family narrows Product Grade's options without reducing the
+Production runs KPI (two grades on the same machine/method, differing
+only by Product Family - selecting Product Family alone leaves the KPI
+at 2 while narrowing the Grade dropdown to 1). tests/test_cr02_overview_
+pm_alignment.py's 6 pre-existing tests (filter cascade, cross-method KPI
+isolation, cross-plant leak prevention) were re-run standalone first and
+pass unchanged against the new layout - direct evidence this CR did not
+alter any preserved logic.
+
+Full regression suite: 383 passed, 2 skipped, 0 failures (377
+pre-existing + 6 new via test_cr16_unified_filter_layout.py). The 2 skips
+are the same pre-existing Flexible-Foam-sibling-app-not-present skips
+noted in every prior CR - unrelated to this change.
+"""
+
+APP_VERSION = "0.35.0"

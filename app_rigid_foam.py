@@ -109,6 +109,16 @@ def render_overview():
     that only narrows the Product Grade dropdown's options, never a
     separate KPI scope.
 
+    CR-16 (Consolidate Overview Dashboard Filters into a Unified Layout,
+    2026-08-13): removed that "Advanced filter (optional)" expander -
+    Product Family now sits directly in the visible filter area, on its
+    own second row alongside Product Grade and Date range (Row 1: Plant,
+    Production Method, Production Unit / Cell; Row 2: Product Family,
+    Product Grade, Date range), so all six filters are visible without
+    an extra click. This is presentation-only: every cascading rule and
+    KPI-scoping rule below (including Product Family narrowing Product
+    Grade without independently scoping any KPI) is unchanged from CR-02.
+
     KPI aggregation rules (CR-02 section 6): the old "Meters produced /
     Kg produced" cards assumed a Flexible Foam/continuous-slabstock
     production model and are removed outright. In their place, a single
@@ -157,24 +167,21 @@ def render_overview():
 
     session = get_session()
 
-    # --- Advanced filter (optional) - CR-02 section 3: Product Family is
-    # a commercial classification, not part of the primary operating
-    # hierarchy. It only narrows which grades the Product Grade dropdown
-    # below offers; it never scopes a KPI on its own. ---------------------
-    with st.expander("Advanced filter (optional)"):
-        family_filter = st.selectbox(
-            "Product Family", [None] + session.query(ProductFamily).all(),
-            format_func=lambda f: "All product families" if f is None else f.name,
-            help="Commercial classification only - narrows Product Grade below, does not scope KPIs on its own.",
-        )
-
-    # --- Primary filter row: Plant -> Production Method -> Production
-    # Unit / Cell -> Product Grade -> Date Range (CR-02's approved order).
-    # Each selection cascades into the next. -----------------------------
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # --- Unified filter area (CR-16, 2026-08-13, per Charlie's
+    # "CR16_Consolidate_Overview_Dashboard_Filters_into_Unified_Layout.docx"):
+    # replaces the old "Advanced filter (optional)" expander (Product
+    # Family alone) plus a separate 5-column primary row with one visible
+    # two-row, three-column filter area - Row 1: Plant, Production Method,
+    # Production Unit / Cell; Row 2: Product Family, Product Grade, Date
+    # range. This is a presentation-only change: every cascading rule
+    # below is byte-for-byte the same logic CR-02 established (Plant ->
+    # Production Method -> Production Unit / Cell -> Product Grade, with
+    # Product Family narrowing Product Grade only, never an independent
+    # KPI scope) - only the widget layout moved. -------------------------
+    row1_col1, row1_col2, row1_col3 = st.columns(3)
 
     plants = session.query(Plant).all()
-    with col1:
+    with row1_col1:
         plant_filter = st.selectbox(
             "Plant", [None] + plants, format_func=lambda p: "All plants" if p is None else p.name
         )
@@ -183,7 +190,7 @@ def render_overview():
         activated_methods_for_plant(session, plant_filter.id) if plant_filter
         else all_production_methods(session)
     )
-    with col2:
+    with row1_col2:
         method_filter = st.selectbox(
             "Production Method", [None] + method_options,
             format_func=lambda m: "All Production Methods" if m is None else m.name,
@@ -197,10 +204,24 @@ def render_overview():
         machine_options = session.query(Machine).filter(Machine.production_method_id == method_filter.id).all()
     else:
         machine_options = session.query(Machine).all()
-    with col3:
+    with row1_col3:
         machine_filter = st.selectbox(
             "Production Unit / Cell", [None] + machine_options,
             format_func=lambda m: "All units" if m is None else m.name,
+        )
+
+    row2_col1, row2_col2, row2_col3 = st.columns(3)
+
+    # Product Family (CR-02: a commercial classification, not part of the
+    # primary operating hierarchy - only narrows Product Grade below,
+    # never a separate KPI scope; CR-16: moved out of the removed
+    # "Advanced filter" expander into this same visible row as Product
+    # Grade so their relationship is immediately understandable).
+    with row2_col1:
+        family_filter = st.selectbox(
+            "Product Family", [None] + session.query(ProductFamily).all(),
+            format_func=lambda f: "All product families" if f is None else f.name,
+            help="Optional classification - narrows Product Grade below, does not scope KPIs on its own.",
         )
 
     # Plant scoping is applied whenever a Plant is picked (via the grade's
@@ -220,12 +241,12 @@ def render_overview():
     if family_filter:
         grades_query = grades_query.filter(FoamGrade.product_family_id == family_filter.id)
     grades = grades_query.all()
-    with col4:
+    with row2_col2:
         grade_filter = st.selectbox(
             "Product Grade", [None] + grades, format_func=lambda g: "All grades" if g is None else g.grade_name
         )
 
-    with col5:
+    with row2_col3:
         date_range = st.date_input(
             "Date range",
             value=(dt.date(dt.date.today().year, 1, 1), dt.date.today()),
