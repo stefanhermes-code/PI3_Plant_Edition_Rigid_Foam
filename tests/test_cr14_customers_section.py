@@ -840,12 +840,16 @@ def test_customer_trial_edit_requires_customer_selection(seeded_legacy_trial):
 
 
 def test_customer_trial_csv_import_auto_links_exact_match_customer_name(seeded_grade_and_customer):
-    """Acceptance criteria 9, 10: importing a CSV row whose customer_name
-    exactly matches an existing Customer master row auto-links
-    customer_id via the exact-match lookup built into the import handler,
-    while a row whose customer_name matches nothing still imports
-    successfully with customer_id left NULL (never blocked, never
-    guessed)."""
+    """Acceptance criteria 9, 10. Charlie's CR-14 closeout review
+    (2026-08-13) flagged that a CSV row with no exact Customer match
+    originally imported with customer_id left NULL - a customer-
+    identification path outside the Customer master. Corrected so import
+    now uses the same exact-match-or-create rule as
+    cascades.backfill_trial_customers(): an exact customer_name match
+    auto-links customer_id to the existing Customer, and a non-matching
+    name auto-creates a new Customer master record and links to that
+    instead - every imported row ends up linked to a valid Customer,
+    never with customer_id empty."""
     ids = seeded_grade_and_customer
     at = _run(PAGE_CUSTOMER_TRIALS)
 
@@ -876,11 +880,64 @@ def test_customer_trial_csv_import_auto_links_exact_match_customer_name(seeded_g
         .first()
     )
     assert matched is not None and matched.customer_id == ids["customer_id"], (
-        "An exact customer_name match on import must auto-link customer_id"
+        "An exact customer_name match on import must auto-link customer_id to the existing Customer"
     )
-    assert unmatched is not None and unmatched.customer_id is None, (
-        "An unmatched customer_name must still import successfully with customer_id left NULL"
+    assert unmatched is not None and unmatched.customer_id is not None, (
+        "An unmatched customer_name must never import with customer_id left NULL - it must "
+        "auto-create a new Customer and link to it"
     )
+    new_customer = session.get(db.Customer, unmatched.customer_id)
+    assert new_customer is not None and new_customer.company_name == "CR14 Import Unmatched Customer Name", (
+        "The auto-created Customer must carry the imported row's exact customer_name"
+    )
+    assert new_customer.company_id == ids["company_id"], (
+        "The auto-created Customer must be scoped to the importing row's own company"
+    )
+    session.close()
+
+
+def test_customer_trial_csv_import_never_persists_unlinked_customer_id(seeded_grade_and_customer):
+    """Regression requirement from Charlie's CR-14 closeout review
+    (2026-08-13): 'Add an executed regression test proving an unmatched
+    imported customer cannot result in a persisted Customer Trial with
+    customer_id empty.' Imports a batch of rows with no Customer master
+    match at all (fresh company, zero pre-existing Customers) and asserts
+    every single persisted CustomerTrial row has a non-NULL customer_id
+    pointing at a real Customer row."""
+    ids = seeded_grade_and_customer
+    at = _run(PAGE_CUSTOMER_TRIALS)
+
+    csv_bytes = (
+        "foam_grade_id,customer_name\n"
+        f"{ids['grade_id']},CR14 Regress Unlinked Customer A\n"
+        f"{ids['grade_id']},CR14 Regress Unlinked Customer B\n"
+    ).encode()
+    uploader = next(u for u in at.file_uploader if u.key == "ct_trial_upload")
+    uploader.set_value(("trials.csv", csv_bytes, "text/csv"))
+    at.run()
+    assert not at.exception, f"Unhandled exception after uploading the CSV: {at.exception}"
+
+    confirm_btn = next(b for b in at.button if b.key == "confirm_ct_trial_import")
+    confirm_btn.click()
+    at.run()
+    assert not at.exception, f"Unhandled exception confirming the import: {at.exception}"
+
+    session = db.get_session()
+    imported = (
+        session.query(db.CustomerTrial)
+        .filter(db.CustomerTrial.customer_name.in_(
+            ["CR14 Regress Unlinked Customer A", "CR14 Regress Unlinked Customer B"]
+        ))
+        .all()
+    )
+    assert len(imported) == 2, "Both rows must have imported"
+    for trial in imported:
+        assert trial.customer_id is not None, (
+            f"CustomerTrial #{trial.id} ('{trial.customer_name}') persisted with customer_id "
+            "empty - every normal import path must produce a linked Customer Trial"
+        )
+        linked_customer = session.get(db.Customer, trial.customer_id)
+        assert linked_customer is not None and linked_customer.company_name == trial.customer_name
     session.close()
 
 

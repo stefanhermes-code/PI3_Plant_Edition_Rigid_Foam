@@ -4274,4 +4274,44 @@ same pre-existing Flexible-Foam-sibling-app-not-present skips noted in
 every prior CR - unrelated to this change.
 """
 
-APP_VERSION = "0.33.8"
+VERSION_0_33_9_NOTES = """
+v0.33.8 -> v0.33.9 (2026-08-13, CR-14 closeout correction, per Charlie's
+"CR14_Closeout_Review_Return_to_JC.docx" - one material gap flagged,
+everything else in CR-14 accepted as-is).
+
+What changed: pages/11_Customer_Trials.py's CSV/Excel Trial importer
+previously left customer_id NULL on a row whose customer_name had no
+exact Customer master match, while still importing the trial - a
+customer-identification path outside the Customer master, inconsistent
+with Create/Edit which both require a Customer picked from the master.
+Corrected to use the same exact-match-or-create rule
+cascades.backfill_trial_customers() already uses for historical rows: an
+exact, case-insensitive, company-scoped customer_name match links to the
+existing Customer; no match creates a new Customer in the same import
+transaction and links to that instead. Every imported Customer Trial now
+ends up linked to a valid company-scoped Customer master record - no
+normal post-CR-14 path can create an unlinked trial customer, closing
+Charlie's flagged closure gate. The lookup is keyed by (company_id, name)
+rather than name alone, so a platform owner viewing "All companies" can't
+cross-link two different companies' same-named customers. Create and Edit
+were already correct per Charlie's review and were left unchanged.
+
+Tests: tests/test_cr14_customers_section.py's
+test_customer_trial_csv_import_auto_links_exact_match_customer_name
+updated to assert the unmatched row now auto-creates and links a new
+Customer (company-scoped, exact name preserved) instead of asserting
+customer_id stays NULL. New test
+test_customer_trial_csv_import_never_persists_unlinked_customer_id added
+per Charlie's explicit instruction to prove an unmatched imported
+customer cannot result in a persisted Customer Trial with customer_id
+empty - imports a batch of rows against a company with zero pre-existing
+Customers and asserts every persisted row has a non-NULL customer_id
+pointing at a real Customer.
+
+Full regression suite: 365 passed, 2 skipped, 0 failures (364 pre-existing
++ 1 new test). The 2 skips are the same pre-existing Flexible-Foam-
+sibling-app-not-present skips noted in every prior CR - unrelated to this
+change.
+"""
+
+APP_VERSION = "0.33.9"

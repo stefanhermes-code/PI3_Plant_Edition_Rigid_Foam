@@ -41,6 +41,16 @@ NULL) are handled by cascades.backfill_trial_customers() - see that
 function's own docstring for how existing customer_name text values are
 mapped onto Customer records without ever silently merging two
 different-looking names into one.
+
+CR-14 closeout review correction (Charlie, 2026-08-13): the CSV/Excel
+Trial importer originally left customer_id empty for an unmatched
+customer_name, creating a customer-identification path outside the
+Customer master. Fixed so import now uses the same exact-match-or-create
+rule as cascades.backfill_trial_customers(): an exact, case-insensitive,
+company-scoped customer_name match links to the existing Customer; no
+match creates a new Customer in the same import transaction and links to
+that instead. Every imported trial ends up linked to a valid Customer
+master record - see the CSV import section below.
 """
 
 import pandas as pd
@@ -428,7 +438,10 @@ with tab_import:
         "Required columns: foam_grade_id, customer_name. Optional columns: sales_opportunity_reference, "
         "requested_by, trial_objective, responsible_person, trial_date, batch_reference, notes. "
         "foam_grade_id must be one of your product grades; recipe version is auto-resolved from the grade's "
-        "active version; status is always set to Open."
+        "active version; status is always set to Open. customer_name is matched to an existing Customer "
+        "master record by exact name (case-insensitive); if no match exists, a new Customer is created "
+        "automatically and the trial is linked to it - every imported trial ends up linked to a Customer, "
+        "never just a free-text name."
     )
     trial_df, trial_filename = csv_excel_uploader(TRIAL_REQUIRED_COLUMNS, TRIAL_OPTIONAL_COLUMNS, key="ct_trial_upload")
     if trial_df is not None:
@@ -463,26 +476,40 @@ with tab_import:
 
             new_trial_rows, dup_trial_rows = dedupe_import_rows(good_trial_rows, existing_trial_keys, key_func=_trial_dedupe_key)
             grades_by_id = {g.id: g for g in grades}
-            # CR-14: best-effort auto-link to the Customer master by exact,
-            # case-insensitive name match within scope - never a fuzzy/
-            # partial match, so an import row is either confidently linked
-            # or left customer_id=None (still fully usable via its own
-            # customer_name text) rather than silently attached to the
-            # wrong customer.
-            customers_by_name = {c.company_name.strip().lower(): c for c in customers}
+            # CR-14 Charlie review correction (2026-08-13): every imported
+            # Customer Trial must end up linked to a company-scoped Customer
+            # master record, matching the integrity rule Create/Edit already
+            # enforce via their Customer selectbox. An exact, case-insensitive
+            # customer_name match links to the existing Customer; when no
+            # match exists, a new Customer is created in the same import
+            # transaction and the trial links to that instead - never left
+            # with customer_id empty. This is the same exact-match-or-create
+            # rule cascades.backfill_trial_customers() uses for historical
+            # rows, so import behaves identically to a backfill. Keyed by
+            # (company_id, name) rather than name alone so a platform owner
+            # viewing "All companies" can't cross-link two different
+            # companies' same-named customers.
+            customers_by_key = {(c.company_id, c.company_name.strip().lower()): c for c in customers}
             for row in new_trial_rows:
                 grade_id_val = int(row["foam_grade_id"])
                 grade_obj = grades_by_id[grade_id_val]
                 trial_date_val = pd.to_datetime(row.get("trial_date"), errors="coerce")
                 row_customer_name = str(row["customer_name"]).strip()
-                matched_customer = customers_by_name.get(row_customer_name.lower())
+                row_company_id = grade_obj.product_family.plant.company_id
+                lookup_key = (row_company_id, row_customer_name.lower())
+                matched_customer = customers_by_key.get(lookup_key)
+                if matched_customer is None:
+                    matched_customer = Customer(company_id=row_company_id, company_name=row_customer_name)
+                    session.add(matched_customer)
+                    session.flush()
+                    customers_by_key[lookup_key] = matched_customer
                 session.add(
                     CustomerTrial(
                         plant_id=grade_obj.product_family.plant_id,
                         foam_grade_id=grade_id_val,
                         recipe_version_id=_resolve_recipe_version(grade_id_val),
-                        customer_id=matched_customer.id if matched_customer else None,
-                        customer_name=row_customer_name,
+                        customer_id=matched_customer.id,
+                        customer_name=matched_customer.company_name,
                         sales_opportunity_reference=str(row.get("sales_opportunity_reference", "") or ""),
                         requested_by=str(row.get("requested_by", "") or ""),
                         trial_objective=str(row.get("trial_objective", "") or ""),
