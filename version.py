@@ -4435,4 +4435,48 @@ are the same pre-existing Flexible-Foam-sibling-app-not-present skips
 noted in every prior CR - unrelated to this change.
 """
 
-APP_VERSION = "0.35.0"
+VERSION_0_35_1_NOTES = """
+v0.35.0 -> v0.35.1 (2026-08-13, CR-17: Restore Customer Trials & Samples
+to Samples & Trials Navigation).
+
+What changed: CR-14 (2026-08-12) had moved Customer Trials & Samples out
+of "Samples & Trials" and into the new "Customers" section, second after
+the new Customers master page. Stefan clarified the trial page belongs
+with the application's trial/sample workflows, not the Customers master
+section, so this CR restores it to Samples & Trials in its pre-CR-14
+position: app_rigid_foam.py's experiment_pages list is now Production
+Samples, Customer Trials & Samples, Optimization Trials & Samples, in
+that order; customer_pages now contains only the Customers master page.
+Both nav-section keys ("Customers", "Samples & Trials") and their mapping
+in nav_sections_with_keys are unchanged - only which list feeds which
+section's contents moved.
+
+This is a navigation-placement-only change. The customer_trials page_key
+and its access-control behavior are untouched, and every CR-14
+Customer-relationship behavior (customer selection, customer_id linkage,
+customer_name synchronization, CSV/Excel import auto-create) is
+unaffected - pages/11_Customer_Trials.py itself was not edited by this
+CR. No database schema change, no Supabase migration.
+
+Tests: new tests/test_cr17_nav_restore.py (7 tests) - Customers section
+contains only the Customers page; Samples & Trials lists all three pages
+in the required order; both section-to-list mappings are wired correctly;
+exactly one Customer Trials & Samples page registration exists app-wide;
+the customer_trials page_key remains registered in access_control.
+PAGE_CATALOG; the page opens with no unhandled exception from its
+restored location; app_rigid_foam.py itself compiles cleanly.
+tests/test_cr14_customers_section.py's nav-placement test (test_
+customers_section_registered_in_nav_with_correct_order) was updated in
+place to assert the corrected (current) layout instead of CR-14's
+original placement - its other 32 tests (Customer master CRUD,
+CustomerTrial.customer_id linkage, CSV/Excel import auto-create, company
+scoping, permission gating) were re-run standalone, unmodified, and all
+pass: 33 passed.
+
+Full regression suite: 390 passed, 2 skipped, 0 failures (383
+pre-existing + 7 new via test_cr17_nav_restore.py). The 2 skips are the
+same pre-existing Flexible-Foam-sibling-app-not-present skips noted in
+every prior CR - unrelated to this change.
+"""
+
+APP_VERSION = "0.35.1"

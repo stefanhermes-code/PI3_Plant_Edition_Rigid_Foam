@@ -466,22 +466,33 @@ production_pages = [
     ("production_run", st.Page("pages/4_Production_Run_Trial_Record.py", title="Production Runs", icon="⚙️")),
 ]
 
+# CR-17 (Restore Customer Trials & Samples to Samples & Trials Navigation,
+# 2026-08-13): Customer Trials & Samples lives here again, between
+# Production Samples and Optimization Trials & Samples - its pre-CR-14
+# position, per Stefan's direction that the trial page belongs with the
+# application's trial/sample workflows, not the Customers master section.
+# This is a navigation-only correction: the customer_trials page key,
+# its access-control behavior, and every CR-14 Customer-relationship
+# behavior (customer selection, customer_id linkage, customer_name
+# synchronization, CSV/Excel import auto-create) are unchanged - see
+# pages/11_Customer_Trials.py itself, which was not touched by this CR.
 experiment_pages = [
     ("samples_conditioning", st.Page("pages/9_Samples_Conditioning.py", title="Production Samples", icon="🧊")),
+    ("customer_trials", st.Page("pages/11_Customer_Trials.py", title="Customer Trials & Samples", icon="🤝")),
     ("optimization_trials", st.Page("pages/12_Optimization_Trials.py", title="Optimization Trials & Samples", icon="🚀")),
 ]
 
 # CR-14 (Create Customers Section and Lightweight Customer Master),
-# implemented 2026-08-12: a dedicated "Customers" section, with the new
-# Customers master page first, then Customer Trials & Samples - moved out
-# of experiment_pages/"Samples & Trials" above, per CR-14 section 2's
-# mandated order. Optimization Trials & Samples stays in "Samples & Trials"
-# unaffected - CR-14 is scoped to Customer Trials & Samples specifically
-# (an internally-driven Performance Improvement trial has no "customer" of
-# its own to connect to a Customer master).
+# implemented 2026-08-12: introduced a dedicated "Customers" section for
+# the new Customers master page. CR-14 originally also moved Customer
+# Trials & Samples into this section (second, after Customers) - CR-17
+# (2026-08-13) reversed that placement per Stefan's direction (see
+# experiment_pages above): Customers now holds only the Customers master
+# page itself, its sole reason for existing. The CR-14 Customer master
+# and its relationship to Customer Trial records are otherwise completely
+# unaffected by this navigation correction.
 customer_pages = [
     ("customers", st.Page("pages/33_Customers.py", title="Customers", icon="🧾")),
-    ("customer_trials", st.Page("pages/11_Customer_Trials.py", title="Customer Trials & Samples", icon="🤝")),
 ]
 
 # Split out from Production 2026-08-04 per user direction (segregation of
@@ -553,10 +564,16 @@ platform_admin_pages = [
 #
 # CR-14 (Create Customers Section and Lightweight Customer Master),
 # implemented 2026-08-12: a new "Customers" section is inserted between
-# Production and Samples & Trials - Customer Trials & Samples moved out of
-# Samples & Trials into it (now second, after the new Customers master
-# page, per CR-14 section 2's mandated order). Samples & Trials keeps
-# Production Samples and Optimization Trials & Samples.
+# Production and Samples & Trials, holding the new Customers master page.
+#
+# CR-17 (Restore Customer Trials & Samples to Samples & Trials Navigation),
+# implemented 2026-08-13: CR-14 had also moved Customer Trials & Samples
+# into the new Customers section (second, after Customers). Stefan
+# clarified the trial page belongs with the application's trial/sample
+# workflows, not the Customers master section, so CR-17 restores it to
+# Samples & Trials in its pre-CR-14 position - between Production Samples
+# and Optimization Trials & Samples (see experiment_pages/customer_pages
+# above). Customers now contains only the Customers master page itself.
 #
 # CR-05 (Default User Role Inheritance and Platform Admin Separation),
 # implemented 2026-08-11: the nav section for the platform-owner-only pages

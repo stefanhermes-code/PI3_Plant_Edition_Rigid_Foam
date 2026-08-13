@@ -17,6 +17,19 @@ customer_name is kept as a synced display-only text snapshot (see both
 pages' own module docstrings) so every existing reader of customer_name
 elsewhere keeps working unchanged.
 
+NOTE (CR-17, 2026-08-13): the "Customer Trials & Samples moved into
+Customers" part of the placement above was later reversed by CR-17
+(Restore Customer Trials & Samples to Samples & Trials Navigation) -
+Stefan clarified the trial page belongs with the application's
+trial/sample workflows, not the Customers master section. Customers now
+holds only the Customers master page; Customer Trials & Samples is back
+in Samples & Trials. test_customers_section_registered_in_nav_with_
+correct_order below was updated in place to assert the corrected
+(current) layout. Every other CR-14 behavior described above and tested
+in this file - the Customer master itself, its permission gate, and the
+CustomerTrial.customer_id relationship/CSV import linkage - is unaffected
+by CR-17 and still fully covered by the rest of this file.
+
 Reuses the same established, already-verified patterns from
 tests/test_cr13_suppliers_standalone_page.py and
 tests/test_cr10_product_family_grade_split.py:
@@ -103,17 +116,25 @@ def test_customers_page_key_registered_in_page_catalog():
 
 
 def test_customers_section_registered_in_nav_with_correct_order():
-    """Acceptance criteria 1, 2, 8: app_rigid_foam.py defines a
-    customer_pages list containing exactly Customers then Customer Trials
-    & Samples in that order, registered under a "Customers" nav-section
-    key, positioned between "Production" and "Samples & Trials" per the
-    implementation notes in this CR's own comment block.
+    """Acceptance criteria 1, 2, 8, as corrected by CR-17 (Restore Customer
+    Trials & Samples to Samples & Trials Navigation, 2026-08-13): CR-14
+    originally placed Customer Trials & Samples inside customer_pages,
+    after Customers. This test's assertions were updated for CR-17, which
+    reversed that specific placement per Stefan's direction - Customers now
+    contains only the Customers master page, and Customer Trials & Samples
+    is back in experiment_pages/"Samples & Trials" (between Production
+    Samples and Optimization Trials & Samples). CR-14's own dedicated
+    "Customers" nav section, its "customers" page_key, and the
+    CustomerTrial->Customer relationship are otherwise untouched - see
+    tests/test_cr17_nav_restore.py for CR-17's own full nav-placement
+    evidence; this test keeps CR-14's own acceptance-criteria numbering
+    but now asserts the corrected (current) layout, not history.
 
     app_rigid_foam.py is a Streamlit script (calls st.navigation()/
     st.sidebar at import time) - importing it directly outside AppTest
     isn't safe (see tests/test_cr10_product_family_grade_split.py's own
-    reasoning), so this greps the module source for the customer_pages
-    list literal instead of executing the file."""
+    reasoning), so this greps the module source for the page-list literals
+    instead of executing the file."""
     with open(os.path.join(APP_DIR, "app_rigid_foam.py"), encoding="utf-8") as f:
         source = f.read()
 
@@ -121,29 +142,35 @@ def test_customers_section_registered_in_nav_with_correct_order():
     end = source.index("]", start)
     block = source[start:end]
     assert '"customers"' in block
-    assert '"customer_trials"' in block
     assert 'st.Page("pages/33_Customers.py"' in block
-    assert 'st.Page("pages/11_Customer_Trials.py"' in block
-    customers_pos = block.index('"customers"')
-    customer_trials_pos = block.index('"customer_trials"')
-    assert customers_pos < customer_trials_pos, (
-        "Customers must come before Customer Trials & Samples in customer_pages"
+    assert '"customer_trials"' not in block, (
+        "CR-17: Customer Trials & Samples must no longer live in customer_pages"
     )
 
-    # Acceptance criterion 8: Customer Trials & Samples no longer lives in
-    # the old "Samples & Trials" section's experiment_pages list.
+    # CR-17: Customer Trials & Samples is back in experiment_pages, between
+    # Production Samples and Optimization Trials & Samples.
     exp_start = source.index("experiment_pages = [")
     exp_end = source.index("]", exp_start)
     exp_block = source[exp_start:exp_end]
-    assert '"customer_trials"' not in exp_block, (
-        "Customer Trials & Samples must have moved out of experiment_pages entirely"
+    assert '"samples_conditioning"' in exp_block
+    assert '"customer_trials"' in exp_block
+    assert '"optimization_trials"' in exp_block
+    assert 'st.Page("pages/11_Customer_Trials.py"' in exp_block
+    samples_pos = exp_block.index('"samples_conditioning"')
+    customer_trials_pos = exp_block.index('"customer_trials"')
+    optimization_pos = exp_block.index('"optimization_trials"')
+    assert samples_pos < customer_trials_pos < optimization_pos, (
+        "Samples & Trials must list Production Samples, then Customer "
+        "Trials & Samples, then Optimization Trials & Samples, in that order"
     )
 
     # The "Customers" nav section itself must be registered and use
-    # customer_pages as its page list.
+    # customer_pages as its page list; "Samples & Trials" must use
+    # experiment_pages.
     nav_start = source.index("nav_sections_with_keys")
     nav_block = source[nav_start:nav_start + 800]
     assert '"Customers": customer_pages' in nav_block
+    assert '"Samples & Trials": experiment_pages' in nav_block
 
 
 # ---------------------------------------------------------------------------
