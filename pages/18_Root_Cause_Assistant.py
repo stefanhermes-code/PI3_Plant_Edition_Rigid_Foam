@@ -148,8 +148,16 @@ if current["machine"] != prior["machine"]:
 # at a setting that was never actually adjustable, per Charlie's WP6-S09
 # closure instructions (UAT-018). The diff below remains an investigation
 # lead for the reviewer's own judgment, not a determination of cause.
-for field in eligible_phase_setting_fields(session, grade.id):
-    label = PHASE_SETTING_LABELS[field]
+for field in eligible_phase_setting_fields(session, grade.id, production_method_id=run.production_method_id):
+    # WP7 Phase 4 hybrid (2026-08-14): .get(field, field) rather than
+    # direct [field] indexing - eligible_phase_setting_fields can now
+    # additively return a live, evidence-based Process Setting field
+    # (see that function's docstring) that has no entry in the static
+    # PHASE_SETTING_LABELS dict, which would otherwise KeyError here the
+    # first time one exists. Falls back to the raw field key in that
+    # case (e.g. "ps_12") - a known cosmetic gap, not a crash; see
+    # WP7_Phase4_Flag_for_Charlie.docx.
+    label = PHASE_SETTING_LABELS.get(field, field)
     prev_val, cur_val = prior.get(field), current.get(field)
     if prev_val is None or cur_val is None:
         continue

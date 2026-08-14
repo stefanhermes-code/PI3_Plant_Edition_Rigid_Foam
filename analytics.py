@@ -45,6 +45,7 @@ from db import (
     OptimizationTrial,
     PerformanceLog,
     PhysicalPropertyResult,
+    ProcessParameterValue,
     ProcessSettingApplicability,
     ProcessSettingDefinition,
     ProductionMethod,
@@ -312,21 +313,47 @@ def production_methods_used(session, foam_grade_id):
     return sorted(set(q.all()), key=lambda m: (m.sort_order or 0, m.name))
 
 
-def eligible_phase_setting_fields(session, foam_grade_id):
+def eligible_phase_setting_fields(session, foam_grade_id, production_method_id=None):
     """PHASE_SETTING_FIELDS, scoped down to what's actually eligible for
     the given grade(s) - see PHASE1_RIGID_INELIGIBLE_SETTINGS above.
     `foam_grade_id` accepts a single id or a list (a pooled foam family,
     see _grade_id_list) - the restriction applies only when every resolved
     grade is rigid, so a mixed or all-flexible pool is left unrestricted
     rather than guessed at. No grade resolved (None/empty) also leaves the
-    list unrestricted."""
+    list unrestricted.
+
+    WP7 Phase 4 hybrid (2026-08-14): Phase 4's literal closure gate
+    ("every active consumer uses the new architecture as its single
+    source of truth") cannot be met yet - zero live evidence-based
+    'Process Setting' category ProcessSettingApplicability rows exist for
+    any of the 5 legacy fields above (Charlie's own Phase 3 review left
+    their PM-code/controllability mapping deferred pending his decision
+    and real production evidence - see WP7_Phase4_Flag_for_Charlie.docx).
+    Rather than wait on that idle, this makes the new architecture an
+    ADDITIVE second source: when `production_method_id` is given (a
+    single, unambiguous method - not guessed at when the caller is
+    pooling multiple methods, matching this function's own existing
+    "don't guess" convention above), any live, evidence-based Process
+    Setting definitions for that method are appended after the 5 legacy
+    fields via _dynamic_process_setting_fields(). The 5 legacy fields
+    themselves are completely unchanged by this - same list, same order,
+    same ProductionPhase-column source in run_settings_dataframe. Until
+    Charlie's decisions land and evidence-based rows exist, this appends
+    nothing and every caller's behavior today is byte-for-byte identical
+    to before this change."""
     grade_ids = _grade_id_list(foam_grade_id)
     if not grade_ids:
-        return list(PHASE_SETTING_FIELDS)
-    grades = session.query(FoamGrade).filter(FoamGrade.id.in_(grade_ids)).all()
-    if grades and all(g.chemistry_id is not None for g in grades):
-        return [f for f in PHASE_SETTING_FIELDS if f not in PHASE1_RIGID_INELIGIBLE_SETTINGS]
-    return list(PHASE_SETTING_FIELDS)
+        legacy = list(PHASE_SETTING_FIELDS)
+    else:
+        grades = session.query(FoamGrade).filter(FoamGrade.id.in_(grade_ids)).all()
+        if grades and all(g.chemistry_id is not None for g in grades):
+            legacy = [f for f in PHASE_SETTING_FIELDS if f not in PHASE1_RIGID_INELIGIBLE_SETTINGS]
+        else:
+            legacy = list(PHASE_SETTING_FIELDS)
+    if not production_method_id:
+        return legacy
+    dynamic = _dynamic_process_setting_fields(session, production_method_id)
+    return legacy + [field_key for field_key, _label, _definition_id in dynamic]
 
 
 def eligible_process_settings(session, production_method_id, machine_id=None):
@@ -403,6 +430,63 @@ def eligible_process_settings(session, production_method_id, machine_id=None):
     return results
 
 
+def dynamic_process_setting_field_key(setting_definition_id):
+    """The synthetic field key a live, evidence-based Process Setting
+    definition is exposed under in eligible_phase_setting_fields()'s
+    returned list and run_settings_dataframe()'s columns - id-based (not
+    controlled_id-based) so it stays stable even if a controlled_id were
+    ever renumbered, and namespaced with 'ps_' so it can never collide
+    with a PHASE_SETTING_FIELDS legacy column name (none of which start
+    with 'ps_')."""
+    return f"ps_{setting_definition_id}"
+
+
+def _dynamic_process_setting_fields(session, production_method_id):
+    """WP7 Phase 4 hybrid (2026-08-14): the live, evidence-based Process
+    Setting definitions eligible for one specific Production Method,
+    restricted to what this first hybrid pass can safely render as a
+    correlation/optimization column - controllable (per Charlie's
+    ProcessSettingApplicability.controllable flag), analytics-eligible
+    (ProcessSettingApplicability.analytics_eligible - the same flag
+    Charlie's decision doc names as the eventual replacement for the
+    hardcoded PHASE1_RIGID_INELIGIBLE_SETTINGS set), category='Process
+    Setting' (never Environment/Outcome/Process Observation - those are
+    measured facts, not controllable levers, see legacy_migration.py's
+    WP7 Phase 3 correction), and data_type in ('Float', 'Integer') only -
+    a String or Boolean-typed setting has no natural place in a
+    correlation/qcut ranking and is left for a later pass rather than
+    guessed at here.
+
+    Deliberately scoped to a single, unambiguous `production_method_id`
+    (never called with None) - see eligible_phase_setting_fields's own
+    docstring for why a pooled/ambiguous method selection leaves this
+    out entirely rather than guessing which method's definitions apply.
+    Queried at Method/Global scope only (eligible_process_settings'
+    machine_id=None branch) - this hybrid pass does not attempt
+    Machine-specific overrides, matching run_settings_dataframe's own
+    per-method (not per-machine) grouping.
+
+    Returns a list of (field_key, label, setting_definition_id) tuples,
+    in the same sort_order/name order eligible_process_settings already
+    returns. Returns [] today for every live production method, since
+    zero 'Process Setting' category applicability rows exist yet - see
+    WP7_Phase4_Flag_for_Charlie.docx."""
+    eligible = eligible_process_settings(session, production_method_id, machine_id=None)
+    out = []
+    for definition, applicability in eligible:
+        if definition.parameter_category != "Process Setting":
+            continue
+        if not applicability.controllable:
+            continue
+        if not applicability.analytics_eligible:
+            continue
+        if definition.data_type not in ("Float", "Integer"):
+            continue
+        label = definition.name or definition.controlled_id or dynamic_process_setting_field_key(definition.id)
+        out.append((dynamic_process_setting_field_key(definition.id), label, definition.id))
+    return out
+
+
 def format_setting_range(field, series):
     """Human-readable label for one qcut bucket's range of a given setting
     field - "Yes"/"No" for boolean fields (see BOOLEAN_SETTING_FIELDS),
@@ -468,6 +552,33 @@ def run_settings_dataframe(_session, foam_grade_id=None, production_method_id=No
         for p in all_phases:
             phases_by_run.setdefault(p.production_run_id, {})[p.phase_name] = p
 
+    # WP7 Phase 4 hybrid (2026-08-14): additive, evidence-based Process
+    # Setting values from the new architecture - see
+    # eligible_phase_setting_fields's own docstring for the full
+    # rationale. Only attempted when this call is already scoped to one
+    # unambiguous production_method_id (every run in `runs` then shares
+    # that same method, since the query above already filtered on it).
+    # Left empty ([]) for a pooled/unfiltered call, matching
+    # eligible_phase_setting_fields's own "don't guess" behavior, and
+    # left empty in practice today regardless, since zero live
+    # evidence-based rows exist yet.
+    dynamic_fields = _dynamic_process_setting_fields(_session, production_method_id) if production_method_id else []
+    dynamic_values_by_run = {}
+    if dynamic_fields and run_ids:
+        definition_ids = [definition_id for _key, _label, definition_id in dynamic_fields]
+        param_values = (
+            _session.query(ProcessParameterValue)
+            .filter(
+                ProcessParameterValue.production_run_id.in_(run_ids),
+                ProcessParameterValue.setting_definition_id.in_(definition_ids),
+                ProcessParameterValue.snapshot_type.in_(("Actual", "Planned")),
+            )
+            .all()
+        )
+        for pv in param_values:
+            slot = dynamic_values_by_run.setdefault(pv.production_run_id, {}).setdefault(pv.setting_definition_id, {})
+            slot[pv.snapshot_type] = pv.numeric_value
+
     rows = []
     for run in runs:
         by_name = phases_by_run.get(run.id, {})
@@ -496,6 +607,13 @@ def run_settings_dataframe(_session, foam_grade_id=None, production_method_id=No
                 row[field] = (1.0 if raw else 0.0) if raw is not None else None
             else:
                 row[field] = getattr(phase, field) if phase else None
+        for field_key, _label, definition_id in dynamic_fields:
+            # Actual preferred, Planned fallback - mirrors the existing
+            # Finalized-preferred/Setup-fallback pattern just above for
+            # the legacy fields, applied to the new model's own
+            # Actual/Planned snapshot_type distinction.
+            slot = dynamic_values_by_run.get(run.id, {}).get(definition_id, {})
+            row[field_key] = slot.get("Actual", slot.get("Planned"))
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -768,15 +886,27 @@ def rank_setting_correlations(
         session, foam_grade_id, property_name,
         normalize_pct_of_target=normalize_pct_of_target, production_method_id=production_method_id,
     )
+    # WP7 Phase 4 hybrid (2026-08-14): dynamic_labels covers any live,
+    # evidence-based Process Setting fields appended by
+    # eligible_phase_setting_fields below (empty today - see that
+    # function's own docstring) so this ranking's "label" column reads a
+    # real setting name rather than the raw ps_<id> field key.
+    dynamic_labels = {
+        field_key: label
+        for field_key, label, _definition_id in (
+            _dynamic_process_setting_fields(session, production_method_id) if production_method_id else []
+        )
+    }
     rows = []
-    for field in eligible_phase_setting_fields(session, foam_grade_id):
+    for field in eligible_phase_setting_fields(session, foam_grade_id, production_method_id=production_method_id):
         if merged.empty:
             sub = merged
         else:
             sub = merged.dropna(subset=[field, "actual_value"])
         n = len(sub)
         corr = round(sub[field].corr(sub["actual_value"]), 3) if n >= 3 else None
-        rows.append({"field": field, "label": PHASE_SETTING_LABELS.get(field, field), "n": n, "correlation": corr})
+        label = dynamic_labels.get(field) or PHASE_SETTING_LABELS.get(field, field)
+        rows.append({"field": field, "label": label, "n": n, "correlation": corr})
     ranked = pd.DataFrame(rows)
     # Every field is appended above regardless of whether a correlation could
     # be computed (unlike rank_component_actual_correlations etc., which
@@ -814,9 +944,17 @@ def rank_setting_optimization(
         session, foam_grade_id, property_name,
         normalize_pct_of_target=normalize_pct_of_target, production_method_id=production_method_id,
     )
+    # WP7 Phase 4 hybrid (2026-08-14): see the matching comment in
+    # rank_setting_correlations above.
+    dynamic_labels = {
+        field_key: label
+        for field_key, label, _definition_id in (
+            _dynamic_process_setting_fields(session, production_method_id) if production_method_id else []
+        )
+    }
     rows = []
-    for field in eligible_phase_setting_fields(session, foam_grade_id):
-        label = PHASE_SETTING_LABELS.get(field, field)
+    for field in eligible_phase_setting_fields(session, foam_grade_id, production_method_id=production_method_id):
+        label = dynamic_labels.get(field) or PHASE_SETTING_LABELS.get(field, field)
         empty_row = {
             "field": field, "label": label, "n": 0,
             "best_range": None, "best_range_setting": None,

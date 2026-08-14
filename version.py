@@ -5293,4 +5293,72 @@ criterion #2, evidenced directly against the UI, not just the ORM).
 Full regression: 473 passed, 2 skipped, 0 failed (full suite).
 """
 
-APP_VERSION = "0.45.0"
+VERSION_0_46_0_NOTES = """
+WP7 Phase 4 hybrid reader (2026-08-14) - Phase 4's literal closure gate
+(WP7 Phase 1 Design Deliverables, section 6.4: "Close when every active
+consumer uses the new architecture as its single source of truth")
+cannot be met yet: a live Supabase query confirmed zero 'Process Setting'
+category ProcessSettingApplicability rows exist for any of the 5 legacy
+fields (mixer_rpm, conveyor_speed, air_injection_rate, air_pressure_bar,
+sidewall_width_mm) - Charlie's own WP7 Phase 3 closeout review left their
+PM-code/controllability mapping deferred pending his decision and real
+production evidence. Per Stefan's direction ("Flag it to Charlie with a
+short message, then go hybrid"), this release does two things: flags the
+blocker to Charlie (WP7_Phase4_Flag_for_Charlie.docx), and makes the new
+architecture an additive second source in the meantime, so nothing
+regresses and no further engineering pass is needed once Charlie's
+decisions land.
+
+analytics.py: eligible_phase_setting_fields() and run_settings_dataframe()
+gained an optional production_method_id-scoped hybrid path. The 5 legacy
+fields' behavior is completely unchanged - same list, same order, same
+ProductionPhase-column source. New: dynamic_process_setting_field_key()
+and _dynamic_process_setting_fields() discover any live, evidence-based
+'Process Setting' category ProcessSettingDefinition for one unambiguous
+production_method_id (controllable=True, analytics_eligible=True,
+data_type in Float/Integer only for this first pass), and append their
+field keys (ps_<definition_id>) after the legacy 5. run_settings_dataframe
+populates their values from ProcessParameterValue (Actual preferred,
+Planned fallback - mirrors the existing Finalized/Setup fallback
+pattern). rank_setting_correlations()/rank_setting_optimization() now
+pass production_method_id through and resolve a dynamic field's label
+from the live definition's own name, not the static PHASE_SETTING_LABELS
+dict. A pooled/unscoped caller (production_method_id=None) gets no
+dynamic fields at all - matches this function's own pre-existing "don't
+guess" convention for the Phase-1-rigid-ineligibility restriction.
+reports.py's Batch Release deviation table iterates PHASE_SETTING_FIELDS
+directly (not this dynamic helper) and is unaffected, as designed - its
+Setup-vs-Finalized paradigm has no natural equivalent in the new model's
+Planned-vs-Actual and is deliberately out of scope for this pass.
+
+pages/18_Root_Cause_Assistant.py: fixed a real landmine found during this
+work - line ~152 did direct PHASE_SETTING_LABELS[field] indexing inside a
+loop over eligible_phase_setting_fields(), which would KeyError the
+instant any dynamically-discovered field (not pre-registered in the
+static dict) was ever returned. Changed to .get(field, field), matching
+the safe pattern pages 17/19 already used. Also now passes
+production_method_id=run.production_method_id through to
+eligible_phase_setting_fields(), consistent with how it already scopes
+run_settings_dataframe() on the line above.
+
+Tests: new tests/test_wp7_phase4_hybrid.py (17 cases) proves (a) nothing
+changes today - zero live dynamic data means eligible_phase_setting_fields()/
+run_settings_dataframe() are byte-for-byte identical to before this
+change, with or without production_method_id passed; (b) the wiring is
+real - once a synthetic evidence-based Process Setting definition/
+applicability/value is seeded, it surfaces correctly and automatically in
+eligible_phase_setting_fields(), run_settings_dataframe() (Actual
+preferred, Planned fallback, both proven directly), and rank_setting_
+correlations()/rank_setting_optimization()'s label column; (c) correct
+exclusion when not controllable, not analytics_eligible, wrong category
+(Environment/Outcome), or wrong data_type (String/Boolean); (d) no
+guessing when the caller doesn't scope to one production_method_id, even
+after live data exists. tests/test_cr18_product_family_terminology.py's
+line-number-pinned "foam family" allowlist updated for analytics.py's
+new line positions (verified exact hit list, not an arithmetic guess).
+
+Full regression: 490 passed, 2 skipped, 0 failed (full suite) - the 2
+skips are pre-existing and unrelated to this change.
+"""
+
+APP_VERSION = "0.46.0"

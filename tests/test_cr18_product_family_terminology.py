@@ -114,12 +114,20 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # the same Closeout Correction's Material Gap 3 fix:
     # ProductionMethod.uses_cycle_shot_operation and
     # Machine.cycle_shot_operation_override columns (config-driven
-    # cycle/shot declaration, never inferred from a name). The set below
-    # is the verified, current, exact hit list, not an arithmetic shift
-    # guess.
-    ("analytics.py", 15), ("analytics.py", 170), ("analytics.py", 304),
-    ("analytics.py", 318), ("analytics.py", 423), ("analytics.py", 691),
-    ("analytics.py", 766), ("analytics.py", 1252), ("analytics.py", 1417),
+    # cycle/shot declaration, never inferred from a name). Shifted a
+    # fourth time by the WP7 Phase 4 hybrid reader (2026-08-14, per
+    # Stefan's direction to flag Charlie and go hybrid in the meantime):
+    # analytics.py gained the ProcessParameterValue import,
+    # dynamic_process_setting_field_key()/_dynamic_process_setting_fields()
+    # helpers, and additive dynamic-field wiring in
+    # eligible_phase_setting_fields()/run_settings_dataframe()/
+    # rank_setting_correlations()/rank_setting_optimization() - same
+    # unchanged comment/docstring text elsewhere, new line positions. The
+    # set below is the verified, current, exact hit list, not an
+    # arithmetic shift guess.
+    ("analytics.py", 15), ("analytics.py", 171), ("analytics.py", 305),
+    ("analytics.py", 319), ("analytics.py", 507), ("analytics.py", 809),
+    ("analytics.py", 884), ("analytics.py", 1390), ("analytics.py", 1555),
     ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 184), ("pages/16_Trend_Analysis.py", 319),
