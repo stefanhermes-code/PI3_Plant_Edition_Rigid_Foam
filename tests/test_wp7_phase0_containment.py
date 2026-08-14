@@ -548,7 +548,7 @@ def test_setup_vs_finalized_deviations_no_longer_flags_foaming_mode(
 
     WP7 Phase 4 cutover (2026-08-14): the old ProductionPhase-field-
     diffing _setup_vs_finalized_deviations() was replaced by
-    reports._process_parameter_deviations(), which reads exclusively
+    reports._process_parameter_deviations(), which read exclusively
     through analytics.production_run_process_parameters() - the shared
     ProcessSettingDefinition/ProcessParameterValue reader. Retired fields
     like foaming_mode/top_flat_system_used were never migrated into that
@@ -557,12 +557,22 @@ def test_setup_vs_finalized_deviations_no_longer_flags_foaming_mode(
     surface them regardless of what this fixture's Setup/Finalized phases
     still carry - a stronger version of the same invariant this test
     always checked, via the WP7 Phase 4 architecture rather than the
-    retired Phase-0-era diffing function."""
+    retired Phase-0-era diffing function.
+
+    WP7 Phase 4 targeted-completion correction (2026-08-14, Charlie's
+    Closeout Review Return to JC): _process_parameter_deviations() was
+    itself replaced by reports._process_parameter_report_rows() (see that
+    function's docstring), which reads the same underlying shared reader
+    and is bucketed by category - the invariant below is unaffected by
+    that shape change, since this fixture's Production Method still has
+    zero eligible ProcessSettingDefinition rows either way."""
     ids = seeded_run_with_historical_fallplate_data
     session = db.get_session()
-    deviations = reports._process_parameter_deviations(session, ids["run_id"])
+    rows_by_category = reports._process_parameter_report_rows(session, ids["run_id"])
     session.close()
-    setting_names = [d["Setting"] for d in deviations]
+    setting_names = [
+        row["Parameter"] for rows in rows_by_category.values() for row in rows
+    ]
     assert "Foaming mode" not in setting_names
     assert not any("foaming" in s.lower() for s in setting_names)
     assert not any("top-flat" in s.lower() or "top flat" in s.lower() for s in setting_names)
@@ -573,10 +583,14 @@ def test_batch_release_report_data_has_no_fallplate_deviations_key(
 ):
     """End-to-end: builds the real Batch Release report data dict for a
     run with historical fall-plate/foaming-mode data attached, forcing
-    has_flags=True (via a failing quality result) so the deviation-
-    building branch actually executes, and confirms the returned dict has
-    no "fallplate_deviations" key at all (not even an empty list) and
-    "setup_deviations" contains no foaming-mode/fall-plate content."""
+    has_flags=True (via a failing quality result) so the process-
+    parameter-building branch actually executes, and confirms the
+    returned dict has no "fallplate_deviations" key at all (not even an
+    empty list), no stale "setup_deviations" key (WP7 Phase 4
+    targeted-completion correction replaced it with process_setting_rows/
+    environment_rows/outcome_rows - see reports._process_parameter_
+    report_rows), and none of the three new keys contain foaming-mode/
+    fall-plate content."""
     ids = seeded_run_with_historical_fallplate_data
     session = db.get_session()
     run = session.get(db.ProductionRun, ids["run_id"])
@@ -592,7 +606,11 @@ def test_batch_release_report_data_has_no_fallplate_deviations_key(
     assert "fallplate_deviations" not in data, (
         "Batch Release report data dict should no longer have a fallplate_deviations key"
     )
-    assert "setup_deviations" in data
-    setting_names = [d["Setting"] for d in data["setup_deviations"]]
-    assert not any("foaming" in s.lower() for s in setting_names)
-    assert not any("fall" in s.lower() or "tool geometry" in s.lower() for s in setting_names)
+    assert "setup_deviations" not in data, (
+        "setup_deviations was replaced by process_setting_rows/environment_rows/outcome_rows"
+    )
+    for key in ("process_setting_rows", "environment_rows", "outcome_rows"):
+        assert key in data
+        setting_names = [row["Parameter"] for row in data[key]]
+        assert not any("foaming" in s.lower() for s in setting_names)
+        assert not any("fall" in s.lower() or "tool geometry" in s.lower() for s in setting_names)

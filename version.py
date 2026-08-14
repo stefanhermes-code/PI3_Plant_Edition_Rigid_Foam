@@ -5880,4 +5880,72 @@ specifically; a full gate-by-gate matrix across every Phase 4 consumer is
 still open) and the Phase 4 closeout package - proceeding incrementally.
 """
 
-APP_VERSION = "0.53.0"
+VERSION_0_54_0_NOTES = """
+WP7 Phase 4 targeted completion, Item 1 (2026-08-14) - per Charlie's
+"WP7 Phase 4 Closeout Review Return to JC" (the delivered Phase 4 closeout
+package was returned "OPEN - targeted completion only", not accepted;
+3 material items required before Phase 4 can formally close). This batch
+closes Item 1: the Batch Release Record / generated report's process-data
+contract.
+
+1.1 Definition-driven, not deviations-only: the retired
+_process_parameter_deviations() only emitted a row when Planned != Actual
+for a recorded pair - an eligible ProcessSettingDefinition with no
+recorded value at all, or with an unchanged Planned/Actual pair, was
+silently omitted. Charlie's review called this out directly: the section
+must be definition-driven, showing every eligible definition regardless of
+whether a value was ever recorded. Replaced with
+_process_parameter_report_rows(), which iterates every row
+production_run_process_parameters() returns and buckets by category
+(Process Setting / Environment / Outcome) rather than filtering on
+Planned != Actual. Each row now carries Parameter, Category, Planned,
+Actual, numeric Delta, canonical UOM, Limit, and Conformance - the full
+column set Charlie's review specified. Environment and Outcome are now
+separate report sections from Process Settings (previously Environment/
+Outcome parameters had no dedicated section in this report at all).
+
+1.2 Controlled acceptance limits: previously the report carried no
+Pass/Fail signal against any approved limit at all. Added
+_effective_limit() (ProcessSettingApplicability.min_value_override/
+max_value_override win over ProcessSettingDefinition.min_value/max_value
+when populated, per Charlie's explicit override-beats-default rule) and
+_conformance_text() (Pass/Fail only computed when an effective limit
+exists and an Actual value is recorded; "Informational (no approved
+limit)" when no limit exists at either level, so the absence of a
+controlled limit is never silently read as a Pass; "No Actual value
+recorded" when a limit exists but nothing was captured, so that state is
+never silently read as a Pass either).
+
+1.3 Removed the live ProductionPhase dependency from Material Metering:
+build_batch_release_record_data()'s stream-reading query previously
+located a Finalized ProductionPhase for the run and queried
+ComponentStreamReading by production_phase_id - Batch Release's last
+direct live read of the structure WP7 Phase 5 retires. Replaced with a
+direct query on ComponentStreamReading.production_run_id (the Phase 1
+run-anchor column), matching Phase 2's own Material Metering capture UI
+which already writes against production_run_id. New direct-evidence test
+proves this: writes a ComponentStreamReading with production_phase_id
+left NULL for a run that has zero ProductionPhase rows at all, and
+confirms it still surfaces in the report.
+
+New/updated tests: tests/test_wp7_phase4_batch_release_cutover.py - 8 new
+tests on _process_parameter_report_rows() (definition-driven inclusion,
+near-equal pairs no longer epsilon-skipped, full column set, one-sided
+Actual-only values, informational-when-no-limit, override-beats-default,
+Pass when within limit, "no Actual recorded" not silently Pass) plus 1 new
+direct-evidence test for the ProductionPhase-free metering read.
+tests/test_wp7_phase0_containment.py updated for the renamed function and
+the 3-bucket return shape. tests/test_cr18_product_family_terminology.py's
+ALLOWED_FOAM_FAMILY_HITS allowlist updated for the resulting analytics.py
+line-number shift (mechanical maintenance, no behavior change).
+
+Full regression: 545 passed, 0 skipped, 0 failed (pytest-xdist -n 4).
+
+Not yet done: Item 2 (Root Cause Assistant context - Environment/Outcome
+sections, run-linked metering/events/QC as investigation facts) and Item 3
+(method-aware Trend Analysis acceptance path, wrongly marked out of scope
+in the original closeout) - proceeding incrementally per Charlie's
+targeted closure gate.
+"""
+
+APP_VERSION = "0.54.0"

@@ -1292,55 +1292,110 @@ _SETTING_DEVIATION_EPSILON = 0.01
 _FALLPLATE_POSITION_DEVIATION_MM = 2.0  # per db.py: fall-plate position materially affects density profile
 
 
-def _phase_by_name(phases, name):
-    return next((p for p in phases if p.phase_name == name), None)
+_PARAMETER_CATEGORIES_FOR_REPORT = ("Process Setting", "Environment", "Outcome")
 
 
-def _process_parameter_deviations(session, run_id):
-    """WP7 Phase 4 cutover (2026-08-14, per Charlie's Downstream Reader
-    Cutover Execution Instruction): replaces the retired
-    _setup_vs_finalized_deviations(), which iterated the legacy
-    PHASE_SETTING_FIELDS list against a run's Setup/Finalized
-    ProductionPhase rows. PHASE_SETTING_FIELDS/PHASE_SETTING_LABELS retain
-    zero active-reader authority for this report as of this cutover.
+def _effective_limit(min_base, max_base, min_override, max_override):
+    """Winning acceptance limit for one process-parameter report row - the
+    applicability-level override (min_value_override/max_value_override)
+    takes precedence over the definition's own default min_value/max_value
+    when populated, per Charlie's WP7 Phase 4 Closeout Review Return to JC
+    (Material Completion Item 1.2): "use min_value_override /
+    max_value_override when populated, otherwise the definition min_value
+    / max_value". Returns (effective_min, effective_max) - either side may
+    be None (no bound on that side); both None means no approved limit at
+    all, i.e. this parameter stays informational rather than Pass/Fail."""
+    eff_min = min_override if min_override is not None else min_base
+    eff_max = max_override if max_override is not None else max_base
+    return eff_min, eff_max
+
+
+def _limit_text(eff_min, eff_max):
+    if eff_min is not None and eff_max is not None:
+        return f"{eff_min}–{eff_max}"
+    if eff_min is not None:
+        return f">= {eff_min}"
+    if eff_max is not None:
+        return f"<= {eff_max}"
+    return "—"
+
+
+def _conformance_text(eff_min, eff_max, actual_value, data_type):
+    """Per Charlie's Item 1.2: "produce a conformance result only when an
+    approved limit exists" - a row with no approved limit remains
+    informational, never silently shown as Pass. Only Float/Integer
+    Actual values are evaluated numerically against the limit; a limit
+    recorded against a non-numeric definition (not expected under today's
+    controlled vocabulary, but the schema doesn't forbid it) also stays
+    informational since there is nothing numeric to compare."""
+    if eff_min is None and eff_max is None:
+        return "Informational (no approved limit)"
+    if data_type not in ("Float", "Integer"):
+        return "Informational (no approved limit)"
+    if actual_value is None:
+        return "No Actual value recorded"
+    if eff_min is not None and actual_value < eff_min:
+        return "Fail"
+    if eff_max is not None and actual_value > eff_max:
+        return "Fail"
+    return "Pass"
+
+
+def _process_parameter_report_rows(session, run_id):
+    """WP7 Phase 4 targeted-completion correction (2026-08-14, per
+    Charlie's WP7 Phase 4 Closeout Review Return to JC, Material
+    Completion Item 1). Replaces the retired _process_parameter_
+    deviations(), which only surfaced rows where Planned and Actual
+    actually differed and carried no Category/UOM/limit columns - flagged
+    by Charlie's review as not meeting the required report shape: "The
+    process-data section must be definition-driven and show Parameter,
+    Category, Planned, Actual, numeric Delta where applicable, and
+    canonical UOM. Environment and Outcome records must be separated from
+    controllable Process Settings" plus "Controlled acceptance limits must
+    be applied where they exist... a row with no approved limit remains
+    informational."
 
     Reads analytics.production_run_process_parameters(session, run_id) -
-    the method-aware shared reader (Machine > Method > Global precedence,
-    resolved for this run) - and returns every eligible definition whose
-    Planned and Actual values actually differ, same "only show what
-    changed" behavior as before: a definition with neither value recorded
-    is skipped entirely (nothing to explain a flag with); a numeric
-    (Float/Integer) definition within _SETTING_DEVIATION_EPSILON of itself
-    is treated as unchanged (same float-noise tolerance as before); any
-    other equal pair (including exact string/boolean matches) is skipped.
-    A definition with a value on only one side (Planned-only or
-    Actual-only) is always included, since that's still a genuine
-    difference - matching the old code's behavior when only one of
-    setup_val/final_val was None.
+    unchanged shared reader, still Machine > Method > Global precedence,
+    still Actual-never-falls-back-to-Planned (Charlie's accepted Phase 4
+    shared-reader behavior is not reopened here) - and returns EVERY
+    eligible definition's row (definition-driven, not a deviations-only
+    filter), bucketed by parameter_category into three separate lists so
+    Environment/Outcome observations are structurally kept out of the
+    controllable Process Setting table rather than merely sorted next to
+    it. A category with no eligible definitions for this run's Production
+    Method/Machine contributes an empty list (rendered as "No data
+    recorded" by _section/_docx_section) - the honest empty state, same
+    "never a legacy fallback" rule as the shared reader itself.
 
-    An empty eligible-definitions catalogue (today's actual state for most
-    Production Methods - see WP7_Phase4_Flag_for_Charlie.docx) correctly
-    returns [] here, same as production_run_process_parameters itself -
-    never a ProductionPhase fallback."""
-    deviations = []
+    Returns {"Process Setting": [...], "Environment": [...], "Outcome":
+    [...]}. Each row: Parameter, Category, Planned, Actual, Delta (the
+    shared reader's own Float/Integer-only delta, None otherwise -
+    rendered as "—" by _section/_docx_section), UOM, Limit (display
+    text for the winning min/max, see _limit_text), Conformance (Pass/
+    Fail only when an approved limit exists and Actual is recorded and
+    numeric; otherwise explicitly informational, see _conformance_text -
+    never a silent Pass)."""
+    buckets = {cat: [] for cat in _PARAMETER_CATEGORIES_FOR_REPORT}
     for row in production_run_process_parameters(session, run_id):
-        planned_val = row["planned_value"]
-        actual_val = row["actual_value"]
-        if planned_val is None and actual_val is None:
-            continue
-        if (
-            planned_val is not None and actual_val is not None
-            and row["data_type"] in ("Float", "Integer")
-            and abs(float(actual_val) - float(planned_val)) <= _SETTING_DEVIATION_EPSILON
-        ):
-            continue
-        if planned_val == actual_val:
-            continue
-        deviations.append({
-            "Setting": row["name"] or row["controlled_id"],
-            "Planned": planned_val, "Actual": actual_val,
+        category = row["parameter_category"]
+        if category not in buckets:
+            continue  # controlled vocabulary; no other category is expected today
+        eff_min, eff_max = _effective_limit(
+            row.get("min_value"), row.get("max_value"),
+            row.get("min_value_override"), row.get("max_value_override"),
+        )
+        buckets[category].append({
+            "Parameter": row["name"] or row["controlled_id"],
+            "Category": category,
+            "Planned": row["planned_value"],
+            "Actual": row["actual_value"],
+            "Delta": row["delta"],
+            "UOM": row["unit_symbol"] or "—",
+            "Limit": _limit_text(eff_min, eff_max),
+            "Conformance": _conformance_text(eff_min, eff_max, row["actual_value"], row["data_type"]),
         })
-    return deviations
+    return buckets
 
 
 # _fallplate_deviations (fall-plate section-position changes between Setup
@@ -1521,31 +1576,38 @@ def build_batch_release_record_data(session, run_id):
     # formula.
     output_summary = production_run_output_summary(session, run_id)
 
-    setup_deviations, stream_readings, stream_calibration_flags, production_events = (
-        [], [], [], [],
-    )
+    process_setting_rows, environment_rows, outcome_rows = [], [], []
+    stream_readings, stream_calibration_flags, production_events = [], [], []
     if has_flags:
-        phases = session.query(ProductionPhase).filter(ProductionPhase.production_run_id == run_id).all()
-        finalized_phase = _phase_by_name(phases, "Finalized")
-        setup_deviations = _process_parameter_deviations(session, run_id)
+        rows_by_category = _process_parameter_report_rows(session, run_id)
+        process_setting_rows = rows_by_category["Process Setting"]
+        environment_rows = rows_by_category["Environment"]
+        outcome_rows = rows_by_category["Outcome"]
 
-        if finalized_phase is not None:
-            readings = (
-                session.query(ComponentStreamReading)
-                .filter(ComponentStreamReading.production_phase_id == finalized_phase.id).all()
-            )
-            stream_readings = [
-                {
-                    "Stream": rd.stream_name, "Flow": rd.flow, "Unit": rd.flow_unit or "",
-                    "Pump speed": rd.pump_speed, "Total delivered": rd.flow_total_qty,
-                    "Temperature (°C)": rd.temperature_c, "Pressure (bar)": rd.pressure_bar,
-                    "Calibration": rd.calibration_status or "—",
-                }
-                for rd in readings
-            ]
-            stream_calibration_flags = [
-                rd.stream_name for rd in readings if rd.calibration_status and rd.calibration_status != "Valid"
-            ]
+        # WP7 Phase 4 targeted-completion correction (2026-08-14, Charlie's
+        # Closeout Review Return to JC, Material Completion Item 1.3):
+        # Material Metering now reads exclusively via production_run_id -
+        # the active Phase 2 run anchor - never via a located Finalized
+        # ProductionPhase. ComponentStreamReading.production_phase_id is
+        # nullable and Phase-5-scoped for eventual retirement; a run-linked
+        # reading with production_phase_id left unset still surfaces here.
+        # This removes Batch Release's last direct ProductionPhase read.
+        readings = (
+            session.query(ComponentStreamReading)
+            .filter(ComponentStreamReading.production_run_id == run_id).all()
+        )
+        stream_readings = [
+            {
+                "Stream": rd.stream_name, "Flow": rd.flow, "Unit": rd.flow_unit or "",
+                "Pump speed": rd.pump_speed, "Total delivered": rd.flow_total_qty,
+                "Temperature (°C)": rd.temperature_c, "Pressure (bar)": rd.pressure_bar,
+                "Calibration": rd.calibration_status or "—",
+            }
+            for rd in readings
+        ]
+        stream_calibration_flags = [
+            rd.stream_name for rd in readings if rd.calibration_status and rd.calibration_status != "Valid"
+        ]
 
         production_events = [
             {
@@ -1585,7 +1647,9 @@ def build_batch_release_record_data(session, run_id):
         "output_summary": output_summary,
         "has_flags": has_flags,
         "flag_reasons": flag_reasons,
-        "setup_deviations": setup_deviations,
+        "process_setting_rows": process_setting_rows,
+        "environment_rows": environment_rows,
+        "outcome_rows": outcome_rows,
         "stream_readings": stream_readings,
         "stream_calibration_flags": stream_calibration_flags,
         "production_events": production_events,
@@ -1644,7 +1708,9 @@ def render_batch_release_record_pdf(data):
             story.append(Spacer(1, 10))
             story.append(Paragraph("Flagged — supporting context from other tabs", STYLES["Heading2"]))
             story.append(_p("Flagged because: " + "; ".join(data["flag_reasons"])))
-            _section(story, "Process setting changes (Planned Settings → Actual Run and Cycle Data)", data["setup_deviations"])
+            _section(story, "Process settings — Planned vs Actual (method-aware, with controlled limits)", data["process_setting_rows"])
+            _section(story, "Environment — recorded observations", data["environment_rows"])
+            _section(story, "Outcome — recorded observations", data["outcome_rows"])
             _section(story, "Material metering and actual usage (Actual Run and Cycle Data phase)", data["stream_readings"])
             if data["stream_calibration_flags"]:
                 story.append(_p(
@@ -1702,7 +1768,9 @@ def render_batch_release_record_docx(data):
     if data["has_flags"]:
         _docx_heading(doc, "Flagged — supporting context from other tabs", size=15, space_before=14)
         doc.add_paragraph("Flagged because: " + "; ".join(data["flag_reasons"]))
-        _docx_section(doc, "Process setting changes (Planned Settings → Actual Run and Cycle Data)", data["setup_deviations"])
+        _docx_section(doc, "Process settings — Planned vs Actual (method-aware, with controlled limits)", data["process_setting_rows"])
+        _docx_section(doc, "Environment — recorded observations", data["environment_rows"])
+        _docx_section(doc, "Outcome — recorded observations", data["outcome_rows"])
         _docx_section(doc, "Material metering and actual usage (Actual Run and Cycle Data phase)", data["stream_readings"])
         if data["stream_calibration_flags"]:
             doc.add_paragraph(

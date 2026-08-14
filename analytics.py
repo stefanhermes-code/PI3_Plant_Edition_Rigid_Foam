@@ -480,6 +480,18 @@ def production_run_process_parameters(session, production_run):
       semantics correction), planned_source/actual_source,
       planned_captured_at/actual_captured_at.
 
+    WP7 Phase 4 targeted-completion addition (2026-08-14, Charlie's
+    Closeout Review Return to JC, Material Completion Item 1.2): also
+    returns min_value, max_value (the definition's own default validation
+    range) and min_value_override, max_value_override (the winning
+    applicability row's scope-specific override, when set) - purely
+    additive fields so existing consumers (Overview, Correlation,
+    Optimization, Trend, Root Cause) that only read the keys they already
+    know about are unaffected. The Batch Release / generated-report
+    reader is the first consumer to resolve these into a controlled
+    acceptance limit (reports._effective_limit); a caller that ignores
+    these four keys sees no behavior change at all.
+
     Actual is the production fact this function's callers must treat as
     the analytics input; Planned is separate plan/target/delta context
     only, and is never substituted when Actual is missing - a missing
@@ -555,6 +567,12 @@ def production_run_process_parameters(session, production_run):
             "actual_source": actual_row.source if actual_row else None,
             "planned_captured_at": planned_row.captured_at if planned_row else None,
             "actual_captured_at": actual_row.captured_at if actual_row else None,
+            # WP7 Phase 4 targeted-completion addition (2026-08-14) - see
+            # docstring above. Additive only.
+            "min_value": definition.min_value,
+            "max_value": definition.max_value,
+            "min_value_override": applicability.min_value_override,
+            "max_value_override": applicability.max_value_override,
         })
     return rows
 

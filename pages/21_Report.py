@@ -173,8 +173,12 @@ with tab_run:
         render_data_table(pd.DataFrame(data["quality_issues"] or [{"—": "No data recorded"}]))
 
         if data["has_flags"]:
-            st.write("**Process setting changes (Planned Settings → Actual Run and Cycle Data)**")
-            render_data_table(pd.DataFrame(data["setup_deviations"] or [{"—": "No changes"}]))
+            st.write("**Process settings — Planned vs Actual (method-aware, with controlled limits)**")
+            render_data_table(pd.DataFrame(data["process_setting_rows"] or [{"—": "No data recorded"}]))
+            st.write("**Environment — recorded observations**")
+            render_data_table(pd.DataFrame(data["environment_rows"] or [{"—": "No data recorded"}]))
+            st.write("**Outcome — recorded observations**")
+            render_data_table(pd.DataFrame(data["outcome_rows"] or [{"—": "No data recorded"}]))
             st.write("**Material metering and actual usage (Actual Run and Cycle Data phase)**")
             render_data_table(pd.DataFrame(data["stream_readings"] or [{"—": "No data recorded"}]))
             if data["stream_calibration_flags"]:

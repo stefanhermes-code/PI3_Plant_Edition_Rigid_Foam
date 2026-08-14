@@ -150,9 +150,15 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # the WP7 Phase 4 required-test-gate 7 audit, "Optimization
     # eligibility") added ~15 lines of docstring to merged_run_property_
     # dataframe() explaining the fix.
+    # Shifted a ninth time (2026-08-14), by the WP7 Phase 4 targeted-
+    # completion correction (Charlie's Closeout Review Return to JC,
+    # Material Completion Item 1): production_run_process_parameters()
+    # gained a 12-line docstring paragraph plus 4 additive dict keys
+    # (min_value/max_value/min_value_override/max_value_override) - net
+    # +18 lines, pushing every later hit down by 18.
     ("analytics.py", 15), ("analytics.py", 173), ("analytics.py", 307),
-    ("analytics.py", 321), ("analytics.py", 747), ("analytics.py", 1015),
-    ("analytics.py", 1153), ("analytics.py", 1674), ("analytics.py", 1839),
+    ("analytics.py", 321), ("analytics.py", 765), ("analytics.py", 1033),
+    ("analytics.py", 1171), ("analytics.py", 1692), ("analytics.py", 1857),
     ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 184), ("pages/16_Trend_Analysis.py", 319),
