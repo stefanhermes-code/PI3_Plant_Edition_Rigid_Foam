@@ -114,13 +114,14 @@ def ensure_environment_outcome_definitions(session):
     per the WP7 Phase 1 design doc's own disposition.
 
     Returns {"definitions_created": n, "definitions_updated": n,
-    "applicabilities_created": n}."""
+    "applicabilities_created": n, "applicabilities_corrected": n}."""
     ensure_environment_outcome_uoms(session)
     uom_by_symbol = {u.symbol: u for u in session.query(UnitOfMeasure).all()}
 
     definitions_created = 0
     definitions_updated = 0
     applicabilities_created = 0
+    applicabilities_corrected = 0
 
     for spec in ENVIRONMENT_OUTCOME_FIELD_MAP.values():
         definition = (
@@ -162,19 +163,37 @@ def ensure_environment_outcome_definitions(session):
                 setting_definition_id=definition.id,
                 production_method_id=None,
                 machine_id=None,
-                applicable_to_planned=True,
+                # WP7 Phase 3 correction (2026-08-14, Charlie's closeout
+                # review): actual-only capture semantics -
+                # Environment/Outcome measurements are recorded facts, not
+                # something planned in advance, so applicable_to_planned
+                # must be False here. (The original Phase 3 release set
+                # this True, which - combined with pages/4's
+                # tab_method_settings rendering every eligible definition
+                # without a category filter - let these measurements
+                # appear as enterable "Planned" process settings, violating
+                # "measured outcomes remain outcomes". See this module's
+                # docstring and pages/4's category filter for the other
+                # half of this fix.)
+                applicable_to_planned=False,
                 applicable_to_actual=True,
                 controllable=False,
                 analytics_eligible=False,
                 active=True,
             ))
             applicabilities_created += 1
+        elif applicability.applicable_to_planned:
+            # Correction path for an applicability row created by the
+            # original (pre-correction) Phase 3 release.
+            applicability.applicable_to_planned = False
+            applicabilities_corrected += 1
 
     session.flush()
     return {
         "definitions_created": definitions_created,
         "definitions_updated": definitions_updated,
         "applicabilities_created": applicabilities_created,
+        "applicabilities_corrected": applicabilities_corrected,
     }
 
 
@@ -182,10 +201,21 @@ def backfill_environment_outcome_values(session):
     """One-time backfill (idempotent - safe to re-run): for every
     ProductionPhase row, for each of the 4 unambiguous fields in
     ENVIRONMENT_OUTCOME_FIELD_MAP that is non-null, ensure a matching
-    ProcessParameterValue row exists (snapshot_type 'Planned' for a
-    'Setup' phase, 'Actual' for a 'Finalized' phase - mirrors the
-    Setup/Finalized <-> Planned/Actual convention already used
-    everywhere else in this schema).
+    ProcessParameterValue row exists with snapshot_type 'Actual' -
+    Environment/Outcome measurements are recorded facts, never planned
+    settings (see ensure_environment_outcome_definitions()'s
+    actual-only capture semantics).
+
+    WP7 Phase 3 correction (2026-08-14, Charlie's closeout review,
+    finding #2): a legacy 'Setup' phase value for one of these 4
+    fields is NEVER migrated as a Planned process setting - that was
+    the original (pre-correction) release's defect. Instead it is
+    counted in "values_quarantined_setup" and left out of the
+    migration entirely, per Charlie's instruction: "Any legacy
+    Setup-side Environment/Outcome value should remain an observation
+    or enter quarantine for review, with no Planned-setting
+    reclassification." Only non-Setup phase rows (i.e. 'Finalized')
+    are migrated, always as 'Actual'.
 
     Preserves the NULL-vs-zero distinction explicitly (WP7 governing doc
     section 9, and this project's established Gap-1 pattern): only a
@@ -195,8 +225,9 @@ def backfill_environment_outcome_values(session):
     Calls ensure_environment_outcome_definitions() first so this can be
     invoked standalone. Returns a reconciliation dict: {"phases_read": n,
     "values_migrated": n, "values_already_present": n,
-    "values_skipped_null": n} - the exact evidence shape the WP7 Phase 1
-    design doc's section 5.1 requires for this migration class."""
+    "values_skipped_null": n, "values_quarantined_setup": n} - the exact
+    evidence shape the WP7 Phase 1 design doc's section 5.1 requires for
+    this migration class."""
     ensure_environment_outcome_definitions(session)
     definitions_by_field = {
         field: session.query(ProcessSettingDefinition).filter_by(controlled_id=spec["controlled_id"]).one()
@@ -207,21 +238,27 @@ def backfill_environment_outcome_values(session):
     values_migrated = 0
     values_already_present = 0
     values_skipped_null = 0
+    values_quarantined_setup = 0
 
     for phase in session.query(ProductionPhase).all():
         phases_read += 1
-        snapshot_type = "Planned" if phase.phase_name == "Setup" else "Actual"
         for field, definition in definitions_by_field.items():
             value = getattr(phase, field)
             if value is None:
                 values_skipped_null += 1
+                continue
+            if phase.phase_name == "Setup":
+                # Actual-only capture: a Setup-side legacy value for an
+                # Environment/Outcome field is quarantined for manual
+                # review, never reclassified as a Planned setting.
+                values_quarantined_setup += 1
                 continue
             existing = (
                 session.query(ProcessParameterValue)
                 .filter_by(
                     setting_definition_id=definition.id,
                     production_run_id=phase.production_run_id,
-                    snapshot_type=snapshot_type,
+                    snapshot_type="Actual",
                 )
                 .first()
             )
@@ -231,7 +268,7 @@ def backfill_environment_outcome_values(session):
             session.add(ProcessParameterValue(
                 setting_definition_id=definition.id,
                 production_run_id=phase.production_run_id,
-                snapshot_type=snapshot_type,
+                snapshot_type="Actual",
                 numeric_value=value,
                 source="WP7 Phase 3 migration",
                 notes=f"Backfilled from production_phases.id={phase.id} ({field})",
@@ -244,6 +281,7 @@ def backfill_environment_outcome_values(session):
         "values_migrated": values_migrated,
         "values_already_present": values_already_present,
         "values_skipped_null": values_skipped_null,
+        "values_quarantined_setup": values_quarantined_setup,
     }
 
 

@@ -1200,6 +1200,21 @@ with tab_method_settings:
             eligible = analytics.eligible_process_settings(
                 session, run.production_method_id, machine_id=run.machine_id
             )
+            # WP7 Phase 3 correction (2026-08-14, Charlie's closeout review,
+            # findings #1/#2): this tab is for controllable Process Setting
+            # levers only. Environment/Outcome definitions are measured
+            # observations, not planned/actual machine settings, and must
+            # never render here even if analytics.eligible_process_settings()
+            # returns them as eligible by Machine>Method>Global precedence.
+            # (Those categories are actual-only capture and belong on the
+            # Runtime/Setup observation tabs; see legacy_migration.py's
+            # ensure_environment_outcome_definitions() for the other half of
+            # this fix.)
+            eligible = [
+                (definition, applicability)
+                for definition, applicability in eligible
+                if definition.parameter_category not in ("Environment", "Outcome")
+            ]
             if not eligible:
                 st.info(
                     "No process settings are configured as applicable to this run's Production "

@@ -5224,4 +5224,73 @@ ProcessParameterValue rows created), and the orchestration summary
 Full regression: 473 passed, 0 skipped, 0 failed (full suite).
 """
 
-APP_VERSION = "0.44.0"
+VERSION_0_45_0_NOTES = """
+WP7 Phase 3 Closeout Correction (2026-08-14) - targeted fix for a defect
+Charlie found in his v0.44.0/af23f8a review: Environment/Outcome
+measurements (PS-008 Ambient temperature, PS-009 Relative humidity,
+PS-078 Foam height, PS-079 Rise time) were incorrectly appearing as
+enterable "Planned" process settings in the live Method-Aware Process
+Settings form, because their Global ProcessSettingApplicability rows had
+applicable_to_planned=True and pages/4's rendering had no category
+filter - violating the architecture principle that measured outcomes
+remain outcomes, separate from controllable process levers.
+
+Charlie's review also clarified that 5 of the 6 legacy classes I had
+marked "OPEN" in the original Phase 3 closeout (mixer_rpm, conveyor_speed,
+sidewall_width_mm, air_injection_rate, air_pressure_bar) are in fact
+properly disposed for closure purposes: zero live values, an explicit
+deferred/quarantine policy, and a tested mechanism together satisfy the
+Phase 3 gate even with no real data yet - no further action was needed on
+those 5. Only ProductionRun.block_reference's live count needed reporting
+(1 total run, 0 non-null - closes immediately) and the UI leak needed
+fixing.
+
+legacy_migration.py, ensure_environment_outcome_definitions(): new
+Global applicability rows for PS-008/009/078/079 now set
+applicable_to_planned=False, applicable_to_actual=True (actual-only
+capture - these are recorded facts, never planned in advance). A new
+correction branch self-heals any pre-existing row created by the
+original release (applicable_to_planned=True -> False), reported via a
+new applicabilities_corrected count. Idempotent both ways.
+
+legacy_migration.py, backfill_environment_outcome_values(): a legacy
+Setup-phase value for one of these 4 fields is no longer migrated as a
+"Planned" ProcessParameterValue - it is quarantined (counted in a new
+values_quarantined_setup return key, left for manual review) per
+Charlie's instruction that Setup-side Environment/Outcome values must
+remain observations or enter quarantine, never be reclassified as
+Planned settings. Only Finalized-phase values migrate, always as
+"Actual". NULL-vs-zero preservation still holds on the Finalized side.
+
+pages/4_Production_Run_Trial_Record.py, tab_method_settings: the eligible
+list from analytics.eligible_process_settings() is now filtered to
+exclude parameter_category in ("Environment", "Outcome") before
+rendering, so these definitions can never appear as Planned/Actual
+process-setting inputs even though they remain eligible by
+Machine>Method>Global precedence - true Process Setting definitions are
+unaffected and continue to render normally.
+
+Live Supabase (rigid_foam schema): the 4 pre-existing Global
+applicability rows for PS-008/009/078/079 were corrected directly
+(applicable_to_planned: true -> false), verified via a live join query
+immediately after. No DDL - data-only correction.
+ProductionRun.block_reference: confirmed 1 total run, 0 non-null live -
+this class closes per Charlie's "a zero count closes the class
+immediately" rule.
+
+Tests: tests/test_wp7_phase3_reconciliation.py - added
+test_ensure_definitions_corrects_pre_existing_planned_true_applicability
+(self-heal proof), extended the PS-008/009 reuse test with
+applicable_to_planned/actual assertions, rewrote the NULL-vs-zero
+backfill test for the new Setup-side quarantine behavior (no values ever
+migrate as "Planned"), and added a direct AppTest UI regression -
+test_method_settings_tab_excludes_environment_outcome_but_shows_process_setting
+- proving PS-008/PS-078 never render as process-setting inputs on the
+real Streamlit form while an ordinary Process Setting definition renders
+normally with both Planned and Actual inputs (Charlie's acceptance
+criterion #2, evidenced directly against the UI, not just the ORM).
+
+Full regression: 473 passed, 2 skipped, 0 failed (full suite).
+"""
+
+APP_VERSION = "0.45.0"

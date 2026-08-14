@@ -13,6 +13,15 @@ Charlie (mixer_rpm/conveyor_speed/sidewall_width_mm PM-code mapping,
 air_injection_rate/air_pressure_bar quarantine review, block_reference
 review) - none of which this module touches, per its own docstring.
 
+WP7 Phase 3 correction (2026-08-14, Charlie's closeout review of v0.44.0/
+af23f8a): also covers direct evidence for the targeted correction -
+Environment/Outcome ProcessSettingDefinitions are actual-only capture
+(applicable_to_planned=False), a Setup-phase legacy value for one of these
+fields is quarantined rather than migrated as "Planned", and the Method-
+Aware Process Settings UI tab excludes Environment/Outcome categories
+entirely while true Process Setting definitions continue to render
+normally (direct AppTest UI evidence, not just ORM-level).
+
 Usage: python -m pytest tests/test_wp7_phase3_reconciliation.py -v
 """
 import datetime as dt
@@ -24,10 +33,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
 import pytest
+from streamlit.testing.v1 import AppTest
 
+import access_control
 import db
 import legacy_migration as lm
 import tenant_scope
+
+APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PAGE4 = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
 
 
 def _reset_schema():
@@ -37,6 +51,22 @@ def _reset_schema():
     tenant_scope.family_ids_for_plants.clear()
     tenant_scope.grade_ids_for_families.clear()
     tenant_scope.run_ids_for_plants.clear()
+    tenant_scope.customer_trial_ids_for_plants.clear()
+    tenant_scope.optimization_trial_ids_for_plants.clear()
+    access_control.denied_page_keys.clear()
+
+
+def _run_page4(session_state=None):
+    """AppTest runner for pages/4, matching
+    test_wp7_phase2_production_run_ui.py's own _run() convention exactly -
+    used here only for the WP7 Phase 3 correction's UI-exclusion evidence
+    (Charlie's acceptance criterion #2)."""
+    at = AppTest.from_file(PAGE4, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    for key, value in (session_state or {}).items():
+        at.session_state[key] = value
+    at.run()
+    return at
 
 
 @pytest.fixture()
@@ -76,7 +106,10 @@ def seeded_run():
         machine_id=machine.id, production_method_id=method.id, operator_or_team_reference="Shift A",
     )
     session.add(run); session.commit()
-    ids = {"company_id": company.id, "plant_id": plant.id, "run_id": run.id}
+    ids = {
+        "company_id": company.id, "plant_id": plant.id, "run_id": run.id,
+        "method_id": method.id, "machine_id": machine.id,
+    }
     session.close()
     return ids
 
@@ -125,6 +158,7 @@ def test_ensure_definitions_reuses_existing_ps008_ps009_not_duplicates(seeded_ru
     assert result["definitions_created"] == 2
     assert result["definitions_updated"] == 2
     assert result["applicabilities_created"] == 4
+    assert result["applicabilities_corrected"] == 0
 
     ps008 = session.query(db.ProcessSettingDefinition).filter_by(controlled_id="PS-008").one()
     assert ps008.parameter_category == "Environment"
@@ -140,12 +174,52 @@ def test_ensure_definitions_reuses_existing_ps008_ps009_not_duplicates(seeded_ru
     ).one()
     assert applicability.controllable is False
     assert applicability.analytics_eligible is False
+    # WP7 Phase 3 correction (2026-08-14, Charlie's closeout review, finding
+    # #1): actual-only capture - Environment/Outcome measurements must never
+    # be eligible as a "Planned" process setting.
+    assert applicability.applicable_to_planned is False
+    assert applicability.applicable_to_actual is True
 
     # Idempotent second call.
     result2 = lm.ensure_environment_outcome_definitions(session)
     session.commit()
     assert result2["definitions_created"] == 0
     assert result2["applicabilities_created"] == 0
+    assert result2["applicabilities_corrected"] == 0
+    session.close()
+
+
+def test_ensure_definitions_corrects_pre_existing_planned_true_applicability(seeded_run):
+    """WP7 Phase 3 correction (2026-08-14, Charlie's closeout review, finding
+    #1): the original (pre-correction) Phase 3 release created these 4
+    Global applicability rows with applicable_to_planned=True. Simulates
+    that exact pre-correction state and proves a re-run of
+    ensure_environment_outcome_definitions() self-heals it to False without
+    creating a duplicate applicability row."""
+    session = db.get_session()
+    result1 = lm.ensure_environment_outcome_definitions(session)
+    session.commit()
+    assert result1["applicabilities_created"] == 4
+
+    # Simulate the pre-correction (defective) live state.
+    session.query(db.ProcessSettingApplicability).update({"applicable_to_planned": True})
+    session.commit()
+
+    result2 = lm.ensure_environment_outcome_definitions(session)
+    session.commit()
+    assert result2["applicabilities_created"] == 0
+    assert result2["applicabilities_corrected"] == 4
+
+    still_planned = session.query(db.ProcessSettingApplicability).filter_by(applicable_to_planned=True).count()
+    assert still_planned == 0
+
+    total_applicabilities = session.query(db.ProcessSettingApplicability).count()
+    assert total_applicabilities == 4, "correction must update existing rows, not create new ones"
+
+    # Idempotent third call: nothing left to correct.
+    result3 = lm.ensure_environment_outcome_definitions(session)
+    session.commit()
+    assert result3["applicabilities_corrected"] == 0
     session.close()
 
 
@@ -154,20 +228,25 @@ def test_ensure_definitions_reuses_existing_ps008_ps009_not_duplicates(seeded_ru
 # ---------------------------------------------------------------------------
 
 def test_backfill_environment_outcome_values_preserves_null_vs_zero(seeded_run):
+    """WP7 Phase 3 correction (2026-08-14, Charlie's closeout review, finding
+    #2): a Setup-phase legacy value for one of these 4 fields is quarantined
+    (counted, not migrated) rather than reclassified as a Planned setting -
+    only Finalized-phase values migrate, always as 'Actual'. The NULL-vs-zero
+    distinction is still proven, now on the Finalized side."""
     ids = seeded_run
     session = db.get_session()
 
     setup_phase = db.ProductionPhase(
         production_run_id=ids["run_id"], phase_name="Setup",
         ambient_temperature_c=21.5,
-        ambient_humidity_pct=0.0,  # real recorded zero - must NOT be dropped
+        ambient_humidity_pct=0.0,  # real recorded zero, but Setup-side -> quarantined, not migrated
         foam_height_mm=None,  # genuinely blank - must be skipped, not migrated as 0
         rise_time=45.0,
     )
     finalized_phase = db.ProductionPhase(
         production_run_id=ids["run_id"], phase_name="Finalized",
         ambient_temperature_c=23.0, ambient_humidity_pct=55.5,
-        foam_height_mm=180.0, rise_time=None,
+        foam_height_mm=180.0, rise_time=0.0,  # real recorded zero, Finalized-side -> must migrate as 0.0
     )
     session.add_all([setup_phase, finalized_phase])
     session.commit()
@@ -176,16 +255,32 @@ def test_backfill_environment_outcome_values_preserves_null_vs_zero(seeded_run):
     session.commit()
 
     assert result["phases_read"] == 2
-    # Setup: ambient_temp, ambient_humidity (0.0), rise_time migrate = 3; foam_height skipped.
-    # Finalized: ambient_temp, ambient_humidity, foam_height migrate = 3; rise_time skipped.
-    assert result["values_migrated"] == 6
-    assert result["values_skipped_null"] == 2
+    # Setup: ambient_temp, ambient_humidity (0.0), rise_time are all quarantined = 3; foam_height skipped (null).
+    # Finalized: ambient_temp, ambient_humidity, foam_height, rise_time (0.0) all migrate = 4.
+    assert result["values_migrated"] == 4
+    assert result["values_quarantined_setup"] == 3
+    assert result["values_skipped_null"] == 1
+
+    # Nothing was migrated as "Planned" - actual-only capture.
+    planned_count = session.query(db.ProcessParameterValue).filter_by(
+        production_run_id=ids["run_id"], snapshot_type="Planned",
+    ).count()
+    assert planned_count == 0, "Environment/Outcome values must never migrate as Planned settings"
 
     ps009 = session.query(db.ProcessSettingDefinition).filter_by(controlled_id="PS-009").one()
-    humidity_planned = session.query(db.ProcessParameterValue).filter_by(
-        setting_definition_id=ps009.id, production_run_id=ids["run_id"], snapshot_type="Planned",
-    ).one()
-    assert humidity_planned.numeric_value == 0.0, "a real recorded zero must persist as 0.0, not be dropped"
+    humidity_rows = session.query(db.ProcessParameterValue).filter_by(
+        setting_definition_id=ps009.id, production_run_id=ids["run_id"],
+    ).all()
+    assert len(humidity_rows) == 1, "only the Finalized-side humidity value migrates; Setup-side is quarantined"
+    assert humidity_rows[0].snapshot_type == "Actual"
+    assert humidity_rows[0].numeric_value == 55.5
+
+    ps079 = session.query(db.ProcessSettingDefinition).filter_by(controlled_id="PS-079").one()
+    rise_time_rows = session.query(db.ProcessParameterValue).filter_by(
+        setting_definition_id=ps079.id, production_run_id=ids["run_id"],
+    ).all()
+    assert len(rise_time_rows) == 1
+    assert rise_time_rows[0].numeric_value == 0.0, "a real recorded Finalized-side zero must persist, not be dropped"
 
     ps078 = session.query(db.ProcessSettingDefinition).filter_by(controlled_id="PS-078").one()
     foam_height_rows = session.query(db.ProcessParameterValue).filter_by(
@@ -196,11 +291,14 @@ def test_backfill_environment_outcome_values_preserves_null_vs_zero(seeded_run):
     assert foam_height_rows[0].numeric_value == 180.0
     assert foam_height_rows[0].source == "WP7 Phase 3 migration"
 
-    # Idempotent re-run: no duplicates, everything already-present.
+    # Idempotent re-run: no duplicates, everything already-present; Setup
+    # values are re-counted as quarantined each run (report-only, matching
+    # quarantine_air_settings_report's own report-not-state convention).
     result2 = lm.backfill_environment_outcome_values(session)
     session.commit()
     assert result2["values_migrated"] == 0
-    assert result2["values_already_present"] == 6
+    assert result2["values_already_present"] == 4
+    assert result2["values_quarantined_setup"] == 3
     session.close()
 
 
@@ -305,3 +403,72 @@ def test_reconciliation_summary_orchestrates_all_steps_together(seeded_run):
     assert summary["environment_outcome_values"]["values_migrated"] == 1
     assert summary["quarantine_air_settings_count"] == 1
     session.close()
+
+
+# ---------------------------------------------------------------------------
+# 6. WP7 Phase 3 correction (2026-08-14, Charlie's closeout review) - direct
+#    UI evidence that Environment/Outcome definitions never render as
+#    enterable Planned/Actual process settings, while a true Process Setting
+#    definition still renders normally (acceptance criterion #2).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def seeded_env_outcome_and_process_setting(seeded_run):
+    """Extends seeded_run with: (a) the corrected Environment/Outcome
+    catalogue via ensure_environment_outcome_definitions() (actual-only,
+    Global-scoped - eligible for any run), and (b) one ordinary
+    Method-scoped Process Setting definition/applicability, following the
+    same pattern as test_wp7_phase2_production_run_ui.py's
+    seeded_method_setting fixture - the minimum content needed to prove the
+    UI tab renders one and excludes the other."""
+    ids = seeded_run
+    session = db.get_session()
+    lm.ensure_environment_outcome_definitions(session)
+    session.commit()
+
+    unit = db.UnitOfMeasure(controlled_id=f"UOM-WP7P3C-{ids['run_id']}", symbol="rpm", name="revolutions per minute")
+    session.add(unit); session.flush()
+    process_setting = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P3C-{ids['run_id']}", name="Test Mixer Speed", data_type="Float",
+        unit_id=unit.id, parameter_category="Process Setting", active=True, sort_order=1,
+    )
+    session.add(process_setting); session.flush()
+    applicability = db.ProcessSettingApplicability(
+        setting_definition_id=process_setting.id, production_method_id=ids["method_id"],
+        applicable_to_planned=True, applicable_to_actual=True, controllable=True,
+        analytics_eligible=True, active=True,
+    )
+    session.add(applicability); session.commit()
+
+    ps008 = session.query(db.ProcessSettingDefinition).filter_by(controlled_id="PS-008").one()
+    ps078 = session.query(db.ProcessSettingDefinition).filter_by(controlled_id="PS-078").one()
+
+    out = dict(ids)
+    out["process_setting_definition_id"] = process_setting.id
+    out["ps008_id"] = ps008.id
+    out["ps078_id"] = ps078.id
+    session.close()
+    return out
+
+
+def test_method_settings_tab_excludes_environment_outcome_but_shows_process_setting(seeded_env_outcome_and_process_setting):
+    """Direct UI proof of the correction: the Method-Aware Process Settings
+    tab must not render any widget for PS-008 (Environment) or PS-078
+    (Outcome), even though both are eligible by Machine>Method>Global
+    precedence, while the ordinary Process Setting definition renders
+    normally with both Planned and Actual inputs - exactly Charlie's
+    acceptance criterion #2 wording."""
+    ids = seeded_env_outcome_and_process_setting
+    at = _run_page4({"pr_selected_run_id": ids["run_id"]})
+    assert not at.exception
+
+    for excluded_id in (ids["ps008_id"], ids["ps078_id"]):
+        assert not any(
+            w.key and w.key.startswith(f"pps_{excluded_id}_") for w in at.number_input
+        ), f"Environment/Outcome definition {excluded_id} must not render as a process setting input"
+
+    process_setting_id = ids["process_setting_definition_id"]
+    planned_key = f"pps_{process_setting_id}_Planned_{ids['run_id']}"
+    actual_key = f"pps_{process_setting_id}_Actual_{ids['run_id']}"
+    assert any(w.key == planned_key for w in at.number_input), "true Process Setting definition must still render (Planned)"
+    assert any(w.key == actual_key for w in at.number_input), "true Process Setting definition must still render (Actual)"
