@@ -104,28 +104,38 @@ from cascades import delete_production_run_cascade, production_run_dependency_co
 from db import (
     EVENT_TYPES,
     PRODUCTION_OUTPUT_DISPOSITIONS,
+    PRODUCTION_RUN_STATUSES,
     SEVERITIES,
+    Cavity,
     ComponentStreamReading,
     FallplateSectionPosition,
+    FillPoint,
     FoamGrade,
     Machine,
+    Mixhead,
+    Plant,
     PhysicalPropertyResult,
     ProcessParameterValue,
     ProcessSettingDefinition,
+    ProductionCycle,
     ProductionEvent,
+    ProductionMethod,
     ProductionOutputSummary,
     ProductionPhase,
     ProductionRun,
+    ProductionShot,
     QualityObservation,
     RawMaterialLotUse,
     RecipeComponent,
     RecipeVersion,
     Sample,
+    Tool,
     UnitOfMeasure,
     get_session,
     init_db,
 )
 from helpers import (
+    activated_methods_for_plant,
     clickable_table,
     combine_date_time,
     cr11_function_tab_labels,
@@ -133,10 +143,12 @@ from helpers import (
     dedupe_import_rows,
     delete_with_confirm,
     import_within_row_limit,
+    machines_for_plant_and_method,
     page_setup,
     parse_dt,
     render_data_table,
     render_function_action_intro,
+    run_uses_cycle_shot_operation,
     set_pending_banner,
     show_pending_banner,
     upload_within_size_limit,
@@ -343,13 +355,24 @@ if not grades:
     st.warning("Add a product grade and recipe version first.")
     st.stop()
 
+# WP7 Phase 2 Closeout Correction, Material Gap 2: the Create/Edit Production
+# Run forms below now walk Plant -> Production Method -> Production Unit or
+# Cell -> Product Grade, matching the operational hierarchy Charlie's
+# architecture correction already established for grade_production_methods()
+# (see helpers.py) - Plant and activated Production Methods are loaded once
+# here and reused by both forms.
+plants = apply_scope(session.query(Plant), Plant.id, plant_ids).order_by(Plant.name).all()
+if not plants:
+    st.warning("Add a plant first (Plant & Foam Equipment Overview page).")
+    st.stop()
+
 runs = (
     apply_scope(session.query(ProductionRun), ProductionRun.plant_id, plant_ids)
     .order_by(ProductionRun.created_at.desc())
     .all()
 )
 
-tab_runs, tab_setup, tab_method_settings, tab_runtime, tab_streams, tab_output, tab_events = st.tabs(
+tab_runs, tab_setup, tab_method_settings, tab_runtime, tab_streams, tab_output, tab_cycles, tab_events = st.tabs(
     [
         "📋 Production Runs",
         "🛠️ Planned Settings",
@@ -357,6 +380,7 @@ tab_runs, tab_setup, tab_method_settings, tab_runtime, tab_streams, tab_output, 
         "📊 Actual Run and Cycle Data",
         "🧪 Material Metering and Actual Usage",
         "📦 Production Output and Disposition",
+        "🔄 Cycle / Shot Data",
         "🚨 Production Events",
     ]
 )
@@ -398,11 +422,83 @@ with tab_runs:
                 st.divider()
                 st.markdown(f"#### Edit Run #{selected_run.id}")
                 with st.form(f"edit_run_form_{selected_run.id}"):
-                    grade_idx = next((i for i, g in enumerate(grades) if g.id == selected_run.foam_grade_id), 0)
-                    grade = st.selectbox(
-                        "Product grade *", grades, index=grade_idx,
-                        format_func=lambda g: g.grade_name, key=f"edit_run_grade_{selected_run.id}",
+                    st.caption(
+                        "WP7 Phase 2 Closeout Correction: Run Context is captured context-first - "
+                        "Plant, then Production Method, then Production Unit or Cell, then Product "
+                        "Grade - since the Production Unit or Cell you pick is what actually "
+                        "determines which Product Grades are producible on it."
                     )
+                    # Step 1: Plant.
+                    plant_idx = next((i for i, p in enumerate(plants) if p.id == selected_run.plant_id), 0)
+                    plant = st.selectbox(
+                        "Plant *", plants, index=plant_idx, format_func=lambda p: p.name,
+                        key=f"edit_run_plant_{selected_run.id}",
+                    )
+                    # Step 2: Production Method - only methods activated for
+                    # this plant (see helpers.activated_methods_for_plant),
+                    # matching the same gate Machine setup and Product Grade
+                    # method pickers already use.
+                    methods = activated_methods_for_plant(session, plant.id) if plant else []
+                    if plant and not methods:
+                        st.caption(
+                            "⚠️ This plant has no activated Production Method yet - activate one on "
+                            "the Production Methods page first."
+                        )
+                    method_idx = next(
+                        (i for i, m in enumerate(methods) if m.id == selected_run.production_method_id), 0,
+                    )
+                    method = st.selectbox(
+                        "Production Method *", methods, index=method_idx,
+                        format_func=lambda m: m.name, key=f"edit_run_method_{selected_run.id}",
+                        disabled=not methods,
+                    ) if methods else None
+                    # Step 3: Production Unit or Cell - Machines at this plant
+                    # whose own production_method_id matches the chosen
+                    # Production Method (helpers.machines_for_plant_and_method).
+                    # Same NULL-is-active handling as before (a row written
+                    # via raw SQL can have active=NULL; only an explicit
+                    # False deactivates).
+                    candidate_machines = (
+                        machines_for_plant_and_method(session, plant.id, method.id) if (plant and method) else []
+                    )
+                    active_machines = [m for m in candidate_machines if m.active is not False]
+                    if plant and method and not active_machines:
+                        st.caption(
+                            "⚠️ No Production Unit or Cell is assigned to this Plant/Production Method "
+                            "combination yet - assign one on the Plant & Foam Equipment Overview page "
+                            "first."
+                        )
+                    machine_options = [None] + active_machines
+                    machine_idx = next(
+                        (i for i, m in enumerate(machine_options) if m is not None and m.id == selected_run.machine_id),
+                        0,
+                    )
+                    machine = st.selectbox(
+                        "Production Unit or Cell *", machine_options, index=machine_idx,
+                        format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
+                        key=f"edit_run_machine_{selected_run.id}",
+                    )
+                    # Step 4: Product Grade - filtered to grades actually
+                    # assigned to the chosen machine (Machine.foam_grades,
+                    # the reverse side of FoamGrade.machines), scoped to this
+                    # company's own grades.
+                    grade_ids_in_scope = {g.id for g in grades}
+                    assignable_grades = (
+                        [g for g in machine.foam_grades if g.id in grade_ids_in_scope] if machine else []
+                    )
+                    if machine and not assignable_grades:
+                        st.caption(
+                            "⚠️ This Production Unit or Cell has no Product Grade assigned yet - "
+                            "assign one on the Product Family & Product Grade page first."
+                        )
+                    grade_idx = next(
+                        (i for i, g in enumerate(assignable_grades) if g.id == selected_run.foam_grade_id), 0,
+                    )
+                    grade = st.selectbox(
+                        "Product grade *", assignable_grades, index=grade_idx,
+                        format_func=lambda g: g.grade_name, key=f"edit_run_grade_{selected_run.id}",
+                        disabled=not assignable_grades,
+                    ) if assignable_grades else None
                     # No version picker here - a production run always uses whichever
                     # recipe version is currently active for the product grade (see
                     # RecipeVersion.is_active in db.py; only one can be active per
@@ -416,52 +512,66 @@ with tab_runs:
                         (v for v in versions_for_grade if v.is_active),
                         versions_for_grade[-1] if versions_for_grade else None,
                     )
-                    if current_version:
+                    if grade and current_version:
                         st.caption(f"Recipe version in use: **{current_version.version_label}** (current)")
-                    else:
+                    elif grade:
                         st.caption("⚠️ This product grade has no recipe version yet - add one on the Recipes page first.")
-                    # Machine choices are filtered to this PU Material's own
-                    # Machine assignment (FoamGrade.machines, the new
-                    # many-to-many from the Production Method Hierarchy
-                    # architecture change, 2026-08-09) - not every active
-                    # machine at the plant - per Charlie's "filter PU
-                    # Materials by Machine assignment in production
-                    # workflows" requirement (spec section 7.4).
-                    # `active` defaults to True at the model level
-                    # (db.py: Machine.active = Column(Boolean,
-                    # default=True)), but that default only applies on
-                    # ORM inserts - a row written via raw SQL can have
-                    # active=NULL. Treat NULL/unset as active (only an
-                    # explicit False deactivates), so legacy or
-                    # directly-seeded Machine rows aren't silently
-                    # excluded. Found 2026-08-09 via live walkthrough:
-                    # the real UAT plant's one Machine had active=NULL
-                    # and was invisible in this dropdown as a result.
-                    assigned_machines = [m for m in grade.machines if m.active is not False] if grade else []
-                    if grade and not assigned_machines:
-                        st.caption(
-                            "⚠️ This PU Material has no Production Unit or Cell assigned yet - assign "
-                            "one on the Product Family & Product Grade page first."
-                        )
-                    machine_options = [None] + assigned_machines
-                    machine_idx = next(
-                        (i for i, m in enumerate(machine_options) if m is not None and m.id == selected_run.machine_id),
-                        0,
-                    )
-                    machine = st.selectbox(
-                        "Production Unit or Cell", machine_options, index=machine_idx,
-                        format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
-                        key=f"edit_run_machine_{selected_run.id}",
-                    )
-                    run_method = machine.production_method if machine else None
-                    st.caption(
-                        f"Plant: **{grade.product_family.plant.name if grade else '—'}** · "
-                        f"Production Method: **{run_method.name if run_method else '—'}** · "
-                        f"Production Unit or Cell: **{machine.name if machine else '—'}**"
-                    )
                     run_date = st.date_input(
                         "Run date", value=selected_run.run_date or dt.date.today(),
                         key=f"edit_run_date_{selected_run.id}",
+                    )
+                    status_options = [""] + PRODUCTION_RUN_STATUSES
+                    status_idx = (
+                        status_options.index(selected_run.status)
+                        if selected_run.status in status_options else 0
+                    )
+                    status = st.selectbox(
+                        "Run status", status_options, index=status_idx,
+                        format_func=lambda s: "— not set —" if s == "" else s,
+                        key=f"edit_run_status_{selected_run.id}",
+                    )
+                    # Both the checkbox and combine_date_time's own widgets
+                    # are always rendered, deliberately not nested (one
+                    # gating the other's rendering) - inside an st.form,
+                    # widgets don't trigger a script rerun until submit, so
+                    # a widget whose very presence depended on another
+                    # form widget's just-clicked state could never appear
+                    # in time for the user to fill it in during the same
+                    # submission (see the identical note on the Method-Aware
+                    # Process Settings numeric fields above). The checkbox
+                    # is the sole source of truth for whether the date/time
+                    # below is actually saved; it stays fully independent of
+                    # what the date/time picker happens to contain.
+                    run_start_default = selected_run.run_start.date() if selected_run.run_start else None
+                    run_start_time_default = selected_run.run_start.time() if selected_run.run_start else None
+                    record_run_start = st.checkbox(
+                        "Record a run start time", value=selected_run.run_start is not None,
+                        key=f"edit_run_start_flag_{selected_run.id}",
+                        help="Check to save the run start entered below. Leave unchecked to keep the "
+                        "run start unset, regardless of what's entered below.",
+                    )
+                    run_start_value = combine_date_time(
+                        "Run start", f"edit_run_start_{selected_run.id}",
+                        default_date=run_start_default, default_time=run_start_time_default,
+                    )
+                    run_start = run_start_value if record_run_start else None
+                    run_end_default = selected_run.run_end.date() if selected_run.run_end else None
+                    run_end_time_default = selected_run.run_end.time() if selected_run.run_end else None
+                    record_run_end = st.checkbox(
+                        "Record a run end time", value=selected_run.run_end is not None,
+                        key=f"edit_run_end_flag_{selected_run.id}",
+                        help="Check to save the run end entered below. Leave unchecked to keep the "
+                        "run end unset, regardless of what's entered below.",
+                    )
+                    run_end_value = combine_date_time(
+                        "Run end", f"edit_run_end_{selected_run.id}",
+                        default_date=run_end_default, default_time=run_end_time_default,
+                    )
+                    run_end = run_end_value if record_run_end else None
+                    order_item_reference = st.text_input(
+                        "Customer order / order item reference",
+                        value=selected_run.order_item_reference or "",
+                        key=f"edit_run_order_ref_{selected_run.id}",
                     )
                     batch_reference = st.text_input(
                         "Batch reference", value=selected_run.batch_reference or "",
@@ -482,11 +592,13 @@ with tab_runs:
                     )
                     save = st.form_submit_button("Save changes", disabled=not page_usable)
                     if save and page_usable:
-                        if not current_version:
+                        if not grade:
+                            st.error("Select a Production Unit or Cell that has a Product Grade assigned first.")
+                        elif not current_version:
                             st.error("This product grade has no recipe version yet — add one on the Recipes page first.")
                         else:
                             selected_run.foam_grade_id = grade.id
-                            selected_run.plant_id = grade.product_family.plant_id
+                            selected_run.plant_id = plant.id
                             selected_run.recipe_version_id = current_version.id
                             selected_run.machine_id = machine.id if machine else None
                             # Production Method Hierarchy architecture change
@@ -498,8 +610,12 @@ with tab_runs:
                             # case the immutability rule protects against
                             # (see db.py's ProductionRun.production_method_id
                             # docstring).
-                            selected_run.production_method_id = run_method.id if run_method else None
+                            selected_run.production_method_id = method.id if method else None
                             selected_run.run_date = run_date
+                            selected_run.status = status or None
+                            selected_run.run_start = run_start
+                            selected_run.run_end = run_end
+                            selected_run.order_item_reference = order_item_reference or None
                             selected_run.batch_reference = batch_reference
                             selected_run.block_reference = block_reference
                             selected_run.operator_or_team_reference = operator
@@ -543,9 +659,60 @@ with tab_runs:
         st.caption(
             f"Batch reference (auto-generated, prevents typos/duplicates): **{batch_reference}**"
         )
+        st.caption(
+            "WP7 Phase 2 Closeout Correction: pick Plant, then Production Method, then Production "
+            "Unit or Cell, then Product Grade - the Production Unit or Cell you select determines "
+            "which Product Grades are producible on it."
+        )
+        # Steps 1-3 (Plant / Production Method / Production Unit or Cell)
+        # live outside the form too, since Step 4's Product Grade choices
+        # depend on Step 3's Production Unit or Cell - Streamlit forms only
+        # release values on submit, so a dependent dropdown inside the same
+        # form can't react to an earlier one until after the form is
+        # already submitted. Same live-preview pattern as run_date/
+        # batch_reference above.
+        plant = st.selectbox(
+            "Plant *", plants, format_func=lambda p: p.name, key="create_run_plant",
+        )
+        methods = activated_methods_for_plant(session, plant.id) if plant else []
+        if plant and not methods:
+            st.caption(
+                "⚠️ This plant has no activated Production Method yet - activate one on the "
+                "Production Methods page first."
+            )
+        method = st.selectbox(
+            "Production Method *", methods, format_func=lambda m: m.name, key="create_run_method",
+            disabled=not methods,
+        ) if methods else None
+        candidate_machines = (
+            machines_for_plant_and_method(session, plant.id, method.id) if (plant and method) else []
+        )
+        active_machines = [m for m in candidate_machines if m.active is not False]
+        if plant and method and not active_machines:
+            st.caption(
+                "⚠️ No Production Unit or Cell is assigned to this Plant/Production Method "
+                "combination yet - assign one on the Plant & Foam Equipment Overview page first."
+            )
+        machine = st.selectbox(
+            "Production Unit or Cell *", [None] + active_machines,
+            format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
+            key="create_run_machine",
+        )
+        grade_ids_in_scope = {g.id for g in grades}
+        assignable_grades = (
+            [g for g in machine.foam_grades if g.id in grade_ids_in_scope] if machine else []
+        )
+        if machine and not assignable_grades:
+            st.caption(
+                "⚠️ This Production Unit or Cell has no Product Grade assigned yet - assign one on "
+                "the Product Family & Product Grade page first."
+            )
 
         with st.form("add_run"):
-            grade = st.selectbox("Product grade *", grades, format_func=lambda g: g.grade_name)
+            grade = st.selectbox(
+                "Product grade *" + ("" if assignable_grades else " (none assignable yet)"),
+                assignable_grades, format_func=lambda g: g.grade_name, disabled=not assignable_grades,
+            ) if assignable_grades else None
             # No version picker - see the same note in the Edit Run form above.
             # A new run always uses whichever recipe version is currently active
             # for the chosen product grade.
@@ -554,43 +721,55 @@ with tab_runs:
                 (v for v in versions_for_grade if v.is_active),
                 versions_for_grade[-1] if versions_for_grade else None,
             )
-            if current_version:
+            if grade and current_version:
                 st.caption(f"Recipe version in use: **{current_version.version_label}** (current)")
-            else:
+            elif grade:
                 st.caption("⚠️ This product grade has no recipe version yet - add one on the Recipes page first.")
-            # Filtered to this PU Material's own Machine assignment
-            # (FoamGrade.machines) - see the same note in the Edit Run
-            # form above, including the NULL-is-active handling.
-            assigned_machines = [m for m in grade.machines if m.active is not False] if grade else []
-            machine = st.selectbox(
-                "Production Unit or Cell" + ("" if assigned_machines else " (none assigned to this PU Material yet)"),
-                [None] + assigned_machines,
-                format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
+            status_options = [""] + PRODUCTION_RUN_STATUSES
+            status = st.selectbox(
+                "Run status", status_options, format_func=lambda s: "— not set —" if s == "" else s,
+                key="create_run_status",
             )
-            run_method = machine.production_method if machine else None
-            st.caption(
-                f"Plant: **{grade.product_family.plant.name if grade else '—'}** · "
-                f"Production Method: **{run_method.name if run_method else '—'}** · "
-                f"Production Unit or Cell: **{machine.name if machine else '—'}**"
+            # Both widgets always render (not one gating the other's
+            # rendering) - see the identical note on the Edit Run form and
+            # the Method-Aware Process Settings numeric fields.
+            record_run_start = st.checkbox(
+                "Record a run start time", value=False, key="create_run_start_flag",
+                help="Check to save the run start entered below.",
             )
+            run_start_value = combine_date_time("Run start", "create_run_start", default_date=run_date)
+            run_start = run_start_value if record_run_start else None
+            record_run_end = st.checkbox(
+                "Record a run end time", value=False, key="create_run_end_flag",
+                help="Check to save the run end entered below.",
+            )
+            run_end_value = combine_date_time("Run end", "create_run_end", default_date=run_date)
+            run_end = run_end_value if record_run_end else None
+            order_item_reference = st.text_input("Customer order / order item reference")
             block_reference = st.text_input("Block reference")
             operator = st.text_input("Operator / team reference")
             notes = st.text_area("Notes")
 
             submitted = st.form_submit_button("Save production run", disabled=not page_usable)
             if submitted and page_usable:
-                if not current_version:
+                if not grade:
+                    st.error("Select a Production Unit or Cell that has a Product Grade assigned first.")
+                elif not current_version:
                     st.error("This product grade has no recipe version yet — add one on the Recipes page first.")
                 else:
                     run = ProductionRun(
-                        plant_id=grade.product_family.plant_id,
+                        plant_id=plant.id,
                         foam_grade_id=grade.id,
                         recipe_version_id=current_version.id,
                         run_date=run_date,
+                        status=status or None,
+                        run_start=run_start,
+                        run_end=run_end,
+                        order_item_reference=order_item_reference or None,
                         batch_reference=_generate_batch_reference(session, run_date, plant_ids),
                         block_reference=block_reference,
                         machine_id=machine.id if machine else None,
-                        production_method_id=run_method.id if run_method else None,
+                        production_method_id=method.id if method else None,
                         operator_or_team_reference=operator,
                         notes=notes,
                     )
@@ -1037,6 +1216,7 @@ with tab_method_settings:
                         for snapshot_type, col in snapshot_cols:
                             existing = existing_by_key.get((definition.id, snapshot_type))
                             widget_key = f"pps_{definition.id}_{snapshot_type}_{run.id}"
+                            record_flag = True  # only meaningful for Float/Integer; overwritten below
                             if definition.data_type == "Boolean":
                                 options = ["", "Yes", "No"]
                                 current = (
@@ -1054,21 +1234,47 @@ with tab_method_settings:
                                 )
                             else:
                                 step = 1.0 if definition.data_type == "Integer" else 0.01
+                                has_existing_value = existing is not None and existing.numeric_value is not None
+                                # Deliberately NOT wired to number_input's
+                                # disabled= parameter: widgets inside an
+                                # st.form don't trigger a script rerun until
+                                # the form is submitted, so a disabled state
+                                # driven by this checkbox could never update
+                                # live in the same interaction - the user
+                                # would check the box and see the number
+                                # field still greyed out until after they'd
+                                # already submitted. Both widgets are simply
+                                # independent and always editable; the
+                                # checkbox is the sole source of truth for
+                                # "is this an explicitly recorded value" on
+                                # save, decoupled entirely from whatever the
+                                # number field happens to contain.
+                                record_flag = col.checkbox(
+                                    f"Record a {snapshot_type.lower()} value",
+                                    value=has_existing_value,
+                                    key=f"{widget_key}_recorded",
+                                    help=(
+                                        "Check this to save the number entered below, including zero - "
+                                        "zero is a distinct, valid recorded value and is never treated "
+                                        "as blank. Leave unchecked to keep this value unset/blank, "
+                                        "regardless of what's typed below."
+                                    ),
+                                )
                                 value = col.number_input(
                                     snapshot_type, step=step,
-                                    value=float(existing.numeric_value) if existing and existing.numeric_value is not None else 0.0,
+                                    value=float(existing.numeric_value) if has_existing_value else 0.0,
                                     key=widget_key,
                                 )
-                            field_plan.append((definition, applicability, snapshot_type, value, existing))
+                            field_plan.append((definition, applicability, snapshot_type, value, existing, record_flag))
 
                     submitted = st.form_submit_button("Save process settings", disabled=not page_usable)
                     if submitted and page_usable:
                         now = dt.datetime.utcnow()
-                        for definition, applicability, snapshot_type, value, existing in field_plan:
+                        for definition, applicability, snapshot_type, value, existing, record_flag in field_plan:
                             is_blank = (
                                 (definition.data_type == "Boolean" and value == "")
                                 or (definition.data_type == "String" and not value.strip())
-                                or (definition.data_type not in ("Boolean", "String") and not value)
+                                or (definition.data_type not in ("Boolean", "String") and not record_flag)
                             )
                             if is_blank:
                                 if existing:
@@ -1623,6 +1829,213 @@ with tab_output:
             "designed for and is expected to be retired for others in a later WP7 phase - it is not "
             "removed here."
         )
+
+# ---------------------------------------------------------------------------
+# Cycle / Shot Data (WP7 Phase 2 Closeout Correction, Material Gap 3)
+#
+# Charlie's WP7 Phase 2 Closeout Review explicitly rejected the earlier
+# closeout package's "schema support alone is sufficient, no UI needed"
+# framing for cycle/shot capture - this tab is the real, conditionally-
+# rendered module that framing incorrectly said wasn't required.
+# Conditional on run_uses_cycle_shot_operation() (helpers.py), a
+# config-driven declaration resolved from ProductionMethod.
+# uses_cycle_shot_operation / Machine.cycle_shot_operation_override -
+# never inferred from a Method's or Machine's name, and never seeded True
+# on any live row without Charlie's evidence-based confirmation (same
+# Phase 1 Production Seeding Rule as ProcessSettingApplicability).
+# ---------------------------------------------------------------------------
+with tab_cycles:
+    st.caption(
+        "Discrete cycle/shot capture for Production Methods/Production Units or Cells that operate "
+        "in mold-fill-cure-demold cycles (a cycle can itself contain several shots, e.g. a multi-drop "
+        "pour) rather than a continuous line. This module only becomes usable when the run's "
+        "Production Method or Production Unit or Cell is explicitly configured for cycle/shot "
+        "operation - it is never inferred from a name."
+    )
+    if not runs:
+        st.info("Create a production run first (Production Runs tab).")
+    else:
+        run = _run_selector(runs, key="cycles_tab_run_select")
+        if not run_uses_cycle_shot_operation(run):
+            st.info(
+                "Cycle/Shot data capture is not enabled for this run's Production Method/Production "
+                "Unit or Cell. This is expected for continuous-line methods - the flag is set "
+                "per Production Method (with an optional per-Production Unit or Cell override) on "
+                "the Production Methods / Plant & Foam Equipment Overview pages, and only after an "
+                "evidence-based confirmation that the method genuinely operates in discrete cycles."
+            )
+        else:
+            st.caption(
+                f"Showing Cycle/Shot data for **{_run_label(run)}** — Production Method: "
+                f"**{run.production_method.name if run.production_method else '—'}**"
+            )
+            cycles = (
+                session.query(ProductionCycle)
+                .filter(ProductionCycle.production_run_id == run.id)
+                .order_by(ProductionCycle.cycle_number)
+                .all()
+            )
+
+            # Tool/Mixhead choices are optional and, where the run's Machine
+            # has a resolved ProductionUnit, scoped to it - otherwise
+            # unfiltered, since many plants haven't populated that equipment
+            # master data yet and this module still has to be usable without
+            # it (same "don't force a picker the data can't support yet"
+            # precedent used throughout this app).
+            production_unit_id = run.machine.production_unit_id if run.machine else None
+            tool_query = session.query(Tool)
+            mixhead_query = session.query(Mixhead)
+            if production_unit_id:
+                tool_query = tool_query.filter(Tool.production_unit_id == production_unit_id)
+                mixhead_query = mixhead_query.filter(Mixhead.production_unit_id == production_unit_id)
+            tools = tool_query.order_by(Tool.name).all()
+            mixheads = mixhead_query.order_by(Mixhead.name).all()
+
+            st.markdown("##### Cycles recorded for this run")
+            if not cycles:
+                st.caption("No cycles recorded yet for this run.")
+            else:
+                cycle_rows = [
+                    {
+                        "Cycle": c.cycle_number,
+                        "Tool": c.tool.name if c.tool else "—",
+                        "Mixhead": c.mixhead.name if c.mixhead else "—",
+                        "Start": c.cycle_start,
+                        "End": c.cycle_end,
+                        "Shots": session.query(ProductionShot)
+                        .filter(ProductionShot.production_cycle_id == c.id).count(),
+                    }
+                    for c in cycles
+                ]
+                render_data_table(pd.DataFrame(cycle_rows), max_height="260px")
+
+            st.markdown("##### Add a cycle")
+            with st.form(f"add_cycle_{run.id}"):
+                next_cycle_number = max((c.cycle_number for c in cycles), default=0) + 1
+                cycle_number = st.number_input(
+                    "Cycle number *", min_value=1, step=1, value=next_cycle_number,
+                    key=f"new_cycle_number_{run.id}",
+                )
+                tool = st.selectbox(
+                    "Tool", [None] + tools,
+                    format_func=lambda t: "— not selected —" if t is None else t.name,
+                    key=f"new_cycle_tool_{run.id}",
+                )
+                mixhead = st.selectbox(
+                    "Mixhead", [None] + mixheads,
+                    format_func=lambda m: "— not selected —" if m is None else m.name,
+                    key=f"new_cycle_mixhead_{run.id}",
+                )
+                record_cycle_start = st.checkbox(
+                    "Record a cycle start time", value=False, key=f"new_cycle_start_flag_{run.id}",
+                )
+                cycle_start_value = combine_date_time(
+                    "Cycle start", f"new_cycle_start_{run.id}", default_date=run.run_date,
+                )
+                record_cycle_end = st.checkbox(
+                    "Record a cycle end time", value=False, key=f"new_cycle_end_flag_{run.id}",
+                )
+                cycle_end_value = combine_date_time(
+                    "Cycle end", f"new_cycle_end_{run.id}", default_date=run.run_date,
+                )
+                cycle_notes = st.text_area("Notes", key=f"new_cycle_notes_{run.id}")
+                submitted_cycle = st.form_submit_button("Save cycle", disabled=not page_usable)
+                if submitted_cycle and page_usable:
+                    session.add(ProductionCycle(
+                        production_run_id=run.id,
+                        cycle_number=int(cycle_number),
+                        tool_id=tool.id if tool else None,
+                        mixhead_id=mixhead.id if mixhead else None,
+                        cycle_start=cycle_start_value if record_cycle_start else None,
+                        cycle_end=cycle_end_value if record_cycle_end else None,
+                        notes=cycle_notes,
+                    ))
+                    session.commit()
+                    st.success("Cycle saved.")
+                    st.rerun()
+
+            if cycles:
+                st.divider()
+                st.markdown("##### Shots for a cycle")
+                cycle = st.selectbox(
+                    "Cycle *", cycles, format_func=lambda c: f"Cycle {c.cycle_number}",
+                    key=f"cycles_tab_cycle_select_{run.id}",
+                )
+                shots = (
+                    session.query(ProductionShot)
+                    .filter(ProductionShot.production_cycle_id == cycle.id)
+                    .order_by(ProductionShot.shot_number)
+                    .all()
+                )
+                if not shots:
+                    st.caption("No shots recorded yet for this cycle.")
+                else:
+                    shot_rows = [
+                        {
+                            "Shot": s.shot_number,
+                            "Cavity": (s.cavity.name or f"Cavity {s.cavity.cavity_number}") if s.cavity else "—",
+                            "Fill point": (
+                                s.fill_point.name or f"Fill point {s.fill_point.fill_point_number}"
+                            ) if s.fill_point else "—",
+                            "Timestamp": s.shot_ts,
+                        }
+                        for s in shots
+                    ]
+                    render_data_table(pd.DataFrame(shot_rows), max_height="220px")
+
+                # Cavity/Fill point pickers live outside the form (same reason
+                # Plant/Production Method/Production Unit or Cell live outside
+                # the Create Production Run form above): Fill point's choices
+                # depend on the selected Cavity, and st.form widgets don't
+                # rerun the script until submit, so a dependent dropdown
+                # nested inside the same form can't react to an earlier one
+                # in time for the same submission.
+                cavity_query = session.query(Cavity)
+                if cycle.tool_id:
+                    cavity_query = cavity_query.filter(Cavity.tool_id == cycle.tool_id)
+                cavities = cavity_query.order_by(Cavity.cavity_number).all()
+                cavity = st.selectbox(
+                    "Cavity", [None] + cavities,
+                    format_func=lambda c: "— not selected —" if c is None else (c.name or f"Cavity {c.cavity_number}"),
+                    key=f"new_shot_cavity_{cycle.id}",
+                )
+                fill_points = (
+                    session.query(FillPoint).filter(FillPoint.cavity_id == cavity.id)
+                    .order_by(FillPoint.fill_point_number).all()
+                    if cavity else []
+                )
+                fill_point = st.selectbox(
+                    "Fill point", [None] + fill_points,
+                    format_func=lambda f: "— not selected —" if f is None else (f.name or f"Fill point {f.fill_point_number}"),
+                    key=f"new_shot_fillpoint_{cycle.id}",
+                )
+
+                with st.form(f"add_shot_{cycle.id}"):
+                    next_shot_number = max((s.shot_number for s in shots), default=0) + 1
+                    shot_number = st.number_input(
+                        "Shot number *", min_value=1, step=1, value=next_shot_number,
+                        key=f"new_shot_number_{cycle.id}",
+                    )
+                    record_shot_ts = st.checkbox(
+                        "Record a shot timestamp", value=False, key=f"new_shot_ts_flag_{cycle.id}",
+                    )
+                    shot_ts_value = combine_date_time(
+                        "Shot timestamp", f"new_shot_ts_{cycle.id}", default_date=run.run_date,
+                    )
+                    shot_notes = st.text_area("Notes", key=f"new_shot_notes_{cycle.id}")
+                    submitted_shot = st.form_submit_button("Save shot", disabled=not page_usable)
+                    if submitted_shot and page_usable:
+                        session.add(ProductionShot(
+                            production_cycle_id=cycle.id,
+                            shot_number=int(shot_number),
+                            shot_ts=shot_ts_value if record_shot_ts else None,
+                            cavity_id=cavity.id if cavity else None,
+                            fill_point_id=fill_point.id if fill_point else None,
+                            notes=shot_notes,
+                        ))
+                        session.commit()
+                        st.success("Shot saved.")
+                        st.rerun()
 
 # ---------------------------------------------------------------------------
 # Production events (alarms / interventions / grade changes)

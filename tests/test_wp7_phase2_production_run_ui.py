@@ -197,6 +197,15 @@ def test_method_aware_settings_tab_filters_to_eligible_settings_and_saves_values
     assert any(w.key == planned_key for w in at.number_input), "Planned input for the eligible setting did not render"
     assert any(w.key == actual_key for w in at.number_input), "Actual input for the eligible setting did not render"
 
+    # WP7 Phase 2 Closeout Correction (2026-08-14, Material Gap 1): a numeric
+    # value is only persisted if its companion "Record a ... value" checkbox
+    # is explicitly checked - this is what lets Planned/Actual = 0 be saved
+    # as a real recorded zero instead of being silently treated as blank
+    # (see test_wp7_phase2_closeout_correction.py for the zero-vs-blank
+    # evidence itself). Check both boxes here since this test's whole point
+    # is proving a normal non-zero save still works end-to-end.
+    at.checkbox(key=f"{planned_key}_recorded").set_value(True)
+    at.checkbox(key=f"{actual_key}_recorded").set_value(True)
     at.number_input(key=planned_key).set_value(1200.0)
     at.number_input(key=actual_key).set_value(1185.5)
     submit = next(b for b in at.button if b.key == f"FormSubmitter:method_settings_form_{ids['run_id']}-Save process settings")

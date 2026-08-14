@@ -107,12 +107,20 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # controlled-UOM-derivation event listener; analytics.py gained a
     # deterministic ORDER BY + comment in eligible_process_settings() -
     # same unchanged comment/docstring text elsewhere, new line positions.
-    # The set below is the verified, current, exact hit list, not an
-    # arithmetic shift guess.
+    # db.py shifted again by the WP7 Phase 2 Closeout Correction (same
+    # date, Charlie's Material Gap 2): PRODUCTION_RUN_STATUSES constant +
+    # ProductionRun.run_start/run_end/status/order_item_reference columns
+    # and their CheckConstraint/@validates pair. Shifted a third time by
+    # the same Closeout Correction's Material Gap 3 fix:
+    # ProductionMethod.uses_cycle_shot_operation and
+    # Machine.cycle_shot_operation_override columns (config-driven
+    # cycle/shot declaration, never inferred from a name). The set below
+    # is the verified, current, exact hit list, not an arithmetic shift
+    # guess.
     ("analytics.py", 15), ("analytics.py", 170), ("analytics.py", 304),
     ("analytics.py", 318), ("analytics.py", 423), ("analytics.py", 691),
     ("analytics.py", 766), ("analytics.py", 1252), ("analytics.py", 1417),
-    ("db.py", 2000),
+    ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 184), ("pages/16_Trend_Analysis.py", 319),
     ("pages/17_Process_Property_Correlation.py", 110),

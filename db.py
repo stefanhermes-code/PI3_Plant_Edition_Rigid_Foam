@@ -134,6 +134,13 @@ SessionLocal = sessionmaker(bind=ENGINE, autoflush=False, autocommit=False, expi
 CONFIDENCE_LEVELS = ["Confirmed", "Likely", "Unconfirmed", "Rejected"]
 APPROVAL_STATUSES = ["Draft", "Pending Review", "Approved", "Rejected"]
 TRIAL_STATUSES = ["Open", "Pending Closure", "Closed"]
+# WP7 Phase 2 Closeout Correction (2026-08-14), per Charlie's Material Gap 2
+# ("Run Context still uses the legacy shape"): a Production Run previously had
+# no lifecycle status of its own - added here as a controlled vocabulary
+# (same @validates + CheckConstraint enforcement pattern as
+# PRODUCTION_OUTPUT_DISPOSITIONS below) rather than free text, consistent with
+# every other controlled-status field in this file.
+PRODUCTION_RUN_STATUSES = ["Planned", "In Progress", "Completed", "Cancelled"]
 # Process-data capture vocabularies (Mandatory-tier taxonomy, see
 # "Expanding PI3 Plant Edition Production-Trial Data Capture" report).
 # Limited to two snapshots deliberately: without a live PLC/OPC UA/MQTT link
@@ -620,6 +627,16 @@ class Machine(Base):
     year_manufactured = Column(Integer)
     year_installed = Column(Integer)
     status = Column(String(50))  # e.g. "Running", "Idle", "Decommissioned"
+    # WP7 Phase 2 Closeout Correction (2026-08-14), Material Gap 3: optional
+    # per-Machine override of its Production Method's
+    # uses_cycle_shot_operation default - NULL (the default) means "inherit
+    # the Method's setting"; True/False is an explicit override for the
+    # rare case a plant runs the same Production Method on one cycle/shot
+    # cell and one continuous cell. Like uses_cycle_shot_operation, this is
+    # config-driven only - never set True without Charlie's evidence-based
+    # confirmation for that specific Machine. See
+    # helpers.run_uses_cycle_shot_operation() for the resolution order.
+    cycle_shot_operation_override = Column(Boolean)
     # Deliberately a free-text label, not a new ProductionLine entity - a
     # "production line" in Charlie's document can group several Machine
     # rows (metering unit + mixhead + mold) or map 1:1 to one, and nothing
@@ -1161,6 +1178,35 @@ class ProductionRun(Base):
     operator_or_team_reference = Column(String(200))
     notes = Column(Text)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    # WP7 Phase 2 Closeout Correction (2026-08-14), Material Gap 2: Charlie's
+    # review found the Run Context missing run start/end, a lifecycle status,
+    # and a customer order/item reference - fields present in the section 4
+    # target model (WP7 governing doc, Run Context group) but never added
+    # when Phase 2 built the rest of the run-level UI. All four are optional
+    # (nullable) so every existing run stays valid without a backfill value -
+    # "not yet recorded" is a legitimate, honest state for historical runs
+    # entered before this correction, same precedent as every other
+    # Phase-1/Phase-2 nullable-by-design column in this file.
+    run_start = Column(DateTime)
+    run_end = Column(DateTime)
+    # Controlled vocabulary - see PRODUCTION_RUN_STATUSES above and the
+    # @validates/CheckConstraint pair below.
+    status = Column(String(50))
+    order_item_reference = Column(String(200))
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IS NULL OR status IN ('Planned', 'In Progress', 'Completed', 'Cancelled')",
+            name="ck_production_runs_status",
+        ),
+    )
+
+    @validates("status")
+    def _validate_status(self, key, value):
+        if value is not None and value not in PRODUCTION_RUN_STATUSES:
+            raise ValueError(f"status must be one of {PRODUCTION_RUN_STATUSES} or None, got {value!r}")
+        return value
 
     # Production Method architecture change (2026-08-09, flat model
     # finalized 2026-08-10): an IMMUTABLE snapshot, not a live-derived
@@ -2309,6 +2355,20 @@ class ProductionMethod(Base):
     sort_order = Column(Integer)
     maturity_status = Column(String(50))  # "Released" | "Defined / planned" | "Placeholder"
     is_released = Column(Boolean, default=False, nullable=False)
+
+    # WP7 Phase 2 Closeout Correction (2026-08-14), Material Gap 3: whether
+    # runs on this Production Method use discrete Cycle/Shot capture
+    # (ProductionCycle/ProductionShot, WP3e) rather than the continuous-line
+    # Setup/Finalized phase model. A config-driven declaration, deliberately
+    # NOT inferred from the Method's name (Charlie's review explicitly
+    # rejected "PM-100 sounds discontinuous, so infer True") - defaults to
+    # False for every row, including PM-100, and must only be set True on a
+    # live production_methods row after Charlie gives evidence-based
+    # confirmation for that specific Method, per the same Phase 1
+    # Production Seeding Rule ("flag, don't guess") already governing
+    # ProcessSettingApplicability. Machine.cycle_shot_operation_override
+    # below can override this default per-Machine.
+    uses_cycle_shot_operation = Column(Boolean, default=False, nullable=False)
 
 
 class Application(Base):

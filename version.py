@@ -5023,4 +5023,84 @@ WP7 Phase 2 closeout package (delivered together) for the full
 reconciliation.
 """
 
-APP_VERSION = "0.41.0"
+VERSION_0_42_0_NOTES = """
+WP7 Phase 2 Closeout Correction (2026-08-14). Charlie's WP7 Phase 2
+Closeout Review (WP7 Phase 2 Closeout Review, 14 August 2026) returned
+Phase 2 as OPEN with 3 material gaps requiring a targeted correction
+package before Phase 2 can close:
+
+Material Gap 1 - numeric zero treated as blank. Fixed: the Method-Aware
+Process Settings tab's Planned/Actual number fields for Float/Integer
+ProcessSettingDefinitions each gained a companion "Record a ... value"
+checkbox, rendered as an independent widget (not wired to the number
+field's disabled= state - Streamlit forms don't rerun on a widget
+interaction until submit, so a disabled= driven by another form widget's
+just-toggled state could never reflect that toggle within one
+submission). The checkbox alone determines whether a value is persisted
+at save time; the number field's contents are read only when its
+checkbox is checked. Planned = 0 / Actual = 0 now save as a real
+numeric_value == 0.0 for both Float and Integer, and typing a number
+without checking its checkbox leaves that value unset (no row created,
+or the existing row deleted) - proven directly for both data types.
+
+Material Gap 2 - legacy Run Context shape. Fixed: ProductionRun gained
+run_start/run_end (DateTime), status (String, backed by a new
+PRODUCTION_RUN_STATUSES controlled list + CheckConstraint + @validates),
+and order_item_reference (String). The Create and Edit Production Run
+forms were both rebuilt to walk the corrected operational hierarchy
+Plant -> Production Method -> Production Unit or Cell -> Product Grade
+(replacing the legacy Grade-first order), with Plant/Method/Unit living
+outside their respective st.form(...) blocks (same reasoning as the
+checkbox note above - Product Grade's choices depend on the selected
+Unit, and forms can't react to an earlier-in-form selection within one
+submission). run_start/run_end use the same explicit-checkbox pattern as
+Gap 1's numeric fields, decoupled from combine_date_time()'s own
+rendering.
+
+Material Gap 3 - absent Cycle/Shot UI. Charlie explicitly rejected the
+prior closeout package's "schema support alone is sufficient" reasoning.
+Fixed: added ProductionMethod.uses_cycle_shot_operation (Boolean, default
+False) and Machine.cycle_shot_operation_override (Boolean, nullable -
+None means inherit the Method's default; an explicit True/False overrides
+it per-Machine), plus helpers.run_uses_cycle_shot_operation(run) to
+resolve the two into one answer for a given run - never inferred from a
+Method's or Machine's name, and never seeded True on any live row without
+an evidence-based confirmation (same Phase 1 Production Seeding Rule
+already governing ProcessSettingApplicability). A new "Cycle / Shot Data"
+tab on the Production Run page conditionally renders: a plain explanatory
+message (no Create form) when the run's resolved Method/Unit isn't
+configured for it, and a real Create-cycle-then-create-shot workflow
+(ProductionCycle: cycle_number/Tool/Mixhead/cycle_start/cycle_end/notes;
+nested ProductionShot: shot_number/Cavity/Fill point/shot_ts/notes, both
+optional-equipment pickers) when it is. cascades.py gained the first-ever
+cascade-delete coverage for ProductionCycle/ProductionShot (previously a
+pre-existing, undetected gap since no UI had ever written to them).
+
+Migration: applied directly to the live rigid_foam Postgres schema
+(Supabase project PI3_Plant_Edition) as migration
+wp7_phase2_closeout_correction - ProductionRun.run_start/run_end/status/
+order_item_reference + ck_production_runs_status, ProductionMethod.
+uses_cycle_shot_operation (NOT NULL DEFAULT false), Machine.
+cycle_shot_operation_override (nullable). Verified live via
+information_schema.columns after applying.
+
+Tests: 7 new direct AppTest tests added in tests/
+test_wp7_phase2_closeout_correction.py - Planned/Actual = 0 persists as
+numeric zero for both Float and Integer, an unchecked "Record a value"
+checkbox leaves a typed number unset, Create Run persists run_start/
+run_end/status/order_item_reference with Product Grade's choices proven
+to follow the selected Production Unit or Cell, Edit Run persists the
+same 4 fields, and the Cycle/Shot tab both stays absent-with-message for
+an unconfigured Method and exposes a real functional create-cycle-then-
+create-shot flow for a configured one. One pre-existing test (tests/
+test_pm_hierarchy_pages_smoke.py::test_production_run_form_derives_
+method_snapshot_from_selected_machine) needed updating for the Create
+form's Production Unit or Cell label gaining a "*" (standardizing with
+every other required-field label on this form) and its picker moving
+outside st.form("add_run") - no behavior regression, same collateral-fix
+pattern as this session's prior CR corrections.
+
+Full regression: 465 passed, 0 skipped, 0 failed (full suite).
+"""
+
+APP_VERSION = "0.42.0"

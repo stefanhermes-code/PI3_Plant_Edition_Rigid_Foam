@@ -498,6 +498,24 @@ def grade_production_methods(grade):
     return sorted(seen.values(), key=lambda m: (m.sort_order, m.name))
 
 
+def run_uses_cycle_shot_operation(run):
+    """Whether a Production Run's Cycle/Shot Data module should be exposed,
+    per the config-driven declaration Charlie's WP7 Phase 2 Closeout Review
+    requires (Material Gap 3: "absent conditional Cycle/Shot UI module") -
+    resolved from ProductionMethod.uses_cycle_shot_operation /
+    Machine.cycle_shot_operation_override, never inferred from a Method's
+    or Machine's name. A Machine's own override, when explicitly set
+    (True or False), takes precedence over its Production Method's default
+    - covers a plant running the same Method on one cycle/shot cell and
+    one continuous cell. Returns False for a run with no resolved
+    Machine/Method yet (never raises)."""
+    if run.machine is not None and run.machine.cycle_shot_operation_override is not None:
+        return bool(run.machine.cycle_shot_operation_override)
+    if run.production_method is not None:
+        return bool(run.production_method.uses_cycle_shot_operation)
+    return False
+
+
 def grade_production_method_label(grade):
     """Display label for grade_production_methods() - "—" for none, the
     single method's name for one, a comma-joined list for more than one

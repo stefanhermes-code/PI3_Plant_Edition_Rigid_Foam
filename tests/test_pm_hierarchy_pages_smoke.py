@@ -208,11 +208,24 @@ def test_foam_grade_form_offers_machines_across_activated_methods(seeded_pm_hier
 
 
 def test_production_run_form_derives_method_snapshot_from_selected_machine(seeded_pm_hierarchy):
+    """WP7 Phase 2 Closeout Correction (2026-08-14, Material Gap 2): the
+    Create Production Run form now walks Plant -> Production Method ->
+    Production Unit or Cell -> Product Grade (all required-field labels
+    standardized with a trailing "*", matching "Plant *"/"Production
+    Method *" already used elsewhere on this same form), and the Plant/
+    Method/Unit pickers live OUTSIDE st.form("add_run") since Product
+    Grade's choices depend on the selected Unit and st.form widgets can't
+    react to each other within one submission - see the module's own
+    comments at pages/4_Production_Run_Trial_Record.py's tab_create block.
+    Selecting Plant/Method/Unit before Save is still clicked works in one
+    AppTest .run() because they render before the form in script order."""
     ids = seeded_pm_hierarchy
     at = _run(PAGE4)
     assert not at.exception, f"Unhandled exception loading Production Run: {at.exception}"
 
-    machine_sb = next((sb for sb in at.selectbox if sb.label == "Production Unit or Cell"), None)
+    at.selectbox(key="create_run_plant").select_index(0)
+    at.selectbox(key="create_run_method").select_index(0)
+    machine_sb = next((sb for sb in at.selectbox if sb.label == "Production Unit or Cell *"), None)
     assert machine_sb is not None, "Create Production Run form's Production Unit or Cell picker not found"
     machine_display = next((opt for opt in machine_sb.options if ids["machine_name"] in opt), None)
     assert machine_display is not None, f"Grade's assigned machine not offered - got {machine_sb.options}"

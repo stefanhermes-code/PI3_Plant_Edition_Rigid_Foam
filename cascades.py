@@ -35,10 +35,12 @@ from db import (
     PlantProductionMethod,
     ProcessParameterValue,
     ProductFamily,
+    ProductionCycle,
     ProductionEvent,
     ProductionOutputSummary,
     ProductionPhase,
     ProductionRun,
+    ProductionShot,
     QualityObservation,
     RawMaterialLotUse,
     RecipeComponent,
@@ -61,6 +63,10 @@ def production_run_dependency_counts(session, run_id):
     sample_ids = [
         s.id for s in session.query(Sample.id)
         .filter(Sample.production_run_id == run_id).all()
+    ]
+    cycle_ids = [
+        c.id for c in session.query(ProductionCycle.id)
+        .filter(ProductionCycle.production_run_id == run_id).all()
     ]
     # WP7 Phase 1/2 (2026-08-13/14): ComponentStreamReading, ProductionOutputSummary,
     # and ProcessParameterValue can now all be linked directly to production_run_id
@@ -95,6 +101,16 @@ def production_run_dependency_counts(session, run_id):
         .filter(ProcessParameterValue.production_run_id == run_id).count(),
         "production output summary": session.query(ProductionOutputSummary)
         .filter(ProductionOutputSummary.production_run_id == run_id).count(),
+        # WP7 Phase 2 Closeout Correction (2026-08-14), Material Gap 3: the
+        # new Cycle/Shot Data tab is the first UI surface that can ever
+        # write ProductionCycle/ProductionShot rows - counted here so a
+        # run's delete-confirmation warning is accurate once that tab is
+        # used.
+        "production cycle(s)": len(cycle_ids),
+        "production shot(s)": (
+            session.query(ProductionShot).filter(ProductionShot.production_cycle_id.in_(cycle_ids)).count()
+            if cycle_ids else 0
+        ),
     }
 
 
@@ -107,6 +123,10 @@ def delete_production_run_cascade(session, run_id):
     sample_ids = [
         s.id for s in session.query(Sample.id)
         .filter(Sample.production_run_id == run_id).all()
+    ]
+    cycle_ids = [
+        c.id for c in session.query(ProductionCycle.id)
+        .filter(ProductionCycle.production_run_id == run_id).all()
     ]
 
     if phase_ids:
@@ -152,6 +172,32 @@ def delete_production_run_cascade(session, run_id):
     session.query(Sample).filter(
         Sample.production_run_id == run_id
     ).delete(synchronize_session=False)
+
+    # WP7 Phase 2 Closeout Correction (2026-08-14), Material Gap 3: the new
+    # Cycle/Shot Data tab writes ProductionCycle/ProductionShot rows (and,
+    # per the schema's own design, could write cycle/shot-linked
+    # ProcessParameterValue rows too) - clean those up before the run row
+    # itself, same phase_ids-style two-step (find ids, then delete
+    # dependents-of-dependents) already used for Setup/Runtime Data above.
+    if cycle_ids:
+        session.query(ProcessParameterValue).filter(
+            ProcessParameterValue.production_cycle_id.in_(cycle_ids)
+        ).delete(synchronize_session=False)
+        shot_ids = [
+            s.id for s in session.query(ProductionShot.id)
+            .filter(ProductionShot.production_cycle_id.in_(cycle_ids)).all()
+        ]
+        if shot_ids:
+            session.query(ProcessParameterValue).filter(
+                ProcessParameterValue.production_shot_id.in_(shot_ids)
+            ).delete(synchronize_session=False)
+            session.query(ProductionShot).filter(
+                ProductionShot.id.in_(shot_ids)
+            ).delete(synchronize_session=False)
+        session.query(ProductionCycle).filter(
+            ProductionCycle.id.in_(cycle_ids)
+        ).delete(synchronize_session=False)
+
     session.query(ProductionRun).filter(ProductionRun.id == run_id).delete(synchronize_session=False)
 
 
