@@ -11,6 +11,7 @@ through analytics.production_run_parameter_dataframe(), the shared
 reader - see the comment above that call below for the full rationale.
 """
 
+import pandas as pd
 import streamlit as st
 
 import ai_assistant
@@ -25,6 +26,7 @@ from helpers import (
     page_setup,
     production_method_label,
     render_ask_pi3_section,
+    render_data_table,
     render_function_action_intro,
     render_pi3_docx_download,
     render_pi3_feedback_control,
@@ -204,6 +206,56 @@ else:
     )
 
 # ---------------------------------------------------------------------------
+# WP7 Phase 4 targeted completion, Item 2 (2026-08-14, per Charlie's
+# Closeout Review Return to JC): Environment/Outcome shown as their own
+# context sections - visible to the reviewer, but never folded into "What
+# was different" above, so they never enter the controllable-setting
+# comparison or the PI3 hypothesis prompt's change list. Reuses the exact
+# values_by_run/definitions_by_field already computed above.
+# ---------------------------------------------------------------------------
+env_outcome_rows = reports.environment_outcome_context_rows(
+    definitions_by_field, current_values, prior_values,
+)
+if env_outcome_rows["Environment"] or env_outcome_rows["Outcome"]:
+    st.divider()
+    st.write(
+        "**Environment / Outcome context** (recorded values for both runs — shown for context, "
+        "not counted as a controllable setting change)"
+    )
+    if env_outcome_rows["Environment"]:
+        st.caption("Environment")
+        render_data_table(pd.DataFrame(env_outcome_rows["Environment"]))
+    if env_outcome_rows["Outcome"]:
+        st.caption("Outcome")
+        render_data_table(pd.DataFrame(env_outcome_rows["Outcome"]))
+
+# ---------------------------------------------------------------------------
+# WP7 Phase 4 targeted completion, Item 2 (2026-08-14): run-linked material
+# usage/metering, Production Events, and QC context as investigation facts
+# - recorded data about the flagged run itself, deliberately separated
+# from PI3's inferred hypothesis further down the page.
+# ---------------------------------------------------------------------------
+investigation_facts = reports.root_cause_investigation_facts(session, run)
+st.divider()
+st.write(f"**Investigation facts** (recorded data for run #{run.id} — not inferred, not hypotheses)")
+st.caption("Material usage / metering")
+render_data_table(pd.DataFrame(
+    investigation_facts["material_usage_rows"] or [{"—": "No metering data recorded"}]
+))
+st.caption("Production events")
+render_data_table(pd.DataFrame(
+    investigation_facts["production_event_rows"] or [{"—": "No events recorded"}]
+))
+st.caption("QC context — other quality test results on this run")
+render_data_table(pd.DataFrame(
+    investigation_facts["qc_result_rows"] or [{"—": "No quality test results recorded"}]
+))
+st.caption("QC context — quality issues logged on this run (including the flagged one)")
+render_data_table(pd.DataFrame(
+    investigation_facts["qc_issue_rows"] or [{"—": "No other quality issues logged"}]
+))
+
+# ---------------------------------------------------------------------------
 # Root-Cause Comparison Report (Context / Analysis / Conclusions) - the
 # page's own deterministic run-vs-prior-run diff, distinct from PI3's
 # hypothesis further down (which has its own separate Word download). Uses
@@ -218,6 +270,7 @@ st.caption(
 )
 root_cause_report_data = reports.build_root_cause_report_data(
     session, obs, run, grade, prior, changes, setting_shifts,
+    env_outcome_rows=env_outcome_rows, investigation_facts=investigation_facts,
 )
 rca_rc1, rca_rc2 = st.columns(2)
 rca_rc1.metric("Differences found", len(changes))
@@ -248,6 +301,43 @@ if ai_assistant.is_enabled_for_plant(session, run.plant_id):
                 "No meaningful difference was found in recipe, production unit or cell, or "
                 "recorded process settings between these two runs."
             )
+        )
+        # WP7 Phase 4 targeted completion, Item 2 (2026-08-14): the same
+        # investigation_facts/env_outcome_rows already rendered on-screen,
+        # summarized as recorded facts for PI3 - never re-derived, and
+        # explicitly labeled as facts (not hypotheses) so PI3 doesn't
+        # conflate a recorded metering reading or QC result with an
+        # inferred cause.
+        facts_lines = []
+        if investigation_facts["material_usage_rows"]:
+            facts_lines.append(
+                f"- {len(investigation_facts['material_usage_rows'])} material metering "
+                f"reading(s) recorded for run #{run.id}."
+            )
+        if investigation_facts["production_event_rows"]:
+            facts_lines.append(
+                f"- {len(investigation_facts['production_event_rows'])} production event(s) "
+                f"logged for run #{run.id}."
+            )
+        if investigation_facts["qc_result_rows"]:
+            facts_lines.append(
+                f"- {len(investigation_facts['qc_result_rows'])} other quality test result(s) "
+                f"recorded for run #{run.id}."
+            )
+        if investigation_facts["qc_issue_rows"]:
+            facts_lines.append(
+                f"- {len(investigation_facts['qc_issue_rows'])} other quality issue(s) logged "
+                f"for run #{run.id}."
+            )
+        if env_outcome_rows["Environment"] or env_outcome_rows["Outcome"]:
+            facts_lines.append(
+                "- Environment/Outcome context is recorded for both runs (shown separately on "
+                "the page - not a controllable setting, do not treat as a lever to adjust)."
+            )
+        facts_summary = (
+            "\n".join(facts_lines)
+            if facts_lines
+            else "No additional metering, event, or QC context recorded for this run."
         )
         prompt = (
             "You are helping a technical reviewer at a flexible slabstock foam manufacturer "
@@ -308,7 +398,9 @@ if ai_assistant.is_enabled_for_plant(session, run.plant_id):
             f"{obs.severity}/{obs.frequency}\n"
             + (f"Logged suspected cause: {obs.suspected_cause}\n" if obs.suspected_cause else "")
             + f"Compared against prior run #{int(prior['run_id'])} ({prior['run_date']})\n\n"
-            f"What was different:\n{change_summary}\n"
+            f"What was different:\n{change_summary}\n\n"
+            f"Recorded investigation facts for run #{run.id} (facts, not hypotheses - do not "
+            f"present these counts themselves as a cause):\n{facts_summary}\n"
         )
         with st.spinner("Using PI3..."):
             answer, interaction_log_id = ai_assistant.ask_assistant(

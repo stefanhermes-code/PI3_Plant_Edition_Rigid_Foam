@@ -5948,4 +5948,74 @@ in the original closeout) - proceeding incrementally per Charlie's
 targeted closure gate.
 """
 
-APP_VERSION = "0.54.0"
+VERSION_0_55_0_NOTES = """
+WP7 Phase 4 targeted completion, Item 2 (2026-08-14) - per Charlie's
+"WP7 Phase 4 Closeout Review Return to JC". This batch closes Item 2:
+Root-Cause Assistant context. Charlie's exact requirement: "must add
+Environment/Outcome as separate context sections (excluded from
+controllable-setting ranking but visible), and include run-linked
+material usage/metering, Production Events, and QC context as
+investigation facts separated from inferred hypotheses."
+
+2.1 Environment/Outcome context, excluded from ranking: added
+reports.environment_outcome_context_rows(), which reuses the shared
+reader's already-computed definitions_by_field/current_values/
+prior_values (the same data the page's "What was different" comparison
+already builds) and buckets Environment- and Outcome-category parameters
+into their own display rows. The existing "What was different" loop is
+untouched and stays scoped to parameter_category == "Process Setting"
+only - Environment/Outcome never enter the controllable-setting ranking
+or hypothesis logic, but now render in a dedicated "Environment / Outcome
+context" section on the page, captioned as recorded context, not a
+counted change.
+
+2.2 Investigation facts, separated from PI3's inferred hypothesis: added
+reports.root_cause_investigation_facts(), which reads material usage/
+metering (ComponentStreamReading, via production_run_id only - the same
+Item 1.3 pattern, proven again here with a direct-evidence test writing a
+reading with production_phase_id=None against a run with zero
+ProductionPhase rows), Production Events, and QC context (other quality
+test results plus quality issues logged on the run, including the
+flagged one) for the flagged run. Reuses reports._is_rigid_grade()/
+compute_conformance_report()/compute_pass_fail() unchanged, so QC
+Pass/Fail reads identically to Batch Release for the same run. Rendered
+in a dedicated "Investigation facts" section on the page, positioned
+before the deterministic Root-Cause Comparison Report and the "Use PI3"
+hypothesis button, and captioned "recorded data ... not inferred, not
+hypotheses."
+
+2.3 PI3 prompt integration: the "Use PI3 to reason about this" prompt now
+appends a facts summary (counts/lines drawn from the same investigation
+facts data, not re-derived) with an explicit instruction that these are
+facts, not hypotheses, and must not be presented as a cause on their own.
+
+2.4 build_root_cause_report_data() extended with optional env_outcome_rows/
+investigation_facts kwargs (default to empty structures, per the project's
+existing never-re-derive convention) and 6 new keys so both the PDF and
+DOCX Root-Cause report carry the same 2 new sections as the on-screen
+page.
+
+New/updated tests: tests/test_wp7_phase4_root_cause_cutover.py - 6 new
+tests (Environment/Outcome bucketing and category-separation, on-page
+rendering as context not a setting change, metering-via-production_run_id-
+only direct evidence, Production Events + QC context facts, on-page
+Investigation-facts/Report-section separation, empty-facts render as
+"no data" rather than crashing) plus 1 pre-existing test updated for the
+new Environment/Outcome section's on-page presence (scoped its assertion
+to the portion of the page before the new section, since the category is
+now legitimately visible there while still staying out of the setting-
+change ranking it asserts against).
+
+Full regression: 550 passed, 0 skipped, 1 failed under pytest-xdist -n 4
+(tests/test_wp6s09_rigid_sample_dimension_fields.py - confirmed a
+pre-existing parallel-worker isolation flake, unrelated to this batch:
+passes standalone both before and after this change, and touches no file
+this batch modified).
+
+Not yet done: Item 3 (method-aware Trend Analysis acceptance path) and
+the targeted closure gate (re-run dependency scan + full regression +
+corrected closeout package) - proceeding per Charlie's targeted closure
+gate.
+"""
+
+APP_VERSION = "0.55.0"

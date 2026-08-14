@@ -4042,7 +4042,114 @@ def render_correlation_report_docx(data):
 # `setting_shifts` the page has already computed - never re-derived.
 # ---------------------------------------------------------------------------
 
-def build_root_cause_report_data(session, obs, run, grade, prior, changes, setting_shifts):
+def environment_outcome_context_rows(definitions_by_field, current_values, prior_values):
+    """WP7 Phase 4 targeted completion, Item 2 (2026-08-14) - per Charlie's
+    Closeout Review Return to JC: 'Environment/Outcome as separate context
+    sections (excluded from controllable-setting ranking but visible)'.
+    The page's own 'What was different' loop stays scoped to category ==
+    'Process Setting' only (the controllable-lever comparison that drives
+    both the on-screen change list and the PI3 hypothesis prompt) -
+    Environment/Outcome recorded values must never be folded into that
+    list or its ranking, but must still be visible to the reviewer as
+    context. Reuses the exact values_by_run/definitions_by_field the page
+    already computed via analytics.production_run_parameter_dataframe()
+    for the Process Setting diff - never re-queried."""
+    buckets = {"Environment": [], "Outcome": []}
+    for field_key, meta in sorted(definitions_by_field.items(), key=lambda kv: kv[1]["label"] or kv[0]):
+        category = meta["parameter_category"]
+        if category not in buckets:
+            continue
+        buckets[category].append({
+            "Parameter": meta["label"],
+            "Prior (Actual)": prior_values.get(field_key),
+            "Current (Actual)": current_values.get(field_key),
+            "UOM": meta["unit_symbol"] or "—",
+        })
+    return buckets
+
+
+def root_cause_investigation_facts(session, run):
+    """WP7 Phase 4 targeted completion, Item 2 (2026-08-14) - per Charlie's
+    Closeout Review Return to JC: Root-Cause Assistant must include
+    run-linked material usage/metering, Production Events, and QC context
+    'as investigation facts separated from inferred hypotheses' - these
+    are recorded facts about the flagged run itself (never re-derived,
+    never a PI3 output), rendered in their own section above/separate from
+    the PI3 hypothesis further down the page.
+
+    Material Metering reads ComponentStreamReading.production_run_id only
+    (the 2026-08-14 Item 1 pattern - no ProductionPhase dependency).
+    QC context reuses the same rigid-vs-non-rigid conformance resolution
+    build_batch_release_record_data() uses (wp3_conformance for rigid
+    grades, quality_standards.compute_pass_fail otherwise) so the Pass/
+    Fail shown here always matches what Batch Release would show for the
+    same run."""
+    readings = (
+        session.query(ComponentStreamReading)
+        .filter(ComponentStreamReading.production_run_id == run.id).all()
+    )
+    material_usage_rows = [
+        {
+            "Stream": rd.stream_name, "Flow": rd.flow, "Unit": rd.flow_unit or "",
+            "Pump speed": rd.pump_speed, "Total delivered": rd.flow_total_qty,
+            "Temperature (°C)": rd.temperature_c, "Pressure (bar)": rd.pressure_bar,
+            "Calibration": rd.calibration_status or "—",
+        }
+        for rd in readings
+    ]
+
+    production_event_rows = [
+        {
+            "Time": e.event_ts, "Type": e.event_type, "Severity": e.severity or "—",
+            "Description": e.description or "—",
+        }
+        for e in session.query(ProductionEvent)
+        .filter(ProductionEvent.production_run_id == run.id)
+        .order_by(ProductionEvent.event_ts).all()
+    ]
+
+    grade = run.foam_grade
+    results = (
+        session.query(PhysicalPropertyResult)
+        .filter(PhysicalPropertyResult.production_run_id == run.id).all()
+    )
+    if _is_rigid_grade(grade):
+        conformance_rows = wp3_conformance.compute_conformance_report(
+            session, grade.id, production_run_id=run.id
+        )
+        results_by_id = {r.id: r for r in results}
+        qc_result_rows = _conformance_rows_for_display(session, results_by_id, conformance_rows)
+    else:
+        qc_result_rows = [
+            {
+                "Property": r.property_name, "Target": r.target_value, "Actual": r.actual_value,
+                "Unit": r.unit or "",
+                "Pass/Fail": compute_pass_fail(r.property_name, r.target_value, r.actual_value) or "—",
+            }
+            for r in results
+        ]
+
+    qc_issue_rows = [
+        {
+            "Issue type": o.observation_type, "Severity": o.severity or "—",
+            "Frequency": o.frequency or "—", "Confidence": o.confidence_level or "—",
+        }
+        for o in session.query(QualityObservation)
+        .filter(QualityObservation.production_run_id == run.id).all()
+    ]
+
+    return {
+        "material_usage_rows": material_usage_rows,
+        "production_event_rows": production_event_rows,
+        "qc_result_rows": qc_result_rows,
+        "qc_issue_rows": qc_issue_rows,
+    }
+
+
+def build_root_cause_report_data(
+    session, obs, run, grade, prior, changes, setting_shifts,
+    env_outcome_rows=None, investigation_facts=None,
+):
     """obs: QualityObservation. run: its ProductionRun. grade: run.foam_grade.
     prior: the prior-run settings row (a pandas Series from analytics.
     run_settings_dataframe()) the page already selected as the comparison
@@ -4051,9 +4158,21 @@ def build_root_cause_report_data(session, obs, run, grade, prior, changes, setti
     ({"label", "pct_change"}) for the numeric Finalized-phase shifts only
     (recipe/machine changes aren't percentages, so they're text-only in
     `changes` and don't appear here) - lets the report chart the shift
-    magnitudes without re-deriving them."""
+    magnitudes without re-deriving them.
+
+    WP7 Phase 4 targeted completion, Item 2 (2026-08-14): env_outcome_rows
+    (from environment_outcome_context_rows()) and investigation_facts
+    (from root_cause_investigation_facts()) are the page's own already-
+    computed dicts - never re-derived here. Both default to None/empty so
+    existing callers/tests that don't pass them still get a valid report
+    (empty context/facts sections)."""
     shift_categories = [s["label"] for s in setting_shifts]
     shift_values = [round(s["pct_change"] * 100, 2) for s in setting_shifts]
+    env_outcome_rows = env_outcome_rows or {"Environment": [], "Outcome": []}
+    investigation_facts = investigation_facts or {
+        "material_usage_rows": [], "production_event_rows": [],
+        "qc_result_rows": [], "qc_issue_rows": [],
+    }
 
     if changes:
         conclusion_lines = [f"{len(changes)} difference(s) found versus the prior run."]
@@ -4085,6 +4204,12 @@ def build_root_cause_report_data(session, obs, run, grade, prior, changes, setti
         "change_rows": [{"Change": c} for c in changes],
         "shift_categories": shift_categories,
         "shift_values": shift_values,
+        "environment_rows": env_outcome_rows["Environment"],
+        "outcome_rows": env_outcome_rows["Outcome"],
+        "material_usage_rows": investigation_facts["material_usage_rows"],
+        "production_event_rows": investigation_facts["production_event_rows"],
+        "qc_result_rows": investigation_facts["qc_result_rows"],
+        "qc_issue_rows": investigation_facts["qc_issue_rows"],
         "conclusions": conclusion_lines,
         "generated_at": dt.datetime.utcnow(),
     }
@@ -4113,6 +4238,19 @@ def render_root_cause_report_pdf(data):
             note="Only settings that shifted at least 2% between the two runs.",
             zero_floor=False,
         )
+        # WP7 Phase 4 targeted completion, Item 2 (2026-08-14): context,
+        # visible but never folded into "What was different" above.
+        _section(story, "Environment — recorded context (both runs)", data["environment_rows"])
+        _section(story, "Outcome — recorded context (both runs)", data["outcome_rows"])
+
+        story.append(Paragraph("Investigation facts", STYLES["Heading2"]))
+        story.append(_p(
+            f"Recorded data for run #{data['run_id']} - facts, not inferred hypotheses."
+        ))
+        _section(story, "Material usage / metering", data["material_usage_rows"])
+        _section(story, "Production events", data["production_event_rows"])
+        _section(story, "QC context — other quality test results on this run", data["qc_result_rows"])
+        _section(story, "QC context — quality issues logged on this run (including the flagged one)", data["qc_issue_rows"])
 
         story.append(Paragraph("Conclusions", STYLES["Heading2"]))
         for line in data["conclusions"]:
@@ -4143,6 +4281,17 @@ def render_root_cause_report_docx(data):
         note="Only settings that shifted at least 2% between the two runs.",
         zero_floor=False,
     )
+    # WP7 Phase 4 targeted completion, Item 2 (2026-08-14): context, visible
+    # but never folded into "What was different" above.
+    _docx_section(doc, "Environment — recorded context (both runs)", data["environment_rows"])
+    _docx_section(doc, "Outcome — recorded context (both runs)", data["outcome_rows"])
+
+    _docx_heading(doc, "Investigation facts", size=15)
+    doc.add_paragraph(f"Recorded data for run #{data['run_id']} - facts, not inferred hypotheses.")
+    _docx_section(doc, "Material usage / metering", data["material_usage_rows"])
+    _docx_section(doc, "Production events", data["production_event_rows"])
+    _docx_section(doc, "QC context — other quality test results on this run", data["qc_result_rows"])
+    _docx_section(doc, "QC context — quality issues logged on this run (including the flagged one)", data["qc_issue_rows"])
 
     _docx_heading(doc, "Conclusions", size=15)
     for line in data["conclusions"]:

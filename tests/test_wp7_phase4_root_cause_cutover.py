@@ -63,6 +63,7 @@ from streamlit.testing.v1 import AppTest
 import access_control
 import analytics
 import db
+import reports
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -255,10 +256,18 @@ def test_shared_reader_reports_numeric_process_setting_shift(two_run_fixture):
 
 
 def test_shared_reader_excludes_environment_category_from_setting_shifts(two_run_fixture):
+    """WP7 Phase 4 targeted completion, Item 2 (2026-08-14) changed this:
+    the Environment definition now legitimately appears in the page's own
+    'Environment / Outcome context' section (see the new tests below) - so
+    this test scopes its check to the 'What was different' text that
+    precedes that new section, rather than the whole page body."""
     at = _run_page()
     assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
     body = _body_text(at)
-    assert "WP7P4RC Ambient temperature" not in body, (
+    env_context_idx = body.find("Environment / Outcome context")
+    assert env_context_idx != -1
+    what_was_different_section = body[:env_context_idx]
+    assert "WP7P4RC Ambient temperature" not in what_was_different_section, (
         "An Environment-category definition must never be reported as a "
         "process-setting shift, even though its Actual value differs "
         "between the two runs - only parameter_category == 'Process "
@@ -344,3 +353,159 @@ def test_prior_run_under_different_method_never_offered(seeded_grade_chain):
         "offered as the comparison baseline, even after the process-"
         "setting reader swap."
     )
+
+
+# ---------------------------------------------------------------------------
+# 7. WP7 Phase 4 targeted completion, Item 2 (2026-08-14) - per Charlie's
+# Closeout Review Return to JC: Environment/Outcome as separate context
+# sections, plus run-linked material usage/metering, Production Events, and
+# QC context as investigation facts separated from PI3's inferred
+# hypotheses. Unit tests hit reports.environment_outcome_context_rows() /
+# reports.root_cause_investigation_facts() directly; AppTest cases prove
+# the page actually renders both new sections and never folds them into
+# "What was different".
+# ---------------------------------------------------------------------------
+
+def test_environment_outcome_context_rows_separates_categories(two_run_fixture):
+    """Direct unit test of reports.environment_outcome_context_rows() -
+    reuses the exact values_by_run/definitions_by_field the page computes
+    via analytics.production_run_parameter_dataframe()."""
+    session = db.get_session()
+    values_by_run, definitions_by_field = analytics.production_run_parameter_dataframe(
+        session, [two_run_fixture["current_id"], two_run_fixture["prior_id"]],
+    )
+    current_values = values_by_run.get(two_run_fixture["current_id"], {})
+    prior_values = values_by_run.get(two_run_fixture["prior_id"], {})
+    rows = reports.environment_outcome_context_rows(definitions_by_field, current_values, prior_values)
+    session.close()
+
+    assert len(rows["Environment"]) == 1
+    env_row = rows["Environment"][0]
+    assert env_row["Parameter"] == "WP7P4RC Ambient temperature"
+    assert env_row["Prior (Actual)"] == 20.0
+    assert env_row["Current (Actual)"] == 25.0
+    assert rows["Outcome"] == []
+    # None of the Process Setting definitions leak into either bucket.
+    assert all(r["Parameter"] != "WP7P4RC Fill pressure" for r in rows["Environment"] + rows["Outcome"])
+
+
+def test_environment_outcome_context_shown_on_page_not_as_setting_change(two_run_fixture):
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    body = _body_text(at)
+    assert "Environment / Outcome context" in body
+    assert "20.0" in body and "25.0" in body, "Ambient temperature Prior/Current values must render."
+    # Re-confirms (alongside the existing category-exclusion test) that the
+    # Environment definition's name never appears before the context
+    # section - i.e. it is not part of "What was different" above it.
+    env_context_idx = body.find("Environment / Outcome context")
+    assert env_context_idx != -1
+    assert "WP7P4RC Ambient temperature" not in body[:env_context_idx]
+
+
+def test_investigation_facts_material_usage_reads_via_production_run_id_only(two_run_fixture):
+    """Direct unit test of reports.root_cause_investigation_facts() Item
+    1.3-pattern evidence: a ComponentStreamReading linked only via
+    production_run_id (production_phase_id left NULL, no ProductionPhase
+    row exists for this run at all) still surfaces as an investigation
+    fact."""
+    session = db.get_session()
+    assert session.query(db.ProductionPhase).filter(
+        db.ProductionPhase.production_run_id == two_run_fixture["current_id"]
+    ).count() == 0
+    session.add(db.ComponentStreamReading(
+        production_run_id=two_run_fixture["current_id"], production_phase_id=None,
+        stream_name="Polyol A", flow=10.0, flow_unit="kg/min",
+    ))
+    session.commit()
+    session.close()
+
+    session = db.get_session()
+    run = session.get(db.ProductionRun, two_run_fixture["current_id"])
+    facts = reports.root_cause_investigation_facts(session, run)
+    session.close()
+
+    assert len(facts["material_usage_rows"]) == 1
+    assert facts["material_usage_rows"][0]["Stream"] == "Polyol A"
+
+
+def test_investigation_facts_production_events_and_qc_context(two_run_fixture):
+    session = db.get_session()
+    session.add(db.ProductionEvent(
+        production_run_id=two_run_fixture["current_id"], event_ts=dt.datetime(2026, 8, 5, 10, 0),
+        event_type="Maintenance intervention", description="Filter changed mid-run",
+    ))
+    session.add(db.PhysicalPropertyResult(
+        production_run_id=two_run_fixture["current_id"], property_name="Density",
+        target_value=40.0, actual_value=39.5, unit="kg/m3",
+    ))
+    session.add(db.QualityObservation(
+        production_run_id=two_run_fixture["current_id"], observation_type="Splitting",
+        severity="Low", frequency="One-off", observed_at=dt.date(2026, 8, 5),
+    ))
+    session.commit()
+    session.close()
+
+    session = db.get_session()
+    run = session.get(db.ProductionRun, two_run_fixture["current_id"])
+    facts = reports.root_cause_investigation_facts(session, run)
+    session.close()
+
+    assert len(facts["production_event_rows"]) == 1
+    assert facts["production_event_rows"][0]["Type"] == "Maintenance intervention"
+    assert len(facts["qc_result_rows"]) == 1
+    assert facts["qc_result_rows"][0]["Property"] == "Density"
+    # Two QualityObservations now exist on this run: the fixture's original
+    # (linked to the page's `obs` selectbox pick) plus this new Splitting
+    # one - both must appear as investigation facts, not just the flagged one.
+    assert len(facts["qc_issue_rows"]) == 2
+    assert {r["Issue type"] for r in facts["qc_issue_rows"]} == {"Shrinkage", "Splitting"}
+
+
+def test_investigation_facts_shown_on_page_separated_from_pi3_hypothesis(two_run_fixture):
+    session = db.get_session()
+    session.add(db.ComponentStreamReading(
+        production_run_id=two_run_fixture["current_id"], production_phase_id=None,
+        stream_name="TDI 80/20", flow=5.0, flow_unit="kg/min",
+    ))
+    session.add(db.ProductionEvent(
+        production_run_id=two_run_fixture["current_id"], event_ts=dt.datetime(2026, 8, 5, 9, 0),
+        event_type="Startup", description="Line restart after changeover",
+    ))
+    session.commit()
+    session.close()
+
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    body = _body_text(at)
+    assert "Investigation facts" in body
+    # Confirms the dedicated Root-Cause Comparison Report section (the
+    # page's own deterministic report, distinct from PI3's free-form
+    # hypothesis) still renders cleanly alongside the new facts section -
+    # source order in pages/18 itself places Investigation facts first,
+    # per this batch's edit (facts before the Report divider, which is
+    # itself before the "Use PI3" button/hypothesis section).
+    report_subheaders = [s for s in at.subheader if s.value == "Root-Cause Comparison Report"]
+    assert len(report_subheaders) == 1
+    assert "TDI 80/20" in body
+    assert "Startup" in body
+
+
+def test_empty_investigation_facts_render_as_no_data_not_crash(seeded_grade_chain):
+    """A run with no metering/events/other-QC recorded must render the
+    'No ... recorded' placeholders cleanly, never crash or silently omit
+    the section headers."""
+    ids = seeded_grade_chain
+    prior_id = _make_run(ids, dt.date(2026, 8, 1), batch_suffix="prior")
+    current_id = _make_run(ids, dt.date(2026, 8, 5), batch_suffix="current")
+    numeric_def = _seed_definition(ids, "WP7P4RC Bare pressure", parameter_category="Process Setting", data_type="Float")
+    _add_actual(prior_id, numeric_def, numeric_value=50.0)
+    _add_actual(current_id, numeric_def, numeric_value=55.0)
+    _add_observation(current_id)
+
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    body = _body_text(at)
+    assert "Investigation facts" in body
+    assert "No metering data recorded" in body
+    assert "No events recorded" in body
