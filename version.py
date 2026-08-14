@@ -5502,4 +5502,60 @@ scan, the remaining Charlie 11-gate test coverage, and the Phase 4
 closeout package - proceeding incrementally.
 """
 
-APP_VERSION = "0.48.0"
+VERSION_0_49_0_NOTES = """
+WP7 Phase 4: cut over Batch Release/Conformance report to the shared
+reader (2026-08-14), per Charlie's Downstream Reader Cutover Execution
+Instruction section 6 ("Overview, reports and PI3 read [Production
+OutputSummary's] Actual quantity and controlled UOM").
+
+reports.py: replaced the retired _setup_vs_finalized_deviations(session,
+setup_phase, finalized_phase) - which diffed PHASE_SETTING_FIELDS between
+the Setup and Finalized ProductionPhase rows - with
+_process_parameter_deviations(session, run_id), which reads exclusively
+through analytics.production_run_process_parameters(): an empty live
+Process Setting catalogue now correctly yields no deviations (never
+falling back to the retired phase-field list), a Float/Integer Planned-
+vs-Actual difference within the existing epsilon tolerance is still
+skipped, a one-sided value (only Planned or only Actual recorded) is
+still surfaced, and the returned dict keys are now "Setting"/"Planned"/
+"Actual" (previously "Setting"/"Setup (planned)"/"Finalized (actual)" -
+no existing test or caller depended on the old names). build_batch_
+release_record_data() now also calls the new production_run_output_
+summary(session, run_id) reader unconditionally (not gated by has_flags,
+since disposition is a core release decision this report exists to
+surface) and returns it under a new "output_summary" key - None when the
+run has no ProductionOutputSummary row, never inferred from the retired
+compute_runtime_output() geometry formula.
+
+render_batch_release_record_pdf()/render_batch_release_record_docx() and
+pages/21_Report.py's Batch Release tab now render this new "Production
+output" section (Planned/Actual quantity with unit, disposition,
+disposition notes; an honest "not recorded yet" message when the run has
+no summary row) - previously the report showed no output-quantity
+information at all.
+
+Tests: new tests/test_wp7_phase4_batch_release_cutover.py (12 cases) -
+_process_parameter_deviations()'s empty-catalogue/epsilon-skip/real-
+deviation/one-sided-value behavior and its "Setting"/"Planned"/"Actual"
+keys, build_batch_release_record_data()'s new output_summary field (None
+when unrecorded, populated and shown regardless of has_flags), and live
+AppTest + direct PDF/Word render evidence for both the "no output
+recorded" and "output recorded" states. Corrected tests/
+test_wp7_phase0_containment.py::test_setup_vs_finalized_deviations_no_
+longer_flags_foaming_mode, which called the now-retired function by name
+- it now calls _process_parameter_deviations(session, run_id) instead,
+preserving the same foaming-mode/top-flat assertion (structurally
+guaranteed by the shared reader, which only ever returns catalogued
+ProcessSettingDefinition rows).
+
+Full regression: 529 passed, 0 skipped, 0 failed (full suite, run via
+pytest-xdist).
+
+Not yet done: the 7 remaining consumer cutovers (generated reports, PI3
+Production Run context, Root Cause Assistant, Trend Analysis, Process-
+Property Correlation, Process Parameter Optimization, shared CSV/Excel
+exports), a static dependency scan, the remaining Charlie 11-gate test
+coverage, and the Phase 4 closeout package - proceeding incrementally.
+"""
+
+APP_VERSION = "0.49.0"

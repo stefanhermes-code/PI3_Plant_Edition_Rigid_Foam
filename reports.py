@@ -213,7 +213,11 @@ from reportlab.platypus import (
 )
 
 import customer_presentation
-from analytics import PHASE_SETTING_FIELDS, PHASE_SETTING_LABELS, recipe_version_cost
+from analytics import (
+    production_run_output_summary,
+    production_run_process_parameters,
+    recipe_version_cost,
+)
 from db import (
     CONFIDENCE_LEVELS,
     SEVERITIES,
@@ -1292,38 +1296,49 @@ def _phase_by_name(phases, name):
     return next((p for p in phases if p.phase_name == name), None)
 
 
-def _setup_vs_finalized_deviations(session, setup_phase, finalized_phase):
-    """Every process setting that actually changed between the Setup
-    (planned) and Finalized (actual) phase snapshots of one run - not the
-    full settings table (see PHASE_SETTING_FIELDS in analytics.py), just
-    the rows that differ, since those are what could explain a flagged
-    result.
+def _process_parameter_deviations(session, run_id):
+    """WP7 Phase 4 cutover (2026-08-14, per Charlie's Downstream Reader
+    Cutover Execution Instruction): replaces the retired
+    _setup_vs_finalized_deviations(), which iterated the legacy
+    PHASE_SETTING_FIELDS list against a run's Setup/Finalized
+    ProductionPhase rows. PHASE_SETTING_FIELDS/PHASE_SETTING_LABELS retain
+    zero active-reader authority for this report as of this cutover.
 
-    WP7 Phase 0 (2026-08-13): the foaming_mode deviation check was removed
-    from here - foaming_mode was a Flexible Foam/slabstock controlled-
-    vocabulary field, not a Rigid-relevant process setting for this
-    Rigid-only app (see pages/4_Production_Run_Trial_Record.py's module
-    docstring). The column still exists on ProductionPhase; historical
-    deviations are not recomputed, this only stops the check running
-    forward."""
-    if setup_phase is None or finalized_phase is None:
-        return []
+    Reads analytics.production_run_process_parameters(session, run_id) -
+    the method-aware shared reader (Machine > Method > Global precedence,
+    resolved for this run) - and returns every eligible definition whose
+    Planned and Actual values actually differ, same "only show what
+    changed" behavior as before: a definition with neither value recorded
+    is skipped entirely (nothing to explain a flag with); a numeric
+    (Float/Integer) definition within _SETTING_DEVIATION_EPSILON of itself
+    is treated as unchanged (same float-noise tolerance as before); any
+    other equal pair (including exact string/boolean matches) is skipped.
+    A definition with a value on only one side (Planned-only or
+    Actual-only) is always included, since that's still a genuine
+    difference - matching the old code's behavior when only one of
+    setup_val/final_val was None.
+
+    An empty eligible-definitions catalogue (today's actual state for most
+    Production Methods - see WP7_Phase4_Flag_for_Charlie.docx) correctly
+    returns [] here, same as production_run_process_parameters itself -
+    never a ProductionPhase fallback."""
     deviations = []
-    for field in PHASE_SETTING_FIELDS:
-        setup_val = getattr(setup_phase, field)
-        final_val = getattr(finalized_phase, field)
-        if setup_val is None and final_val is None:
+    for row in production_run_process_parameters(session, run_id):
+        planned_val = row["planned_value"]
+        actual_val = row["actual_value"]
+        if planned_val is None and actual_val is None:
             continue
         if (
-            setup_val is not None and final_val is not None
-            and abs(float(setup_val) - float(final_val)) <= _SETTING_DEVIATION_EPSILON
+            planned_val is not None and actual_val is not None
+            and row["data_type"] in ("Float", "Integer")
+            and abs(float(actual_val) - float(planned_val)) <= _SETTING_DEVIATION_EPSILON
         ):
             continue
-        if setup_val == final_val:
+        if planned_val == actual_val:
             continue
         deviations.append({
-            "Setting": PHASE_SETTING_LABELS.get(field, field),
-            "Setup (planned)": setup_val, "Finalized (actual)": final_val,
+            "Setting": row["name"] or row["controlled_id"],
+            "Planned": planned_val, "Actual": actual_val,
         })
     return deviations
 
@@ -1496,14 +1511,23 @@ def build_batch_release_record_data(session, run_id):
     if quality_issues:
         flag_reasons.append(f"{len(quality_issues)} quality issue(s) recorded")
 
+    # WP7 Phase 4 cutover (2026-08-14): ProductionOutputSummary is the
+    # active output fact for this report - see Charlie's Downstream
+    # Reader Cutover Execution Instruction section 6. Shown unconditionally
+    # (not gated by has_flags), since disposition is a core release
+    # decision this "Conformance Record" exists to surface, not
+    # supplementary flag context. None (no recorded row) stays None -
+    # never inferred from the retired compute_runtime_output() geometry
+    # formula.
+    output_summary = production_run_output_summary(session, run_id)
+
     setup_deviations, stream_readings, stream_calibration_flags, production_events = (
         [], [], [], [],
     )
     if has_flags:
         phases = session.query(ProductionPhase).filter(ProductionPhase.production_run_id == run_id).all()
-        setup_phase = _phase_by_name(phases, "Setup")
         finalized_phase = _phase_by_name(phases, "Finalized")
-        setup_deviations = _setup_vs_finalized_deviations(session, setup_phase, finalized_phase)
+        setup_deviations = _process_parameter_deviations(session, run_id)
 
         if finalized_phase is not None:
             readings = (
@@ -1558,6 +1582,7 @@ def build_batch_release_record_data(session, run_id):
         "quality_results": quality_results,
         "quality_verdict": quality_verdict,
         "quality_issues": quality_issues,
+        "output_summary": output_summary,
         "has_flags": has_flags,
         "flag_reasons": flag_reasons,
         "setup_deviations": setup_deviations,
@@ -1584,6 +1609,24 @@ def render_batch_release_record_pdf(data):
         if data["notes"]:
             story.append(Spacer(1, 6))
             story.append(_p(f"Notes: {data['notes']}"))
+
+        # WP7 Phase 4 cutover (2026-08-14): ProductionOutputSummary is the
+        # active output fact for this report - see Charlie's Downstream
+        # Reader Cutover Execution Instruction section 6. None means no row
+        # recorded yet, shown honestly rather than inferred.
+        story.append(Spacer(1, 8))
+        story.append(Paragraph("Production output", STYLES["Heading3"]))
+        out = data["output_summary"]
+        if out is None:
+            story.append(_p("No Production Output has been recorded yet for this run."))
+        else:
+            unit = out["unit_symbol"] or ""
+            story.append(_key_value_table([
+                ("Planned quantity", f"{out['planned_quantity']} {unit}".strip() if out["planned_quantity"] is not None else "—"),
+                ("Actual quantity", f"{out['actual_quantity']} {unit}".strip() if out["actual_quantity"] is not None else "—"),
+                ("Disposition", out["disposition"] or "—"),
+                ("Disposition notes", out["disposition_notes"] or "—"),
+            ]))
 
         story.append(Spacer(1, 8))
         story.append(Paragraph("Recipe used", STYLES["Heading3"]))
@@ -1628,6 +1671,23 @@ def render_batch_release_record_docx(data):
     ])
     if data["notes"]:
         doc.add_paragraph(f"Notes: {data['notes']}")
+
+    # WP7 Phase 4 cutover (2026-08-14): ProductionOutputSummary is the
+    # active output fact for this report - see Charlie's Downstream Reader
+    # Cutover Execution Instruction section 6. None means no row recorded
+    # yet, shown honestly rather than inferred.
+    _docx_heading(doc, "Production output", size=12, color=_HTC_GREY, space_before=10)
+    out = data["output_summary"]
+    if out is None:
+        doc.add_paragraph("No Production Output has been recorded yet for this run.")
+    else:
+        unit = out["unit_symbol"] or ""
+        _docx_kv_table(doc, [
+            ("Planned quantity", f"{out['planned_quantity']} {unit}".strip() if out["planned_quantity"] is not None else "—"),
+            ("Actual quantity", f"{out['actual_quantity']} {unit}".strip() if out["actual_quantity"] is not None else "—"),
+            ("Disposition", out["disposition"] or "—"),
+            ("Disposition notes", out["disposition_notes"] or "—"),
+        ])
 
     _docx_heading(doc, "Recipe used", size=12, color=_HTC_GREY, space_before=10)
     _docx_kv_table(doc, [

@@ -142,6 +142,29 @@ with tab_run:
         if data["has_flags"]:
             st.warning("Flagged: " + "; ".join(data["flag_reasons"]))
 
+        # WP7 Phase 4 cutover (2026-08-14): ProductionOutputSummary is the
+        # active output fact for this report - see Charlie's Downstream
+        # Reader Cutover Execution Instruction section 6. None means no row
+        # recorded yet, shown honestly rather than inferred.
+        st.write("**Production output**")
+        out = data["output_summary"]
+        if out is None:
+            st.info("No Production Output has been recorded yet for this run.")
+        else:
+            unit = out["unit_symbol"] or ""
+            o1, o2, o3 = st.columns(3)
+            o1.metric(
+                "Planned quantity",
+                f"{out['planned_quantity']} {unit}".strip() if out["planned_quantity"] is not None else "—",
+            )
+            o2.metric(
+                "Actual quantity",
+                f"{out['actual_quantity']} {unit}".strip() if out["actual_quantity"] is not None else "—",
+            )
+            o3.metric("Disposition", out["disposition"] or "—")
+            if out["disposition_notes"]:
+                st.caption(f"Disposition notes: {out['disposition_notes']}")
+
         st.write("**Recipe used**")
         render_data_table(pd.DataFrame(data["recipe_components"] or [{"—": "No data recorded"}]))
         st.write("**Quality test results**")

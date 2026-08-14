@@ -544,12 +544,23 @@ def test_setup_vs_finalized_deviations_no_longer_flags_foaming_mode(
     system_used was never in this particular check to begin with, since
     it lived in a separate boolean comparison the page itself did, not
     this function - see the function's own docstring). Confirms the
-    returned deviation list contains no "Foaming mode" entry."""
+    returned deviation list contains no "Foaming mode" entry.
+
+    WP7 Phase 4 cutover (2026-08-14): the old ProductionPhase-field-
+    diffing _setup_vs_finalized_deviations() was replaced by
+    reports._process_parameter_deviations(), which reads exclusively
+    through analytics.production_run_process_parameters() - the shared
+    ProcessSettingDefinition/ProcessParameterValue reader. Retired fields
+    like foaming_mode/top_flat_system_used were never migrated into that
+    catalogue (WP7 Phase 0's containment work already established this -
+    see that phase's closeout), so the new function structurally cannot
+    surface them regardless of what this fixture's Setup/Finalized phases
+    still carry - a stronger version of the same invariant this test
+    always checked, via the WP7 Phase 4 architecture rather than the
+    retired Phase-0-era diffing function."""
     ids = seeded_run_with_historical_fallplate_data
     session = db.get_session()
-    setup_phase = session.get(db.ProductionPhase, ids["setup_phase_id"])
-    finalized_phase = session.get(db.ProductionPhase, ids["finalized_phase_id"])
-    deviations = reports._setup_vs_finalized_deviations(session, setup_phase, finalized_phase)
+    deviations = reports._process_parameter_deviations(session, ids["run_id"])
     session.close()
     setting_names = [d["Setting"] for d in deviations]
     assert "Foaming mode" not in setting_names
