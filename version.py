@@ -5361,4 +5361,82 @@ Full regression: 490 passed, 2 skipped, 0 failed (full suite) - the 2
 skips are pre-existing and unrelated to this change.
 """
 
-APP_VERSION = "0.46.0"
+VERSION_0_47_0_NOTES = """
+WP7 Phase 4 correction (2026-08-14) - Charlie's Architecture Clarification
+and Direction to JC rejected the v0.46.0 hybrid outright: "The v0.46.0
+hybrid reader keeps the five fixed ProductionPhase fields as an active
+source ... That structure conflicts with the frozen Phase 4 source-of-
+truth rule and cannot be the Phase 4 end state." His verdict on the
+blocker flagged in v0.46.0: Phase 4 is NOT blocked - an empty live
+Process Setting catalogue is a valid, honest state, not a reason to keep
+a legacy fallback active. This release replaces the hybrid with the pure
+method-aware shared reader his execution instruction specifies, and
+reverts every consumer the hybrid touched back to pre-hybrid legacy
+behavior as a stable interim state while the full page-by-page cutover
+(a separate, substantial body of work - see Not yet done, below)
+proceeds incrementally.
+
+analytics.py: eligible_phase_setting_fields(), run_settings_dataframe(),
+rank_setting_correlations(), and rank_setting_optimization() are reverted
+to their exact pre-hybrid behavior - PHASE_SETTING_FIELDS/LABELS/
+PHASE1_RIGID_INELIGIBLE_SETTINGS again retain zero active-reader
+authority, with no dynamic Process Setting discovery of any kind.
+eligible_phase_setting_fields() keeps its production_method_id parameter
+(now a harmless, documented no-op) only so existing call sites don't need
+a signature change mid-cutover.
+
+New: production_run_process_parameters(session, production_run) - the
+canonical single-run shared reader every Phase 4 consumer must read
+through going forward. Resolves eligible ProcessSettingDefinition rows
+via the existing eligible_process_settings() helper (unchanged Machine >
+Method > Global precedence, resolved fresh per run via that run's own
+production_method_id/machine_id - never a Method/Global-only shortcut).
+An empty live catalogue correctly returns [] - not an error, and never a
+ProductionPhase fallback, per Charlie's "allow the live Process Setting
+result to be empty" instruction. Returns one dict per eligible
+definition: definition_id, controlled_id, name, parameter_category,
+data_type, unit_id, unit_symbol (always the definition's own controlled
+unit, never caller-supplied), controllable, analytics_eligible,
+planned_value, actual_value (typed - numeric/text/boolean, NULL vs zero
+preserved correctly), delta (Float/Integer only, both values present),
+planned_source/actual_source, planned_captured_at/actual_captured_at.
+Actual is the production fact; Planned is separate plan/target context
+and never substitutes for a missing Actual. New:
+production_run_parameter_dataframe(session, run_ids) - the multi-run
+form, calling the single-run reader once per run (genuine per-run Machine
+resolution, so two runs on different Units/Cells under the same method
+can see different eligible definitions). Returns (values_by_run,
+definitions_by_field) - Actual-only values keyed by
+dynamic_process_setting_field_key(definition_id) (unchanged from
+v0.46.0), plus a union of encountered definitions' metadata for column
+labeling/filtering.
+
+Tests: tests/test_wp7_phase4_hybrid.py (17 cases, tested the now-rejected
+hybrid) removed and replaced with tests/test_wp7_phase4_shared_reader.py
+(28 cases) covering the new reader directly: empty-catalogue honest state,
+reader source isolation (legacy ProductionPhase values never leak in,
+even when deliberately conflicting), Machine > Method > Global precedence
+resolved per-run, NULL vs zero preservation (numeric 0 and boolean False
+both preserved, never coerced to None), Planned-never-substitutes-for-
+Actual, UOM control (unit_symbol always from the definition's own
+relationship), category/eligibility metadata passthrough, and the
+multi-run dataframe shape contract. tests/test_cr18_product_family_
+terminology.py's line-number-pinned "foam family" allowlist re-verified
+against analytics.py's new line positions (exact hit list from the test's
+own failure output, not an arithmetic guess).
+
+Full regression: 503 passed, 0 skipped, 0 failed (full suite).
+
+Not yet done (tracked as separate Phase 4 work): the 8 remaining consumer
+cutovers (Overview/output KPIs to ProductionOutputSummary, Batch Release/
+Conformance report, generated reports, PI3 Production Run context, Root
+Cause Assistant, Trend Analysis, Process-Property Correlation, Process
+Parameter Optimization, shared CSV/Excel exports), a static dependency
+scan classifying every remaining legacy reference, the consumer-specific
+gates of Charlie's 11-gate test suite (output source via
+ProductionOutputSummary, PI3 context, report row generation), and the
+Phase 4 closeout package - proceeding incrementally, matching how every
+prior WP7 phase was actually delivered.
+"""
+
+APP_VERSION = "0.47.0"

@@ -122,12 +122,20 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # helpers, and additive dynamic-field wiring in
     # eligible_phase_setting_fields()/run_settings_dataframe()/
     # rank_setting_correlations()/rank_setting_optimization() - same
-    # unchanged comment/docstring text elsewhere, new line positions. The
-    # set below is the verified, current, exact hit list, not an
-    # arithmetic shift guess.
+    # unchanged comment/docstring text elsewhere, new line positions.
+    # Shifted a fifth time (same date) when Charlie's Architecture
+    # Clarification and Direction to JC rejected that hybrid outright:
+    # eligible_phase_setting_fields()/run_settings_dataframe()/
+    # rank_setting_correlations()/rank_setting_optimization() were reverted
+    # to pure pre-hybrid legacy behavior, and the hybrid was replaced with
+    # the new pure shared reader (production_run_process_parameters()/
+    # production_run_parameter_dataframe(), plus the retained
+    # dynamic_process_setting_field_key() helper) - net addition of ~180
+    # lines of new docstring/code. The set below is the verified, current,
+    # exact hit list, not an arithmetic shift guess.
     ("analytics.py", 15), ("analytics.py", 171), ("analytics.py", 305),
-    ("analytics.py", 319), ("analytics.py", 507), ("analytics.py", 809),
-    ("analytics.py", 884), ("analytics.py", 1390), ("analytics.py", 1555),
+    ("analytics.py", 319), ("analytics.py", 633), ("analytics.py", 901),
+    ("analytics.py", 976), ("analytics.py", 1462), ("analytics.py", 1627),
     ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 184), ("pages/16_Trend_Analysis.py", 319),
