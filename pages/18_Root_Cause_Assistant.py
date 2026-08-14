@@ -2,16 +2,20 @@
 
 Given a quality observation, surfaces what was different about that run
 compared to the most recent prior run of the same product grade - recipe
-version, machine, or Finalized-phase process settings - as a starting
+version, machine, or recorded Actual process settings - as a starting
 point for the reviewer's own investigation. Historical comparison for
 technical review (see the advisory boundary at the bottom of this page).
+
+WP7 Phase 4 cutover (2026-08-14): process-setting comparison reads
+through analytics.production_run_parameter_dataframe(), the shared
+reader - see the comment above that call below for the full rationale.
 """
 
 import streamlit as st
 
 import ai_assistant
 from access_control import can_use_page
-from analytics import PHASE_SETTING_LABELS, eligible_phase_setting_fields, run_settings_dataframe
+from analytics import production_run_parameter_dataframe, run_settings_dataframe
 from auth import current_user, logout_button, require_login
 from db import QualityObservation, get_session, init_db
 import reports
@@ -38,8 +42,7 @@ render_function_action_intro(
     function_text=(
         "Given a logged quality issue, compares that run against the most recent prior run of the "
         "same product grade and lists what was different - recipe version, production unit or "
-        "cell, or Finalized-phase process settings (mixer rpm, air pressure, conveyor speed, and "
-        "so on) - as a starting "
+        "cell, or recorded Actual process settings - as a starting "
         "point for your own investigation, not a diagnosis. PI3 can then help interpret that diff "
         "against expert notes and similar past cases."
     ),
@@ -117,7 +120,7 @@ settings_df = settings_df.sort_values("run_date")
 
 current_rows = settings_df[settings_df["run_id"] == run.id]
 if current_rows.empty:
-    st.warning("No Finalized-phase settings recorded for this run yet — nothing to compare.")
+    st.warning("No production run record found for this run yet — nothing to compare.")
     st.stop()
 current = current_rows.iloc[0]
 
@@ -139,37 +142,55 @@ if current["recipe_version"] != prior["recipe_version"]:
 if current["machine"] != prior["machine"]:
     changes.append(f"Production Unit or Cell changed: {prior['machine'] or '—'} → {current['machine'] or '—'}")
 
-# Scoped to Phase-1-eligible settings only (see analytics.
-# eligible_phase_setting_fields) - for a Phase 1 rigid grade this excludes
-# conveyor speed, air injection rate, air pressure, tunnel width, and
-# top-flat system, none of which exist as a real, variable setting on a
-# discontinuous factory-molded/press-foamed process. Flagging a "shift" in
-# one of those for a rigid run-vs-prior-run diff would point the reviewer
-# at a setting that was never actually adjustable, per Charlie's WP6-S09
-# closure instructions (UAT-018). The diff below remains an investigation
-# lead for the reviewer's own judgment, not a determination of cause.
-for field in eligible_phase_setting_fields(session, grade.id, production_method_id=run.production_method_id):
-    # WP7 Phase 4 hybrid (2026-08-14): .get(field, field) rather than
-    # direct [field] indexing - eligible_phase_setting_fields can now
-    # additively return a live, evidence-based Process Setting field
-    # (see that function's docstring) that has no entry in the static
-    # PHASE_SETTING_LABELS dict, which would otherwise KeyError here the
-    # first time one exists. Falls back to the raw field key in that
-    # case (e.g. "ps_12") - a known cosmetic gap, not a crash; see
-    # WP7_Phase4_Flag_for_Charlie.docx.
-    label = PHASE_SETTING_LABELS.get(field, field)
-    prev_val, cur_val = prior.get(field), current.get(field)
+# WP7 Phase 4 cutover (2026-08-14, per Charlie's Downstream Reader
+# Cutover Execution Instruction): reads process-setting values through
+# analytics.production_run_parameter_dataframe() - the shared reader's
+# multi-run form - instead of the retired PHASE_SETTING_FIELDS /
+# eligible_phase_setting_fields() / PHASE_SETTING_LABELS combination,
+# which read ProductionPhase directly and retain zero active-reader
+# authority under Phase 4. Scoped to parameter_category == "Process
+# Setting" only - the same Environment/Outcome exclusion pages/4's own
+# Method-Aware Process Settings tab already applies (WP7 Phase 3
+# correction) - so a measured ambient/outcome reading is never reported
+# here as a "setting that shifted", only a genuine controllable process
+# lever. Only Actual values are compared (values_by_run only ever
+# carries Actual - Charlie's "Planned never substitutes for missing
+# Actual" rule), matching this loop's prior implicit reliance on
+# Finalized-phase (i.e. actual, not setup/planned) values. The two runs'
+# eligible catalogues are each resolved through their own Machine >
+# Method > Global precedence (see that function's docstring) - already
+# apples-to-apples here since both runs were selected from settings_df,
+# itself scoped to this run's own Production Method (see the isolation
+# comment above).
+values_by_run, definitions_by_field = production_run_parameter_dataframe(
+    session, [run.id, int(prior["run_id"])],
+)
+current_values = values_by_run.get(run.id, {})
+prior_values = values_by_run.get(int(prior["run_id"]), {})
+for field_key, meta in sorted(definitions_by_field.items(), key=lambda kv: kv[1]["label"] or kv[0]):
+    if meta["parameter_category"] != "Process Setting":
+        continue
+    label = meta["label"]
+    prev_val, cur_val = prior_values.get(field_key), current_values.get(field_key)
     if prev_val is None or cur_val is None:
         continue
-    if prev_val == 0:
-        continue
-    pct_change = (cur_val - prev_val) / abs(prev_val)
-    if abs(pct_change) >= 0.02:
-        changes.append(f"{label} shifted {pct_change:+.2%}: {prev_val:g} → {cur_val:g}")
-        # Kept alongside the display string (not re-derived) so the
-        # Root-Cause Comparison Report below can chart shift magnitude
-        # without duplicating this loop's math.
-        setting_shifts.append({"label": label, "pct_change": pct_change})
+    if meta["data_type"] in ("Float", "Integer"):
+        if prev_val == 0:
+            continue
+        pct_change = (cur_val - prev_val) / abs(prev_val)
+        if abs(pct_change) >= 0.02:
+            changes.append(f"{label} shifted {pct_change:+.2%}: {prev_val:g} → {cur_val:g}")
+            # Kept alongside the display string (not re-derived) so the
+            # Root-Cause Comparison Report below can chart shift magnitude
+            # without duplicating this loop's math.
+            setting_shifts.append({"label": label, "pct_change": pct_change})
+    elif meta["data_type"] == "Boolean":
+        if bool(prev_val) != bool(cur_val):
+            changes.append(
+                f"{label} changed: {'Yes' if prev_val else 'No'} → {'Yes' if cur_val else 'No'}"
+            )
+    elif prev_val != cur_val:
+        changes.append(f"{label} changed: {prev_val} → {cur_val}")
 
 if changes:
     st.write("**What was different:**")

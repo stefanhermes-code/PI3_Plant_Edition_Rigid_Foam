@@ -5640,4 +5640,71 @@ cutovers, a static dependency scan, the remaining Charlie 11-gate test
 coverage, and the Phase 4 closeout package - proceeding incrementally.
 """
 
-APP_VERSION = "0.50.0"
+VERSION_0_51_0_NOTES = """
+WP7 Phase 4: cut over Root-Cause Assistant to the shared reader
+(2026-08-14), per Charlie's Downstream Reader Cutover Execution
+Instruction.
+
+pages/18_Root_Cause_Assistant.py: the run-vs-prior-run "What was
+different" diff's process-setting comparison now reads through
+analytics.production_run_parameter_dataframe(session, [run_id, prior_id])
+- the shared reader's multi-run form - instead of the retired
+PHASE_SETTING_FIELDS / eligible_phase_setting_fields() /
+PHASE_SETTING_LABELS combination, which read ProductionPhase directly and
+retained zero active-reader authority under Phase 4. analytics.
+run_settings_dataframe() is still used, unchanged, for identity/candidate-
+selection columns only (run_id, run_date, recipe_version, machine,
+production_method) - that was never a legacy-reader concern, since those
+columns come from ProductionRun itself, not ProductionPhase's process-
+setting fields.
+
+The new comparison loop is scoped to parameter_category == "Process
+Setting" only - the same Environment/Outcome exclusion pages/4's own
+Method-Aware Process Settings tab already applies (WP7 Phase 3
+correction) - so a measured ambient/outcome reading can never be reported
+here as a "setting that shifted", only a genuine controllable process
+lever. Only Actual values are compared (production_run_parameter_
+dataframe's values_by_run only ever carries Actual - Charlie's "Planned
+never substitutes for missing Actual" rule), matching the retired loop's
+implicit reliance on Finalized-phase (i.e. actual) values. Each run's
+eligible catalogue is resolved through its own Machine > Method > Global
+precedence, already apples-to-apples here since both runs come from
+settings_df, itself scoped to the flagged run's own Production Method
+(the pre-existing isolation rule, unaffected by this cutover).
+
+New capability, not present in the retired PHASE_SETTING_FIELDS list
+(numeric/boolean-only): the loop now branches on the live catalogue's own
+data_type - Float/Integer keeps the existing percentage-change wording
+and 2% threshold; Boolean reports a plain "changed: No -> Yes"/"Yes ->
+No"; String reports "changed: <old> -> <new>". reports.py's
+build_root_cause_report_data()/render_root_cause_report_docx() needed no
+changes - they already consumed the page's own changes/setting_shifts
+lists generically, never re-deriving them from PHASE_SETTING_FIELDS
+themselves.
+
+Tests: new tests/test_wp7_phase4_root_cause_cutover.py (7 cases) - a
+genuine Float Process Setting shift is reported with correct percentage
+wording from the shared reader; an Environment-category definition that
+also differs between the two runs is proven excluded (not merely
+untested); Boolean and String Process Setting changes are reported via
+the new non-numeric branches; the Root-Cause Comparison Report's Word
+download renders end-to-end (the page calls render_root_cause_report_docx()
+eagerly to populate its download_button, so a clean page load already
+proves the full pipeline); identical settings still yield the existing
+"No meaningful difference" message; and the pre-existing Production
+Method isolation rule (a prior run under a different method is never
+offered as the comparison baseline) still holds after the reader swap.
+Re-ran the 3 pre-existing tests that already exercise this page
+(test_cr12_reporting_parity.py, test_cr12_report_scope_isolation.py,
+test_flat_pm_propagation_smoke.py) unchanged and green.
+
+Full regression: 536 passed, 0 skipped, 0 failed (full suite, run via
+pytest-xdist).
+
+Not yet done: Trend Analysis, Process-Property Correlation, Process
+Parameter Optimization and shared CSV/Excel export cutovers, a static
+dependency scan, the remaining Charlie 11-gate test coverage, and the
+Phase 4 closeout package - proceeding incrementally.
+"""
+
+APP_VERSION = "0.51.0"

@@ -1,0 +1,346 @@
+"""WP7 Phase 4 Root-Cause Assistant cutover (2026-08-14) regression tests.
+
+Charlie's Downstream Reader Cutover Execution Instruction lists Root Cause
+Assistant among the consumers that must read process-parameter facts
+exclusively through analytics.production_run_process_parameters() /
+production_run_parameter_dataframe(), never through ProductionPhase or the
+legacy PHASE_SETTING_FIELDS/PHASE_SETTING_LABELS/eligible_phase_setting_
+fields() combination, which retain zero active-reader authority under
+Phase 4.
+
+pages/18_Root_Cause_Assistant.py's run-vs-prior-run "What was different"
+diff previously built its Finalized-phase settings comparison from
+analytics.run_settings_dataframe()'s PHASE_SETTING_FIELDS columns (backed
+by ProductionPhase). This cutover replaces that one loop with
+analytics.production_run_parameter_dataframe(session, [run_id, prior_id]),
+scoped to parameter_category == "Process Setting" only (the same
+Environment/Outcome exclusion pages/4's own Method-Aware Process Settings
+tab already applies, per the WP7 Phase 3 correction) - run_settings_
+dataframe() itself is still used for identity/candidate-selection columns
+(run_id, run_date, recipe_version, machine, production_method), which was
+never a legacy-reader concern.
+
+Covers:
+  1. A genuine Process Setting Actual-value shift between the flagged run
+     and its prior run is reported, with the correct percentage-change
+     wording, sourced from the shared reader (not ProductionPhase).
+  2. An Environment-category definition that also differs between the two
+     runs is never reported as a "setting that shifted" - proves the
+     parameter_category filter, mirroring the WP7 Phase 3 correction's
+     Environment/Outcome exclusion elsewhere.
+  3. Boolean and String data_type Process Settings are compared and
+     reported using the new non-numeric branches (Yes/No wording for
+     Boolean, raw value wording for String) - PHASE_SETTING_FIELDS was
+     numeric/boolean-only, so this is new coverage the dynamic catalogue
+     now requires.
+  4. No difference at all -> the existing "No meaningful difference"
+     message, unchanged behavior.
+  5. Live AppTest evidence: the page loads without exception, the deter-
+     ministic diff list matches what the shared reader returned, and the
+     Root-Cause Comparison Report (Word) renders end-to-end since the
+     page calls reports.render_root_cause_report_docx() eagerly for its
+     download button.
+  6. Production Method isolation (pre-existing behavior, re-verified
+     unaffected by the reader swap): a prior run under a different
+     Production Method is never offered as the comparison baseline.
+
+MANDATORY TEMPLATE: tests/test_wp7_phase4_shared_reader.py (seeded_grade_
+chain -> seeded_run fixture chain, _seed_definition/_add_value helpers).
+
+Usage: python -m pytest tests/test_wp7_phase4_root_cause_cutover.py -v
+"""
+import datetime as dt
+import os
+import sys
+import uuid
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("DATABASE_URL", "sqlite://")
+
+import pytest
+from streamlit.testing.v1 import AppTest
+
+import access_control
+import analytics
+import db
+import tenant_scope
+
+APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PAGE18 = os.path.join(APP_DIR, "pages", "18_Root_Cause_Assistant.py")
+
+
+def _clear_relevant_caches():
+    tenant_scope.plant_ids_for_company.clear()
+    tenant_scope.family_ids_for_plants.clear()
+    tenant_scope.grade_ids_for_families.clear()
+    tenant_scope.run_ids_for_plants.clear()
+    tenant_scope.customer_trial_ids_for_plants.clear()
+    tenant_scope.optimization_trial_ids_for_plants.clear()
+    access_control.denied_page_keys.clear()
+    analytics.run_settings_dataframe.clear()
+    analytics.property_results_dataframe.clear()
+
+
+def _reset_schema():
+    db.Base.metadata.drop_all(db.ENGINE)
+    db.Base.metadata.create_all(db.ENGINE)
+    _clear_relevant_caches()
+
+
+@pytest.fixture()
+def seeded_grade_chain():
+    db.init_db()
+    _reset_schema()
+    u = uuid.uuid4().hex[:8]
+    session = db.get_session()
+
+    company = db.Company(name=f"WP7P4RC Co {u}", is_platform_owner=True)
+    session.add(company); session.flush()
+    plant = db.Plant(company_id=company.id, name=f"WP7P4RC Plant {u}")
+    session.add(plant); session.flush()
+
+    method = db.ProductionMethod(controlled_id=f"PM-WP7P4RC-{u}", name=f"WP7P4RC Method {u}")
+    session.add(method); session.flush()
+    session.add(db.PlantProductionMethod(plant_id=plant.id, production_method_id=method.id, active=True))
+    session.flush()
+
+    machine = db.Machine(plant_id=plant.id, name=f"WP7P4RC Machine {u}", production_method_id=method.id, active=True)
+    session.add(machine); session.flush()
+
+    family = db.ProductFamily(plant_id=plant.id, name=f"WP7P4RC Family {u}")
+    session.add(family); session.flush()
+    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"WP7P4RC Grade {u}")
+    session.add(grade); session.flush()
+    grade.machines = [machine]
+    session.flush()
+
+    recipe = db.RecipeVersion(foam_grade_id=grade.id, version_label="v1", approval_status="Approved", is_active=True)
+    session.add(recipe); session.flush()
+
+    unit = db.UnitOfMeasure(controlled_id=f"UOM-WP7P4RC-{u}", symbol="bar", name="Bar")
+    session.add(unit); session.flush()
+    session.commit()
+
+    ids = {
+        "company_id": company.id, "plant_id": plant.id, "method_id": method.id,
+        "machine_id": machine.id, "family_id": family.id, "grade_id": grade.id,
+        "recipe_version_id": recipe.id, "unit_id": unit.id,
+    }
+    session.close()
+    return ids
+
+
+def _make_run(ids, run_date, method_id="__default__", machine_id="__default__", batch_suffix=None):
+    session = db.get_session()
+    run = db.ProductionRun(
+        plant_id=ids["plant_id"], foam_grade_id=ids["grade_id"],
+        recipe_version_id=ids["recipe_version_id"], run_date=run_date,
+        batch_reference=f"B-WP7P4RC-{batch_suffix or uuid.uuid4().hex[:8]}",
+        machine_id=ids["machine_id"] if machine_id == "__default__" else machine_id,
+        production_method_id=ids["method_id"] if method_id == "__default__" else method_id,
+        operator_or_team_reference="Shift A",
+    )
+    session.add(run); session.commit()
+    run_id = run.id
+    session.close()
+    return run_id
+
+
+def _seed_definition(ids, name, parameter_category="Process Setting", data_type="Float", unit_id="__default__"):
+    session = db.get_session()
+    definition = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P4RC-{uuid.uuid4().hex[:6]}", name=name,
+        data_type=data_type, unit_id=None if data_type != "Float" else (
+            ids["unit_id"] if unit_id == "__default__" else unit_id
+        ),
+        parameter_category=parameter_category,
+    )
+    session.add(definition); session.flush()
+    session.add(db.ProcessSettingApplicability(
+        setting_definition_id=definition.id, production_method_id=ids["method_id"], machine_id=None,
+        controllable=True, analytics_eligible=True,
+    ))
+    session.commit()
+    definition_id = definition.id
+    session.close()
+    return definition_id
+
+
+def _add_actual(run_id, definition_id, numeric_value=None, text_value=None, boolean_value=None):
+    session = db.get_session()
+    session.add(db.ProcessParameterValue(
+        setting_definition_id=definition_id, production_run_id=run_id,
+        snapshot_type="Actual", numeric_value=numeric_value,
+        text_value=text_value, boolean_value=boolean_value, source="Machine capture",
+    ))
+    session.commit()
+    session.close()
+
+
+def _add_observation(run_id, observation_type="Shrinkage"):
+    session = db.get_session()
+    obs = db.QualityObservation(
+        production_run_id=run_id, observation_type=observation_type,
+        severity="Medium", frequency="One-off", observed_at=dt.date(2026, 8, 2),
+    )
+    session.add(obs); session.commit()
+    obs_id = obs.id
+    session.close()
+    return obs_id
+
+
+def _run_page():
+    at = AppTest.from_file(PAGE18, default_timeout=60)
+    at.secrets["AUTH_DISABLED"] = True
+    at.run()
+    return at
+
+
+def _body_text(at):
+    return "\n".join(m.value for m in at.markdown) + "\n" + "\n".join(i.value for i in at.info)
+
+
+# ---------------------------------------------------------------------------
+# 1-3. Shared-reader-backed diff: numeric shift, category exclusion,
+#      Boolean/String comparison
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def two_run_fixture(seeded_grade_chain):
+    ids = seeded_grade_chain
+    prior_id = _make_run(ids, dt.date(2026, 8, 1), batch_suffix="prior")
+    current_id = _make_run(ids, dt.date(2026, 8, 5), batch_suffix="current")
+
+    numeric_def = _seed_definition(ids, "WP7P4RC Fill pressure", parameter_category="Process Setting", data_type="Float")
+    env_def = _seed_definition(ids, "WP7P4RC Ambient temperature", parameter_category="Environment", data_type="Float")
+    bool_def = _seed_definition(ids, "WP7P4RC Top-flat system", parameter_category="Process Setting", data_type="Boolean")
+    string_def = _seed_definition(ids, "WP7P4RC Foaming mode", parameter_category="Process Setting", data_type="String")
+
+    # Numeric Process Setting: 100 -> 90 is a -10% shift, well over the 2%
+    # threshold, so it must be reported.
+    _add_actual(prior_id, numeric_def, numeric_value=100.0)
+    _add_actual(current_id, numeric_def, numeric_value=90.0)
+
+    # Environment definition also differs (20.0 -> 25.0) - must NEVER be
+    # reported as a "setting that shifted", proving the parameter_category
+    # filter actually excludes it rather than merely being untested.
+    _add_actual(prior_id, env_def, numeric_value=20.0)
+    _add_actual(current_id, env_def, numeric_value=25.0)
+
+    # Boolean Process Setting: False -> True.
+    _add_actual(prior_id, bool_def, boolean_value=False)
+    _add_actual(current_id, bool_def, boolean_value=True)
+
+    # String Process Setting: changed value.
+    _add_actual(prior_id, string_def, text_value="Discontinuous")
+    _add_actual(current_id, string_def, text_value="Continuous")
+
+    obs_id = _add_observation(current_id)
+
+    out = dict(ids)
+    out.update({
+        "prior_id": prior_id, "current_id": current_id, "obs_id": obs_id,
+        "numeric_def": numeric_def, "env_def": env_def,
+        "bool_def": bool_def, "string_def": string_def,
+    })
+    return out
+
+
+def test_shared_reader_reports_numeric_process_setting_shift(two_run_fixture):
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    body = _body_text(at)
+    assert "WP7P4RC Fill pressure" in body
+    assert "-10.00%" in body
+
+
+def test_shared_reader_excludes_environment_category_from_setting_shifts(two_run_fixture):
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    body = _body_text(at)
+    assert "WP7P4RC Ambient temperature" not in body, (
+        "An Environment-category definition must never be reported as a "
+        "process-setting shift, even though its Actual value differs "
+        "between the two runs - only parameter_category == 'Process "
+        "Setting' definitions are eligible for this comparison."
+    )
+
+
+def test_shared_reader_reports_boolean_process_setting_change(two_run_fixture):
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    body = _body_text(at)
+    assert "WP7P4RC Top-flat system" in body
+    assert "No → Yes" in body
+
+
+def test_shared_reader_reports_string_process_setting_change(two_run_fixture):
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    body = _body_text(at)
+    assert "WP7P4RC Foaming mode" in body
+    assert "Discontinuous → Continuous" in body
+
+
+def test_root_cause_comparison_report_word_download_renders(two_run_fixture):
+    """The page calls reports.render_root_cause_report_docx() eagerly to
+    populate its download_button - so a clean page load with no exception
+    already proves the full build_root_cause_report_data() ->
+    render_root_cause_report_docx() pipeline succeeded against the new
+    shared-reader-backed changes/setting_shifts lists."""
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    dl_buttons = [b for b in at.get("download_button") if "root_cause_report_docx" in (b.key or "")]
+    assert len(dl_buttons) == 1
+
+
+# ---------------------------------------------------------------------------
+# 4. No difference at all
+# ---------------------------------------------------------------------------
+
+def test_identical_process_settings_yield_no_meaningful_difference(seeded_grade_chain):
+    ids = seeded_grade_chain
+    prior_id = _make_run(ids, dt.date(2026, 8, 1), batch_suffix="prior")
+    current_id = _make_run(ids, dt.date(2026, 8, 5), batch_suffix="current")
+    numeric_def = _seed_definition(ids, "WP7P4RC Steady pressure", parameter_category="Process Setting", data_type="Float")
+    _add_actual(prior_id, numeric_def, numeric_value=100.0)
+    _add_actual(current_id, numeric_def, numeric_value=100.0)
+    _add_observation(current_id)
+
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    body = _body_text(at)
+    assert "No meaningful difference found" in body
+
+
+# ---------------------------------------------------------------------------
+# 6. Production Method isolation still holds after the reader swap
+# ---------------------------------------------------------------------------
+
+def test_prior_run_under_different_method_never_offered(seeded_grade_chain):
+    ids = seeded_grade_chain
+    other_method = db.ProductionMethod(controlled_id=f"PM-WP7P4RC-OTHER-{uuid.uuid4().hex[:6]}", name="Other Method")
+    session = db.get_session()
+    session.add(other_method); session.commit()
+    other_method_id = other_method.id
+    session.close()
+
+    other_machine = db.Machine(plant_id=ids["plant_id"], name="Other Machine", production_method_id=other_method_id, active=True)
+    session2 = db.get_session()
+    session2.add(other_machine); session2.commit()
+    other_machine_id = other_machine.id
+    session2.close()
+
+    prior_other_method_id = _make_run(
+        ids, dt.date(2026, 8, 1), method_id=other_method_id, machine_id=other_machine_id, batch_suffix="othermethod",
+    )
+    current_id = _make_run(ids, dt.date(2026, 8, 5), batch_suffix="current")
+    _add_observation(current_id)
+
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    assert any("No earlier production run" in i.value for i in at.info), (
+        "A prior run under a different Production Method must never be "
+        "offered as the comparison baseline, even after the process-"
+        "setting reader swap."
+    )
