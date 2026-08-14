@@ -5150,4 +5150,78 @@ create/edit test updated for the new checkboxes.
 Full regression: 466 passed, 0 skipped, 0 failed (full suite).
 """
 
-APP_VERSION = "0.43.0"
+VERSION_0_44_0_NOTES = """
+WP7 Phase 3 (2026-08-14) - Legacy data reconciliation, per the WP7 Phase
+1 Design Deliverables doc's section 5/6.3 and Charlie's WP7 Phase 1
+Design Review and Architecture Decision, section 3.4/4.
+
+Live-data finding: the rigid_foam Supabase schema currently has ZERO
+production_phases rows (confirmed by direct count query before any code
+was written) - the CR-04/WP6-S02 database reset left only the minimal
+Phase 1 UAT baseline (1 ProductionRun, 0 phases). Phase 3's "migrate
+every legacy row" mandate is therefore trivially satisfied for live data
+today (nothing to migrate), so this release's real content is building
+and proving the reconciliation LOGIC itself - ready and correct for
+whenever real legacy data exists - plus completing the schema-level
+disposition Charlie's decision doc calls for regardless of data volume.
+
+New module legacy_migration.py implements the WP7 Phase 1 design doc's
+"no ambiguity" migration classes only:
+
+Environment mapping - ambient_temperature_c/ambient_humidity_pct reuse
+the existing dormant WP3f PS-008/PS-009 ProcessSettingDefinition rows
+(categorized parameter_category="Environment" rather than duplicated)
+plus a new Global ProcessSettingApplicability row each (controllable=
+False, analytics_eligible=False).
+
+Outcome/observation - foam_height_mm/rise_time get new
+ProcessSettingDefinition rows PS-078/PS-079 (parameter_category=
+"Outcome"), same Global/non-controllable applicability pattern.
+
+Both classes' ProcessParameterValue backfill (Setup phase -> Planned
+snapshot, Finalized phase -> Actual) explicitly preserves NULL-vs-zero:
+only a genuinely None field is skipped; a recorded 0.0 migrates as a
+real numeric_value == 0.0 - proven directly (see Tests below).
+
+ComponentStreamReading.production_run_id backfill - per decision doc
+section 3.4, backfills production_run_id on any historical reading that
+has a production_phase_id but no production_run_id yet, via its
+existing ProductionPhase relationship. Zero live rows needed it.
+
+Quarantine report - air_injection_rate/air_pressure_bar remain
+explicitly un-migrated (Charlie's decision doc section 4: "Remain
+quarantined for semantic review. No automatic mapping.");
+quarantine_air_settings_report() surfaces non-null values for review
+only. Zero live rows exist to report.
+
+Explicitly NOT touched by this release, per Charlie's decision doc
+section 4 ("Deferred to evidence-based migration" / "Remain under
+Method-specific review" - do not seed speculative PM-* mappings):
+mixer_rpm, conveyor_speed, sidewall_width_mm (need an evidenced,
+approved Production Method mapping that does not exist yet - and there
+is currently zero production data to derive that evidence from either),
+and ProductionRun.block_reference (needs Charlie's confirmation of its
+per-method meaning - a documentation question, not a schema migration).
+These remain open items for Charlie in the WP7 Phase 3 closeout package.
+
+Master data added to the live rigid_foam schema (data only, no DDL):
+4 new units_of_measure rows (UOM-038 second, UOM-039 millimetre, UOM-040
+degree Celsius, UOM-041 percent - none of these plain units existed
+before; only compound/domain-specific units did, e.g. UOM-031 "wt%").
+PS-008/PS-009 categorized and given controlled units; PS-078/PS-079
+created. All 4 given Global ProcessSettingApplicability rows. Applied
+directly via SQL (data only, no ALTER TABLE - db.py/schema unchanged in
+this release) and verified live via a join query immediately after.
+
+Tests: 7 new direct unit tests in tests/test_wp7_phase3_reconciliation.py
+- UOM creation + idempotency, PS-008/PS-009 reuse-not-duplicate,
+NULL-vs-zero preservation across both Setup/Planned and
+Finalized/Actual snapshots, ComponentStreamReading backfill +
+idempotency, quarantine report correctness (report-only, zero
+ProcessParameterValue rows created), and the orchestration summary
+(both the honest-zero case and a populated case).
+
+Full regression: 473 passed, 0 skipped, 0 failed (full suite).
+"""
+
+APP_VERSION = "0.44.0"
