@@ -1296,16 +1296,18 @@ def test_setup_data_csv_import_validation_rejects_invalid_row(seeded_run):
 
 def test_stream_reading_csv_import_validation_rejects_invalid_row(seeded_finalized_phase):
     """Stream Reading's own bad-row check (pages/4, tab_import under
-    tab_streams): `match = finalized_by_run.get(row.get("production_run_id"))`
-    - readings only ever resolve against a run's Finalized phase. This row
-    references a production_run_id that does not exist at all (so it has no
-    Finalized phase, and never will), which is exactly the condition this
-    importer's own check is guarding - distinct from every other group's
-    "unknown run" check in that it's checking for a *phase*, not just the
-    run row. seeded_finalized_phase gives the ONE real run here its own
-    Finalized phase so the Import sub-tab actually renders (tab_streams
-    shows nothing but an info box with zero Finalized phases anywhere for
-    the selected run - see the module docstring)."""
+    tab_streams). WP7 Phase 1/2 (2026-08-13/14, per Charlie's decoupling
+    decision): a stream reading no longer requires the target run to have a
+    Finalized phase first - `production_run_id` just needs to reference a
+    real run (see `valid_run_ids` in the importer). This row's
+    production_run_id doesn't exist as a run at all, which is still
+    correctly rejected, just under the updated (valid-run, not
+    valid-Finalized-phase) condition. seeded_finalized_phase gives the ONE
+    real run here its own Finalized phase so the Import sub-tab renders
+    with that run's context populated (not required for the tab to render
+    post-decoupling, but kept so this fixture still exercises the
+    Finalized-phase-linking-for-continuity path elsewhere in the same
+    tab)."""
     ids = seeded_finalized_phase
     at = _run()
     assert not at.exception
@@ -1325,12 +1327,12 @@ def test_stream_reading_csv_import_validation_rejects_invalid_row(seeded_finaliz
         "Confirm import button should not render when every uploaded row is invalid"
     )
     warnings = " ".join(w.value for w in at.warning)
-    assert "finalized" in warnings.lower()
+    assert "production_run_id" in warnings.lower()
 
     session = db.get_session()
     after_count = session.query(db.ComponentStreamReading).count()
     session.close()
-    assert after_count == before_count, "A row referencing a run with no Finalized phase must not be persisted"
+    assert after_count == before_count, "A row referencing an unknown run must not be persisted"
 
 
 def test_production_event_csv_import_validation_rejects_invalid_row(seeded_run):

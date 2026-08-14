@@ -17,7 +17,7 @@ grade) so a whole master-data delete is one all-or-nothing transaction.
 
 import difflib
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from db import (
     ComponentStreamReading,
@@ -33,8 +33,10 @@ from db import (
     PI3AIConnectionSetting,
     Plant,
     PlantProductionMethod,
+    ProcessParameterValue,
     ProductFamily,
     ProductionEvent,
+    ProductionOutputSummary,
     ProductionPhase,
     ProductionRun,
     QualityObservation,
@@ -60,13 +62,19 @@ def production_run_dependency_counts(session, run_id):
         s.id for s in session.query(Sample.id)
         .filter(Sample.production_run_id == run_id).all()
     ]
+    # WP7 Phase 1/2 (2026-08-13/14): ComponentStreamReading, ProductionOutputSummary,
+    # and ProcessParameterValue can now all be linked directly to production_run_id
+    # (not only via a ProductionPhase), per Charlie's decoupling decision - so their
+    # counts/deletes below are no longer phase_ids-only.
+    stream_conditions = [ComponentStreamReading.production_run_id == run_id]
+    if phase_ids:
+        stream_conditions.append(ComponentStreamReading.production_phase_id.in_(phase_ids))
+    stream_count = (
+        session.query(ComponentStreamReading).filter(or_(*stream_conditions)).count()
+    )
     return {
         "process phase(s)": len(phase_ids),
-        "component stream reading(s)": (
-            session.query(ComponentStreamReading)
-            .filter(ComponentStreamReading.production_phase_id.in_(phase_ids)).count()
-            if phase_ids else 0
-        ),
+        "component stream reading(s)": stream_count,
         "fall-plate section position(s)": (
             session.query(FallplateSectionPosition)
             .filter(FallplateSectionPosition.production_phase_id.in_(phase_ids)).count()
@@ -83,6 +91,10 @@ def production_run_dependency_counts(session, run_id):
         "quality issue(s)": session.query(QualityObservation)
         .filter(QualityObservation.production_run_id == run_id).count(),
         "sample(s)": len(sample_ids),
+        "method-aware process setting value(s)": session.query(ProcessParameterValue)
+        .filter(ProcessParameterValue.production_run_id == run_id).count(),
+        "production output summary": session.query(ProductionOutputSummary)
+        .filter(ProductionOutputSummary.production_run_id == run_id).count(),
     }
 
 
@@ -104,6 +116,20 @@ def delete_production_run_cascade(session, run_id):
         session.query(FallplateSectionPosition).filter(
             FallplateSectionPosition.production_phase_id.in_(phase_ids)
         ).delete(synchronize_session=False)
+
+    # WP7 Phase 1/2 (2026-08-13/14): ComponentStreamReading, ProcessParameterValue,
+    # and ProductionOutputSummary can now also be linked directly to
+    # production_run_id (not only via a ProductionPhase) - delete those too, or a
+    # run-level delete would leave orphaned rows / fail Postgres FK constraints.
+    session.query(ComponentStreamReading).filter(
+        ComponentStreamReading.production_run_id == run_id
+    ).delete(synchronize_session=False)
+    session.query(ProcessParameterValue).filter(
+        ProcessParameterValue.production_run_id == run_id
+    ).delete(synchronize_session=False)
+    session.query(ProductionOutputSummary).filter(
+        ProductionOutputSummary.production_run_id == run_id
+    ).delete(synchronize_session=False)
 
     session.query(ProductionEvent).filter(
         ProductionEvent.production_run_id == run_id

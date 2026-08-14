@@ -4843,4 +4843,108 @@ these schema changes to the shared rigid_foam schema, and the Phase 1
 closeout package for Charlie/Stefan.
 """
 
-APP_VERSION = "0.39.0"
+VERSION_0_40_0_NOTES = """
+v0.40.0 (2026-08-14) - WP7 Phase 2: Rebuild Production Run UI
+
+Phase 2 ("Rebuild Production Run UI") has no separate pre-coding design-
+artifact review gate under the WP7 governing document (section 10's
+"JC Design Deliverables Before Phase 1 Coding" is scoped only to Phase 1),
+so this release implements Phase 2 directly against the governing doc's
+section 4 (Target Production Run Page Structure) and section 6 (Phase 2
+scope/closeout gate: "Implement context-first run creation/editing,
+dynamic Planned/Actual process grid, conditional process modules,
+environment/observations, normalized material metering, events/
+deviations, output and disposition... Close when users can create and
+manage runs with only parameters applicable to the selected Method/Unit").
+
+pages/4_Production_Run_Trial_Record.py changes - two new tabs, plus
+targeted changes to two existing tabs, additive alongside every existing
+legacy Setup/Runtime Data field (none of the fixed mixer_rpm/conveyor_
+speed/etc. columns were touched or removed - Phase 4 is when those become
+non-authoritative, per Charlie's decision doc section 7):
+
+  - New "Method-Aware Process Settings" tab (governing doc section 4,
+    sections C/D "Planned/Actual Process Data, conditional by Method/
+    Unit"): driven entirely by analytics.eligible_process_settings(),
+    which resolves the WP7 Phase 1 ProcessSettingDefinition/
+    ProcessSettingApplicability schema with Machine>Method>Global
+    precedence. Shows only the settings applicable to the selected run's
+    Production Method/Unit; captures Planned and Actual values as
+    ProcessParameterValue rows (source="Manual entry", captured_at set on
+    save); shows "no applicable settings" until real definitions/
+    applicabilities exist for that Method/Unit, rather than inventing
+    content - see the open item below.
+  - New "Production Output and Disposition" tab (governing doc section 4,
+    section I): create/edit/delete against the WP7 Phase 1
+    ProductionOutputSummary table - single controlled unit_id, controlled
+    disposition (Released/Quarantined/Rejected/Rework). Additive
+    alongside the legacy Runtime Data "Calculated output"
+    (compute_runtime_output) section, which stays in place; the governing
+    doc's section 8 note that the universal slab/line geometry
+    calculation should eventually retire for methods it doesn't apply to
+    is a later-phase concern, not addressed by removal here.
+  - Material Metering and Actual Usage tab: decoupled from requiring a
+    Runtime Data (Finalized) phase to exist first, per Charlie's WP7
+    Phase 1 decision doc section 3.4. Component Stream Reading create/
+    edit/CSV-import now write production_run_id directly; a Finalized
+    phase, if one already exists for the run, is still also linked for
+    continuity with the legacy Setup/Runtime Data comparison, but is no
+    longer a precondition. The stream-reading listing query and CSV
+    import's duplicate-detection were both updated to match on either
+    linkage style.
+  - Production Events tab: added 4 optional context-link pickers (Related
+    process setting / raw material lot use / quality issue / quality test
+    result), wired to ProductionEvent's WP7 Phase 1 setting_definition_id/
+    raw_material_lot_use_id/quality_observation_id/
+    physical_property_result_id columns, on both the Create and Edit
+    forms.
+
+cascades.py: delete_production_run_cascade() and
+production_run_dependency_counts() updated to also cover
+ProcessParameterValue, ProductionOutputSummary, and directly-run-linked
+ComponentStreamReading rows (previously only phase-linked stream readings
+were covered) - a genuine gap found while implementing the decoupling
+above, not explicitly called out in the governing doc, but required so
+deleting a run cannot orphan rows created through the new tabs.
+
+Tests: new tests/test_wp7_phase2_production_run_ui.py (5 tests, real
+Streamlit AppTest evidence, not just ORM-level checks) - the Method-Aware
+Process Settings tab correctly shows nothing until an evidence-based
+ProcessSettingDefinition/ProcessSettingApplicability pair is seeded, then
+correctly filters to only that setting and saves Planned/Actual values;
+Production Output create-then-edit round trip through the real form;
+direct UI proof that a Component Stream Reading can be created for a run
+with zero ProductionPhase rows (the decoupling, previously only provable
+at the ORM layer); a Production Event created with a "Related process
+setting" link persists that link. Also updated: test_wp7_phase1_method_
+aware_schema.py's test_phase1_schema_not_yet_wired_into_live_surfaces no
+longer parametrizes over pages/4 (Phase 2 now legitimately wires that
+schema in - it still holds for reports.py and the Industrial Intelligence
+pages, which remain Phase 4 territory), and test_cr11_functional_
+evidence_group_d.py's stream-reading CSV-import-rejection test was
+updated for the new "unknown production_run_id" rejection reason (no
+longer "no Finalized phase").
+
+Full regression suite: 445 passed, 2 skipped, 0 failures (440 pre-existing
++ 5 new via test_wp7_phase2_production_run_ui.py). The 2 skips are the
+same pre-existing, environment-conditional Flexible-Foam-sibling-app-
+comparison tests noted in prior version-notes blocks - unrelated to WP7
+Phase 2.
+
+Still open, not resolved by this release: no approved, evidence-based
+ProcessSettingDefinition/ProcessSettingApplicability catalogue exists in
+production yet - Charlie's WP7 Phase 1 decision doc section 5 explicitly
+deferred content like the mixer-rpm-to-Method mapping to a later
+evidence-based migration, and that item is still open. Until real
+definitions/applicabilities are seeded in production, the Method-Aware
+Process Settings tab will correctly show "no applicable settings" for
+every real run - this is expected, not a defect, and is called out
+explicitly in the WP7 Phase 2 closeout package.
+
+Not in this release (still pending): no schema changes were made in this
+release (Phase 2 is UI-only, built entirely on the WP7 Phase 1 schema
+already migrated to Supabase), so no new Supabase migration is required;
+the WP7 Phase 2 closeout package for Charlie/Stefan.
+"""
+
+APP_VERSION = "0.40.0"

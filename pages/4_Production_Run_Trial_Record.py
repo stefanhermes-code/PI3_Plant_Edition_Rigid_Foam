@@ -103,13 +103,17 @@ from auth import current_user, logout_button, require_login
 from cascades import delete_production_run_cascade, production_run_dependency_counts
 from db import (
     EVENT_TYPES,
+    PRODUCTION_OUTPUT_DISPOSITIONS,
     SEVERITIES,
     ComponentStreamReading,
     FallplateSectionPosition,
     FoamGrade,
     Machine,
     PhysicalPropertyResult,
+    ProcessParameterValue,
+    ProcessSettingDefinition,
     ProductionEvent,
+    ProductionOutputSummary,
     ProductionPhase,
     ProductionRun,
     QualityObservation,
@@ -117,6 +121,7 @@ from db import (
     RecipeComponent,
     RecipeVersion,
     Sample,
+    UnitOfMeasure,
     get_session,
     init_db,
 )
@@ -344,12 +349,14 @@ runs = (
     .all()
 )
 
-tab_runs, tab_setup, tab_runtime, tab_streams, tab_events = st.tabs(
+tab_runs, tab_setup, tab_method_settings, tab_runtime, tab_streams, tab_output, tab_events = st.tabs(
     [
         "📋 Production Runs",
         "🛠️ Planned Settings",
+        "⚙️ Method-Aware Process Settings",
         "📊 Actual Run and Cycle Data",
         "🧪 Material Metering and Actual Usage",
+        "📦 Production Output and Disposition",
         "🚨 Production Events",
     ]
 )
@@ -949,12 +956,202 @@ with tab_setup:
                             st.rerun()
 
 # ---------------------------------------------------------------------------
+# WP7 Phase 2 (2026-08-14): Method-Aware Process Settings — governing doc
+# section 4 sections C/D (Planned/Actual Process Data, "conditional by
+# Method/Unit"). Driven entirely by analytics.eligible_process_settings(),
+# which resolves the WP7 Phase 1 ProcessSettingDefinition/
+# ProcessSettingApplicability schema with Machine>Method>Global precedence
+# (see Charlie's WP7 Phase 1 Design Review and Architecture Decision,
+# section 3.1/4). This tab is additive alongside the legacy Setup/Runtime
+# Data tabs above/below - it does not remove or replace the fixed
+# mixer_rpm/conveyor_speed/etc. fields on ProductionPhase (those remain
+# authoritative "temporary compatibility adapters" per decision doc
+# section 7 until WP7 Phase 4 retires them).
+#
+# Note: as of Phase 2, there is no approved, evidence-based
+# ProcessSettingDefinition/ProcessSettingApplicability catalogue seeded in
+# production yet - Charlie's decision doc section 5 explicitly deferred
+# things like the mixer-rpm-to-Method mapping to a later evidence-based
+# migration, and that open item is still unresolved. Until real
+# definitions/applicabilities exist for a run's Production Method/Unit,
+# this tab correctly shows "no applicable settings yet" rather than
+# inventing any - see the WP7 Phase 2 closeout package for the explicit
+# flag on this open item.
+# ---------------------------------------------------------------------------
+with tab_method_settings:
+    st.caption(
+        "Only the process settings applicable to this run's Production Method and "
+        "Production Unit or Cell are shown here (Machine-specific overrides Method-specific "
+        "overrides Global). This is additive to the Planned Settings / Actual Run and Cycle "
+        "Data tabs above, which still carry the fixed machine-setting fields."
+    )
+
+    if not runs:
+        st.info("Create a production run first (Production Runs tab).")
+    else:
+        run = _run_selector(runs, key="method_settings_tab_run_select")
+        st.caption(
+            f"Showing method-aware process settings for **{_run_label(run)}** — "
+            f"Production Method: **{run.production_method.name if run.production_method else '—'}** · "
+            f"Production Unit or Cell: **{run.machine.name if run.machine else '—'}**"
+        )
+
+        if not run.production_method_id:
+            st.warning(
+                "This run has no Production Method resolved (its Production Unit or Cell isn't "
+                "assigned one). Set the Production Unit or Cell on the Production Runs tab first."
+            )
+        else:
+            eligible = analytics.eligible_process_settings(
+                session, run.production_method_id, machine_id=run.machine_id
+            )
+            if not eligible:
+                st.info(
+                    "No process settings are configured as applicable to this run's Production "
+                    "Method/Unit yet. This is expected until an approved, evidence-based process "
+                    "setting definition/applicability catalogue exists for this Method/Unit — see "
+                    "the WP7 Phase 1 design decision (Phase 1 Production Seeding Rule)."
+                )
+            else:
+                existing_by_key = {
+                    (pv.setting_definition_id, pv.snapshot_type): pv
+                    for pv in session.query(ProcessParameterValue)
+                    .filter(ProcessParameterValue.production_run_id == run.id)
+                    .all()
+                }
+
+                with st.form(f"method_settings_form_{run.id}"):
+                    field_plan = []  # (definition, applicability, snapshot_type, widget_value)
+                    for definition, applicability in eligible:
+                        st.markdown(
+                            f"**{definition.name}**"
+                            + (f" ({definition.unit.symbol})" if definition.unit else "")
+                            + f" — _{definition.parameter_category or 'Uncategorized'}_"
+                        )
+                        cols = st.columns(2)
+                        snapshot_cols = []
+                        if applicability.applicable_to_planned:
+                            snapshot_cols.append(("Planned", cols[0]))
+                        if applicability.applicable_to_actual:
+                            snapshot_cols.append(("Actual", cols[1]))
+                        for snapshot_type, col in snapshot_cols:
+                            existing = existing_by_key.get((definition.id, snapshot_type))
+                            widget_key = f"pps_{definition.id}_{snapshot_type}_{run.id}"
+                            if definition.data_type == "Boolean":
+                                options = ["", "Yes", "No"]
+                                current = (
+                                    "Yes" if existing and existing.boolean_value is True
+                                    else "No" if existing and existing.boolean_value is False
+                                    else ""
+                                )
+                                value = col.selectbox(
+                                    snapshot_type, options, index=options.index(current), key=widget_key
+                                )
+                            elif definition.data_type == "String":
+                                value = col.text_input(
+                                    snapshot_type, value=(existing.text_value if existing else "") or "",
+                                    key=widget_key,
+                                )
+                            else:
+                                step = 1.0 if definition.data_type == "Integer" else 0.01
+                                value = col.number_input(
+                                    snapshot_type, step=step,
+                                    value=float(existing.numeric_value) if existing and existing.numeric_value is not None else 0.0,
+                                    key=widget_key,
+                                )
+                            field_plan.append((definition, applicability, snapshot_type, value, existing))
+
+                    submitted = st.form_submit_button("Save process settings", disabled=not page_usable)
+                    if submitted and page_usable:
+                        now = dt.datetime.utcnow()
+                        for definition, applicability, snapshot_type, value, existing in field_plan:
+                            is_blank = (
+                                (definition.data_type == "Boolean" and value == "")
+                                or (definition.data_type == "String" and not value.strip())
+                                or (definition.data_type not in ("Boolean", "String") and not value)
+                            )
+                            if is_blank:
+                                if existing:
+                                    session.delete(existing)
+                                continue
+                            row = existing or ProcessParameterValue(
+                                setting_definition_id=definition.id,
+                                production_run_id=run.id,
+                                snapshot_type=snapshot_type,
+                            )
+                            if definition.data_type == "Boolean":
+                                row.boolean_value = value == "Yes"
+                                row.numeric_value = None
+                                row.text_value = None
+                            elif definition.data_type == "String":
+                                row.text_value = value.strip()
+                                row.numeric_value = None
+                                row.boolean_value = None
+                            else:
+                                row.numeric_value = value
+                                row.text_value = None
+                                row.boolean_value = None
+                            row.unit = definition.unit.symbol if definition.unit else None
+                            row.source = "Manual entry"
+                            row.captured_at = now
+                            if not existing:
+                                session.add(row)
+                        session.commit()
+                        st.success("Process settings saved.")
+                        st.rerun()
+
+                st.markdown("##### Currently captured values")
+                current_values = (
+                    session.query(ProcessParameterValue)
+                    .filter(ProcessParameterValue.production_run_id == run.id)
+                    .all()
+                )
+                if not current_values:
+                    st.caption("No values captured yet for this run.")
+                else:
+                    by_def = {}
+                    for pv in current_values:
+                        by_def.setdefault(pv.setting_definition_id, {})[pv.snapshot_type] = pv
+
+                    def _display_value(pv):
+                        if pv is None:
+                            return "—"
+                        if pv.numeric_value is not None:
+                            return pv.numeric_value
+                        if pv.text_value is not None:
+                            return pv.text_value
+                        if pv.boolean_value is not None:
+                            return "Yes" if pv.boolean_value else "No"
+                        return "—"
+
+                    value_rows = [
+                        {
+                            "Setting": definition.name,
+                            "Category": definition.parameter_category or "—",
+                            "Planned": _display_value(snapshots.get("Planned")),
+                            "Actual": _display_value(snapshots.get("Actual")),
+                            "Unit": definition.unit.symbol if definition.unit else "—",
+                        }
+                        for definition, applicability in eligible
+                        for snapshots in [by_def.get(definition.id, {})]
+                        if snapshots
+                    ]
+                    if value_rows:
+                        render_data_table(pd.DataFrame(value_rows), max_height="300px")
+                    else:
+                        st.caption("No values captured yet for this run.")
+
+# ---------------------------------------------------------------------------
 # Component stream readings
 # ---------------------------------------------------------------------------
 with tab_streams:
     st.caption(
         "Per raw-material stream (polyol, isocyanate, water/blowing agent, catalyst, etc.), the flow, "
-        "pressure, and temperature — always against the Runtime Data (Finalized) snapshot."
+        "pressure, and temperature. WP7 Phase 1/2 (2026-08-13/14, per Charlie's decoupling decision, "
+        "design doc section 3.4): these readings now attach directly to the production run and no "
+        "longer require the Runtime Data (Finalized) snapshot to exist first - if a Finalized phase "
+        "does exist for the run, new readings are still linked to it too for continuity with the "
+        "legacy Setup/Runtime Data comparison."
     )
 
     if not runs:
@@ -965,308 +1162,467 @@ with tab_streams:
             session.query(ProductionPhase).filter(ProductionPhase.production_run_id == run.id).all()
         )
         finalized_phase = next((p for p in phases_for_run if p.phase_name == "Finalized"), None)
-        if not finalized_phase:
-            st.info(
-                f"Add Runtime Data for {_run_label(run)} first (Runtime Data tab). Component "
-                "stream readings are actual measurements, so they only ever attach to the Runtime "
-                "Data (Finalized) snapshot, never to Setup."
-            )
-        else:
+        if finalized_phase:
             st.caption(
                 f"Showing stream readings for **{_run_label(run)}** — Finalized phase "
                 f"({finalized_phase.phase_start})"
             )
-            # CR-11: wording/order aligned via cr11_function_tab_labels().
-            tab_create, tab_edit_delete, tab_import = st.tabs(cr11_function_tab_labels("Stream Reading"))
-
-            streams_for_run = (
-                session.query(ComponentStreamReading)
-                .join(ProductionPhase)
-                .filter(ProductionPhase.production_run_id == run.id)
-                .order_by(ComponentStreamReading.id.desc())
-                .all()
+        else:
+            st.caption(
+                f"Showing stream readings for **{_run_label(run)}**. No Runtime Data (Finalized) "
+                "snapshot exists for this run yet - readings can still be recorded, linked "
+                "directly to the run."
             )
-            recipe_components = (
-                session.query(RecipeComponent)
-                .filter(RecipeComponent.recipe_version_id == run.recipe_version_id)
-                .all()
-            )
+        # CR-11: wording/order aligned via cr11_function_tab_labels().
+        tab_create, tab_edit_delete, tab_import = st.tabs(cr11_function_tab_labels("Stream Reading"))
 
-            with tab_edit_delete:
-                if not streams_for_run:
-                    st.info("No stream readings recorded yet for this run — use the Create tab.")
+        # WP7 Phase 1/2: a reading may be linked via production_run_id directly
+        # (new, Phase-2-era rows) and/or via its ProductionPhase (legacy rows,
+        # and any run that still also has a Finalized phase) - union both so
+        # nothing is missed either way.
+        streams_for_run = (
+            session.query(ComponentStreamReading)
+            .outerjoin(ProductionPhase, ComponentStreamReading.production_phase_id == ProductionPhase.id)
+            .filter(
+                (ComponentStreamReading.production_run_id == run.id)
+                | (ProductionPhase.production_run_id == run.id)
+            )
+            .order_by(ComponentStreamReading.id.desc())
+            .all()
+        )
+        recipe_components = (
+            session.query(RecipeComponent)
+            .filter(RecipeComponent.recipe_version_id == run.recipe_version_id)
+            .all()
+        )
+
+        with tab_edit_delete:
+            if not streams_for_run:
+                st.info("No stream readings recorded yet for this run — use the Create tab.")
+            else:
+                stream_rows = [
+                    {
+                        "Phase": r.phase.phase_name if r.phase else "—",
+                        "Stream": r.stream_name,
+                        "Pump speed": r.pump_speed,
+                        "Flow": r.flow,
+                        "Unit": r.flow_unit,
+                        "Total delivered": r.flow_total_qty,
+                        "Pressure (bar)": r.pressure_bar,
+                        "Temp (°C)": r.temperature_c,
+                        "Calibration": r.calibration_status or "—",
+                    }
+                    for r in streams_for_run
+                ]
+                idx = clickable_table(stream_rows, key=f"streams_table_{run.id}")
+                if idx is not None:
+                    st.session_state["pr_selected_stream_id"] = streams_for_run[idx].id
                 else:
-                    stream_rows = [
-                        {
-                            "Phase": r.phase.phase_name if r.phase else "—",
-                            "Stream": r.stream_name,
-                            "Pump speed": r.pump_speed,
-                            "Flow": r.flow,
-                            "Unit": r.flow_unit,
-                            "Total delivered": r.flow_total_qty,
-                            "Pressure (bar)": r.pressure_bar,
-                            "Temp (°C)": r.temperature_c,
-                            "Calibration": r.calibration_status or "—",
-                        }
-                        for r in streams_for_run
-                    ]
-                    idx = clickable_table(stream_rows, key=f"streams_table_{run.id}")
-                    if idx is not None:
-                        st.session_state["pr_selected_stream_id"] = streams_for_run[idx].id
-                    else:
+                    st.session_state.pop("pr_selected_stream_id", None)
+
+                sel_stream = next(
+                    (r for r in streams_for_run if r.id == st.session_state.get("pr_selected_stream_id")), None
+                )
+                if sel_stream:
+                    st.markdown(f"##### Edit stream reading — {sel_stream.stream_name}")
+                    with st.form(f"edit_stream_form_{sel_stream.id}"):
+                        stream_name = st.text_input(
+                            "Stream / raw material name *", value=sel_stream.stream_name,
+                            key=f"edit_stream_name_{sel_stream.id}",
+                        )
+                        flow_unit_options = ["kg/min", "L/min"]
+                        flow_unit_idx = (
+                            flow_unit_options.index(sel_stream.flow_unit)
+                            if sel_stream.flow_unit in flow_unit_options else 0
+                        )
+                        flow_unit = st.selectbox(
+                            "Flow unit", flow_unit_options, index=flow_unit_idx,
+                            key=f"edit_stream_flow_unit_{sel_stream.id}",
+                        )
+                        c1, c2, c3, c4 = st.columns(4)
+                        flow = c1.number_input(
+                            "Flow", min_value=0.0, step=0.1, value=float(sel_stream.flow or 0.0),
+                            key=f"edit_stream_flow_{sel_stream.id}",
+                        )
+                        pump_speed = c2.number_input(
+                            "Pump speed", min_value=0.0, step=0.1, value=float(sel_stream.pump_speed or 0.0),
+                            key=f"edit_stream_pump_{sel_stream.id}",
+                            help="Metering pump setting for this stream (RPM/Hz/% depending on OEM) — the "
+                            "control input, distinct from the measured Flow.",
+                        )
+                        pressure_bar = c3.number_input(
+                            "Pressure (bar)", min_value=0.0, step=0.1, value=float(sel_stream.pressure_bar or 0.0),
+                            key=f"edit_stream_pressure_{sel_stream.id}",
+                        )
+                        temperature_c = c4.number_input(
+                            "Temperature (°C)", step=0.1, value=float(sel_stream.temperature_c or 0.0),
+                            key=f"edit_stream_temp_{sel_stream.id}",
+                        )
+                        flow_total_qty = st.number_input(
+                            "Total delivered this phase (same base unit as flow unit, kg or L)",
+                            min_value=0.0, step=0.1, value=float(sel_stream.flow_total_qty or 0.0),
+                            key=f"edit_stream_total_{sel_stream.id}",
+                        )
+                        c5, c6 = st.columns(2)
+                        calibration_options = ["", "Valid", "Expired", "Failed", "Not Verified"]
+                        calibration_idx = (
+                            calibration_options.index(sel_stream.calibration_status)
+                            if sel_stream.calibration_status in calibration_options else 0
+                        )
+                        calibration_status = c5.selectbox(
+                            "Instrument calibration status", calibration_options, index=calibration_idx,
+                            key=f"edit_stream_calib_status_{sel_stream.id}",
+                        )
+                        calibration_note = c6.text_input(
+                            "Calibration note (e.g. cal. due date, certificate ref.)",
+                            value=sel_stream.calibration_note or "", key=f"edit_stream_calib_note_{sel_stream.id}",
+                        )
+                        notes = st.text_area(
+                            "Notes", value=sel_stream.notes or "", key=f"edit_stream_notes_{sel_stream.id}"
+                        )
+
+                        save = st.form_submit_button("Save changes", disabled=not page_usable)
+                        if save and page_usable:
+                            if not stream_name.strip():
+                                st.error("Stream / raw material name is required.")
+                            else:
+                                # WP7 Phase 1/2 decoupling: keep whatever legacy
+                                # production_phase_id this row already had (don't
+                                # force-relink it to the run's current Finalized
+                                # phase) - production_run_id is now the primary,
+                                # always-set anchor going forward.
+                                sel_stream.production_run_id = run.id
+                                sel_stream.stream_name = stream_name.strip()
+                                sel_stream.flow_unit = flow_unit
+                                sel_stream.flow = flow or None
+                                sel_stream.pump_speed = pump_speed or None
+                                sel_stream.flow_total_qty = flow_total_qty or None
+                                sel_stream.pressure_bar = pressure_bar or None
+                                sel_stream.temperature_c = temperature_c or None
+                                sel_stream.calibration_status = calibration_status or None
+                                sel_stream.calibration_note = calibration_note
+                                sel_stream.notes = notes
+                                session.commit()
+                                st.success("Stream reading updated.")
+                                st.rerun()
+
+                    def _do_delete_stream(_session=session, _stream=sel_stream):
+                        _session.delete(_stream)
+                        _session.commit()
                         st.session_state.pop("pr_selected_stream_id", None)
 
-                    sel_stream = next(
-                        (r for r in streams_for_run if r.id == st.session_state.get("pr_selected_stream_id")), None
-                    )
-                    if sel_stream:
-                        st.markdown(f"##### Edit stream reading — {sel_stream.stream_name}")
-                        st.caption("Phase: Finalized (component stream readings always attach here).")
-                        with st.form(f"edit_stream_form_{sel_stream.id}"):
-                            stream_name = st.text_input(
-                                "Stream / raw material name *", value=sel_stream.stream_name,
-                                key=f"edit_stream_name_{sel_stream.id}",
-                            )
-                            flow_unit_options = ["kg/min", "L/min"]
-                            flow_unit_idx = (
-                                flow_unit_options.index(sel_stream.flow_unit)
-                                if sel_stream.flow_unit in flow_unit_options else 0
-                            )
-                            flow_unit = st.selectbox(
-                                "Flow unit", flow_unit_options, index=flow_unit_idx,
-                                key=f"edit_stream_flow_unit_{sel_stream.id}",
-                            )
-                            c1, c2, c3, c4 = st.columns(4)
-                            flow = c1.number_input(
-                                "Flow", min_value=0.0, step=0.1, value=float(sel_stream.flow or 0.0),
-                                key=f"edit_stream_flow_{sel_stream.id}",
-                            )
-                            pump_speed = c2.number_input(
-                                "Pump speed", min_value=0.0, step=0.1, value=float(sel_stream.pump_speed or 0.0),
-                                key=f"edit_stream_pump_{sel_stream.id}",
-                                help="Metering pump setting for this stream (RPM/Hz/% depending on OEM) — the "
-                                "control input, distinct from the measured Flow.",
-                            )
-                            pressure_bar = c3.number_input(
-                                "Pressure (bar)", min_value=0.0, step=0.1, value=float(sel_stream.pressure_bar or 0.0),
-                                key=f"edit_stream_pressure_{sel_stream.id}",
-                            )
-                            temperature_c = c4.number_input(
-                                "Temperature (°C)", step=0.1, value=float(sel_stream.temperature_c or 0.0),
-                                key=f"edit_stream_temp_{sel_stream.id}",
-                            )
-                            flow_total_qty = st.number_input(
-                                "Total delivered this phase (same base unit as flow unit, kg or L)",
-                                min_value=0.0, step=0.1, value=float(sel_stream.flow_total_qty or 0.0),
-                                key=f"edit_stream_total_{sel_stream.id}",
-                            )
-                            c5, c6 = st.columns(2)
-                            calibration_options = ["", "Valid", "Expired", "Failed", "Not Verified"]
-                            calibration_idx = (
-                                calibration_options.index(sel_stream.calibration_status)
-                                if sel_stream.calibration_status in calibration_options else 0
-                            )
-                            calibration_status = c5.selectbox(
-                                "Instrument calibration status", calibration_options, index=calibration_idx,
-                                key=f"edit_stream_calib_status_{sel_stream.id}",
-                            )
-                            calibration_note = c6.text_input(
-                                "Calibration note (e.g. cal. due date, certificate ref.)",
-                                value=sel_stream.calibration_note or "", key=f"edit_stream_calib_note_{sel_stream.id}",
-                            )
-                            notes = st.text_area(
-                                "Notes", value=sel_stream.notes or "", key=f"edit_stream_notes_{sel_stream.id}"
-                            )
-
-                            save = st.form_submit_button("Save changes", disabled=not page_usable)
-                            if save and page_usable:
-                                if not stream_name.strip():
-                                    st.error("Stream / raw material name is required.")
-                                else:
-                                    sel_stream.production_phase_id = finalized_phase.id
-                                    sel_stream.stream_name = stream_name.strip()
-                                    sel_stream.flow_unit = flow_unit
-                                    sel_stream.flow = flow or None
-                                    sel_stream.pump_speed = pump_speed or None
-                                    sel_stream.flow_total_qty = flow_total_qty or None
-                                    sel_stream.pressure_bar = pressure_bar or None
-                                    sel_stream.temperature_c = temperature_c or None
-                                    sel_stream.calibration_status = calibration_status or None
-                                    sel_stream.calibration_note = calibration_note
-                                    sel_stream.notes = notes
-                                    session.commit()
-                                    st.success("Stream reading updated.")
-                                    st.rerun()
-
-                        def _do_delete_stream(_session=session, _stream=sel_stream):
-                            _session.delete(_stream)
-                            _session.commit()
-                            st.session_state.pop("pr_selected_stream_id", None)
-
-                        if page_usable:
-                            delete_with_confirm(
-                                f"stream reading — {sel_stream.stream_name}", _do_delete_stream,
-                                key_prefix=f"stream_{sel_stream.id}",
-                            )
-                        else:
-                            st.caption("View-only access - deleting is restricted for your role.")
-                    else:
-                        st.caption("Click a row above to edit (and optionally delete) that stream reading.")
-
-            with tab_create:
-                st.caption("Phase: Finalized (component stream readings always attach here).")
-                phase = finalized_phase
-                if not recipe_components:
-                    st.warning(
-                        "This run's recipe version has no components listed yet — add them on the Recipe "
-                        "Version Record page. Falling back to free text for now."
-                    )
-                stream_choice = st.selectbox(
-                    "Stream / raw material *",
-                    recipe_components,
-                    format_func=lambda c: f"{c.raw_material_name}" + (f" ({c.role_in_formulation})" if c.role_in_formulation else ""),
-                    key=f"stream_choice_select_{run.id}",
-                ) if recipe_components else None
-                with st.form(f"add_stream_reading_{run.id}"):
-                    stream_other = st.text_input(
-                        "Or type a stream not in the recipe (e.g. blended stream, process air, water addition)"
-                    )
-                    flow_unit = st.selectbox("Flow unit", ["kg/min", "L/min"])
-                    c1, c2, c3, c4 = st.columns(4)
-                    flow = c1.number_input("Flow", min_value=0.0, step=0.1)
-                    pump_speed = c2.number_input(
-                        "Pump speed", min_value=0.0, step=0.1,
-                        help="Metering pump setting for this stream (RPM/Hz/% depending on OEM) — the "
-                        "control input, distinct from the measured Flow.",
-                    )
-                    pressure_bar = c3.number_input("Pressure (bar)", min_value=0.0, step=0.1)
-                    temperature_c = c4.number_input("Temperature (°C)", step=0.1)
-                    flow_total_qty = st.number_input(
-                        "Total delivered this phase (same base unit as flow unit, kg or L)", min_value=0.0, step=0.1
-                    )
-                    c5, c6 = st.columns(2)
-                    calibration_status = c5.selectbox(
-                        "Instrument calibration status", ["", "Valid", "Expired", "Failed", "Not Verified"]
-                    )
-                    calibration_note = c6.text_input("Calibration note (e.g. cal. due date, certificate ref.)")
-                    notes = st.text_area("Notes")
-
-                    submitted = st.form_submit_button("Save stream reading", disabled=not page_usable)
-                    if submitted and page_usable:
-                        final_stream_name = stream_other.strip() or (
-                            stream_choice.raw_material_name if stream_choice else ""
+                    if page_usable:
+                        delete_with_confirm(
+                            f"stream reading — {sel_stream.stream_name}", _do_delete_stream,
+                            key_prefix=f"stream_{sel_stream.id}",
                         )
-                        if not final_stream_name:
-                            st.error("Pick a stream from the recipe, or type one that isn't in it.")
-                        else:
-                            session.add(
-                                ComponentStreamReading(
-                                    production_phase_id=phase.id,
-                                    stream_name=final_stream_name,
-                                    flow_unit=flow_unit,
-                                    flow=flow or None,
-                                    pump_speed=pump_speed or None,
-                                    flow_total_qty=flow_total_qty or None,
-                                    pressure_bar=pressure_bar or None,
-                                    temperature_c=temperature_c or None,
-                                    calibration_status=calibration_status or None,
-                                    calibration_note=calibration_note,
-                                    notes=notes,
-                                    source_file_reference="manual entry",
-                                )
+                    else:
+                        st.caption("View-only access - deleting is restricted for your role.")
+                else:
+                    st.caption("Click a row above to edit (and optionally delete) that stream reading.")
+
+        with tab_create:
+            if finalized_phase:
+                st.caption(
+                    "Linked directly to the run, and also to the Finalized (Runtime Data) phase "
+                    "since one already exists for this run."
+                )
+            else:
+                st.caption(
+                    "Linked directly to the run. No Runtime Data (Finalized) snapshot exists yet - "
+                    "that's no longer required before recording metering readings."
+                )
+            if not recipe_components:
+                st.warning(
+                    "This run's recipe version has no components listed yet — add them on the Recipe "
+                    "Version Record page. Falling back to free text for now."
+                )
+            stream_choice = st.selectbox(
+                "Stream / raw material *",
+                recipe_components,
+                format_func=lambda c: f"{c.raw_material_name}" + (f" ({c.role_in_formulation})" if c.role_in_formulation else ""),
+                key=f"stream_choice_select_{run.id}",
+            ) if recipe_components else None
+            with st.form(f"add_stream_reading_{run.id}"):
+                stream_other = st.text_input(
+                    "Or type a stream not in the recipe (e.g. blended stream, process air, water addition)"
+                )
+                flow_unit = st.selectbox("Flow unit", ["kg/min", "L/min"])
+                c1, c2, c3, c4 = st.columns(4)
+                flow = c1.number_input("Flow", min_value=0.0, step=0.1)
+                pump_speed = c2.number_input(
+                    "Pump speed", min_value=0.0, step=0.1,
+                    help="Metering pump setting for this stream (RPM/Hz/% depending on OEM) — the "
+                    "control input, distinct from the measured Flow.",
+                )
+                pressure_bar = c3.number_input("Pressure (bar)", min_value=0.0, step=0.1)
+                temperature_c = c4.number_input("Temperature (°C)", step=0.1)
+                flow_total_qty = st.number_input(
+                    "Total delivered this phase (same base unit as flow unit, kg or L)", min_value=0.0, step=0.1
+                )
+                c5, c6 = st.columns(2)
+                calibration_status = c5.selectbox(
+                    "Instrument calibration status", ["", "Valid", "Expired", "Failed", "Not Verified"]
+                )
+                calibration_note = c6.text_input("Calibration note (e.g. cal. due date, certificate ref.)")
+                notes = st.text_area("Notes")
+
+                submitted = st.form_submit_button("Save stream reading", disabled=not page_usable)
+                if submitted and page_usable:
+                    final_stream_name = stream_other.strip() or (
+                        stream_choice.raw_material_name if stream_choice else ""
+                    )
+                    if not final_stream_name:
+                        st.error("Pick a stream from the recipe, or type one that isn't in it.")
+                    else:
+                        session.add(
+                            ComponentStreamReading(
+                                production_run_id=run.id,
+                                production_phase_id=finalized_phase.id if finalized_phase else None,
+                                stream_name=final_stream_name,
+                                flow_unit=flow_unit,
+                                flow=flow or None,
+                                pump_speed=pump_speed or None,
+                                flow_total_qty=flow_total_qty or None,
+                                pressure_bar=pressure_bar or None,
+                                temperature_c=temperature_c or None,
+                                calibration_status=calibration_status or None,
+                                calibration_note=calibration_note,
+                                notes=notes,
+                                source_file_reference="manual entry",
                             )
+                        )
+                        session.commit()
+                        st.success("Stream reading saved.")
+                        st.rerun()
+
+        with tab_import:
+            show_pending_banner("stream_import_msg")
+            st.caption(
+                "Required columns: " + ", ".join(STREAM_REQUIRED_COLUMNS) + ". Optional columns: "
+                + ", ".join(STREAM_OPTIONAL_COLUMNS) + ". WP7 Phase 1/2: each row's production_run_id "
+                "just needs to be a valid run - a Finalized phase is no longer required first. If a "
+                "Finalized phase does already exist for that run, the imported reading is linked to it "
+                "too for continuity."
+            )
+            uploaded = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx"], key="stream_upload")
+            if uploaded and upload_within_size_limit(uploaded):
+                try:
+                    df = pd.read_csv(uploaded) if uploaded.name.endswith(".csv") else pd.read_excel(uploaded)
+                except Exception as exc:
+                    st.error(f"Could not read file: {exc}")
+                    df = None
+
+                if df is not None and import_within_row_limit(df):
+                    missing_cols = [c for c in STREAM_REQUIRED_COLUMNS if c not in df.columns]
+                    if missing_cols:
+                        st.error(f"File is missing required column(s): {', '.join(missing_cols)}. Import rejected.")
+                    else:
+                        valid_run_ids = {r.id for r in runs}
+                        finalized_by_run = {
+                            p.production_run_id: p
+                            for p in session.query(ProductionPhase)
+                            .filter(ProductionPhase.phase_name == "Finalized").all()
+                        }
+                        good_rows, bad_rows, resolved_phase_ids = [], [], []
+                        for _, row in df.iterrows():
+                            run_id_val = row.get("production_run_id")
+                            if run_id_val in valid_run_ids and row.get("stream_name"):
+                                good_rows.append(row)
+                                match = finalized_by_run.get(run_id_val)
+                                resolved_phase_ids.append(match.id if match else None)
+                            else:
+                                bad_rows.append(row)
+
+                        st.write(f"Rows ready to import: **{len(good_rows)}** | Rows flagged/rejected: **{len(bad_rows)}**")
+                        if bad_rows:
+                            st.warning(
+                                "Flagged rows reference an unknown production_run_id, or are missing stream_name."
+                            )
+                            render_data_table(pd.DataFrame(bad_rows), max_height="300px")
+
+                        if good_rows and st.button("Confirm import", key="confirm_stream_import", disabled=not page_usable):
+                            # Dedupe on (production_run_id, stream_name): a repeat click of
+                            # this button (e.g. because the previous success message wasn't
+                            # visibly persistent) must not double-insert the same material's
+                            # reading for the same run. WP7 Phase 1/2: existing keys now come
+                            # from either linkage style (direct production_run_id, or the
+                            # legacy phase relationship), matching the streams_for_run query.
+                            existing_keys = {
+                                (r.production_run_id or (r.phase.production_run_id if r.phase else None), r.stream_name.strip().lower())
+                                for r in session.query(ComponentStreamReading).all()
+                                if r.production_run_id or r.phase
+                            }
+                            paired = list(zip(good_rows, resolved_phase_ids))
+                            accept, dup = [], []
+                            for row, phase_id in paired:
+                                key = (row["production_run_id"], str(row["stream_name"]).strip().lower())
+                                if key in existing_keys:
+                                    dup.append(row)
+                                else:
+                                    existing_keys.add(key)
+                                    accept.append((row, phase_id))
+
+                            for row, phase_id in accept:
+                                session.add(
+                                    ComponentStreamReading(
+                                        production_run_id=int(row["production_run_id"]),
+                                        production_phase_id=phase_id,
+                                        stream_name=str(row["stream_name"]),
+                                        flow_unit=str(row.get("flow_unit", "") or "kg/min"),
+                                        flow=row.get("flow"),
+                                        pump_speed=row.get("pump_speed"),
+                                        flow_total_qty=row.get("flow_total_qty"),
+                                        pressure_bar=row.get("pressure_bar"),
+                                        temperature_c=row.get("temperature_c"),
+                                        calibration_status=str(row.get("calibration_status", "") or "") or None,
+                                        calibration_note=str(row.get("calibration_note", "") or ""),
+                                        notes=str(row.get("notes", "") or ""),
+                                        source_file_reference=uploaded.name,
+                                    )
+                                )
                             session.commit()
-                            st.success("Stream reading saved.")
+                            msg = f"Imported {len(accept)} stream reading(s) from {uploaded.name}."
+                            if dup:
+                                msg += (
+                                    f" Skipped {len(dup)} row(s) already recorded for that run/material "
+                                    "(likely a repeat click)."
+                                )
+                            set_pending_banner("stream_import_msg", msg)
                             st.rerun()
 
-            with tab_import:
-                show_pending_banner("stream_import_msg")
-                st.caption(
-                    "Required columns: " + ", ".join(STREAM_REQUIRED_COLUMNS) + ". Optional columns: "
-                    + ", ".join(STREAM_OPTIONAL_COLUMNS) + ". Each row's production_run_id must already have "
-                    "a Finalized phase — readings always attach there, never to Setup."
+# ---------------------------------------------------------------------------
+# WP7 Phase 2 (2026-08-14): Production Output and Disposition — governing
+# doc section 4 section I ("Output and Run Disposition", always available).
+# Backed by the WP7 Phase 1 ProductionOutputSummary table (Charlie's
+# decision doc section 3.3: single controlled UOM for planned/actual
+# quantity, controlled disposition). Additive alongside the legacy Runtime
+# Data "Calculated output" section (analytics.compute_runtime_output, the
+# universal length/volume/weight calc) - governing doc section 8 flags
+# that legacy calculation for eventual retirement where it doesn't apply,
+# but Phase 2 does not remove it; this tab is the new, explicit,
+# Method-agnostic capture point.
+# ---------------------------------------------------------------------------
+with tab_output:
+    st.caption(
+        "The run's planned and actual output quantity in a single controlled unit, plus its "
+        "disposition (Released / Quarantined / Rejected / Rework). One record per run."
+    )
+
+    if not runs:
+        st.info("Create a production run first (Production Runs tab).")
+    else:
+        run = _run_selector(runs, key="output_tab_run_select")
+        st.caption(f"Showing production output for **{_run_label(run)}**")
+
+        output_summary = (
+            session.query(ProductionOutputSummary)
+            .filter(ProductionOutputSummary.production_run_id == run.id)
+            .first()
+        )
+        units = session.query(UnitOfMeasure).order_by(UnitOfMeasure.sort_order, UnitOfMeasure.symbol).all()
+
+        def _unit_label(u):
+            if u is None:
+                return "— not selected —"
+            return u.symbol + (f" ({u.name})" if u.name else "")
+
+        if output_summary:
+            st.markdown("##### Edit production output")
+            with st.form(f"edit_output_form_{output_summary.id}"):
+                planned_quantity = st.number_input(
+                    "Planned quantity", min_value=0.0, step=0.1,
+                    value=float(output_summary.planned_quantity or 0.0),
+                    key=f"edit_output_planned_{output_summary.id}",
                 )
-                uploaded = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx"], key="stream_upload")
-                if uploaded and upload_within_size_limit(uploaded):
-                    try:
-                        df = pd.read_csv(uploaded) if uploaded.name.endswith(".csv") else pd.read_excel(uploaded)
-                    except Exception as exc:
-                        st.error(f"Could not read file: {exc}")
-                        df = None
+                actual_quantity = st.number_input(
+                    "Actual quantity", min_value=0.0, step=0.1,
+                    value=float(output_summary.actual_quantity or 0.0),
+                    key=f"edit_output_actual_{output_summary.id}",
+                )
+                unit_options = [None] + units
+                unit_idx = next(
+                    (i for i, u in enumerate(unit_options) if u is not None and u.id == output_summary.unit_id), 0
+                )
+                unit = st.selectbox(
+                    "Unit", unit_options, index=unit_idx, format_func=_unit_label,
+                    key=f"edit_output_unit_{output_summary.id}",
+                )
+                disposition_options = [""] + PRODUCTION_OUTPUT_DISPOSITIONS
+                disposition_idx = (
+                    disposition_options.index(output_summary.disposition)
+                    if output_summary.disposition in disposition_options else 0
+                )
+                disposition = st.selectbox(
+                    "Disposition", disposition_options, index=disposition_idx,
+                    key=f"edit_output_disposition_{output_summary.id}",
+                )
+                disposition_notes = st.text_area(
+                    "Disposition notes", value=output_summary.disposition_notes or "",
+                    key=f"edit_output_notes_{output_summary.id}",
+                )
+                save = st.form_submit_button("Save changes", disabled=not page_usable)
+                if save and page_usable:
+                    output_summary.planned_quantity = planned_quantity or None
+                    output_summary.actual_quantity = actual_quantity or None
+                    output_summary.unit_id = unit.id if unit else None
+                    output_summary.disposition = disposition or None
+                    output_summary.disposition_notes = disposition_notes
+                    session.commit()
+                    st.success("Production output updated.")
+                    st.rerun()
 
-                    if df is not None and import_within_row_limit(df):
-                        missing_cols = [c for c in STREAM_REQUIRED_COLUMNS if c not in df.columns]
-                        if missing_cols:
-                            st.error(f"File is missing required column(s): {', '.join(missing_cols)}. Import rejected.")
-                        else:
-                            finalized_by_run = {
-                                p.production_run_id: p
-                                for p in session.query(ProductionPhase)
-                                .filter(ProductionPhase.phase_name == "Finalized").all()
-                            }
-                            good_rows, bad_rows, resolved_phase_ids = [], [], []
-                            for _, row in df.iterrows():
-                                match = finalized_by_run.get(row.get("production_run_id"))
-                                if match and row.get("stream_name"):
-                                    good_rows.append(row)
-                                    resolved_phase_ids.append(match.id)
-                                else:
-                                    bad_rows.append(row)
+            def _do_delete_output(_session=session, _row=output_summary):
+                _session.delete(_row)
+                _session.commit()
 
-                            st.write(f"Rows ready to import: **{len(good_rows)}** | Rows flagged/rejected: **{len(bad_rows)}**")
-                            if bad_rows:
-                                st.warning(
-                                    "Flagged rows reference a production_run_id with no Finalized phase yet, "
-                                    "or are missing stream_name."
-                                )
-                                render_data_table(pd.DataFrame(bad_rows), max_height="300px")
+            if page_usable:
+                delete_with_confirm(
+                    f"production output record (Run #{run.id})", _do_delete_output,
+                    key_prefix=f"output_{output_summary.id}",
+                )
+            else:
+                st.caption("View-only access - deleting is restricted for your role.")
+        else:
+            st.info("No production output recorded yet for this run — use the form below.")
+            with st.form(f"add_output_{run.id}"):
+                planned_quantity = st.number_input(
+                    "Planned quantity", min_value=0.0, step=0.1, key=f"new_output_planned_{run.id}"
+                )
+                actual_quantity = st.number_input(
+                    "Actual quantity", min_value=0.0, step=0.1, key=f"new_output_actual_{run.id}"
+                )
+                unit = st.selectbox(
+                    "Unit", [None] + units, format_func=_unit_label, key=f"new_output_unit_{run.id}"
+                )
+                disposition = st.selectbox(
+                    "Disposition", [""] + PRODUCTION_OUTPUT_DISPOSITIONS, key=f"new_output_disposition_{run.id}"
+                )
+                disposition_notes = st.text_area("Disposition notes", key=f"new_output_notes_{run.id}")
+                submitted = st.form_submit_button("Save production output", disabled=not page_usable)
+                if submitted and page_usable:
+                    session.add(
+                        ProductionOutputSummary(
+                            production_run_id=run.id,
+                            planned_quantity=planned_quantity or None,
+                            actual_quantity=actual_quantity or None,
+                            unit_id=unit.id if unit else None,
+                            disposition=disposition or None,
+                            disposition_notes=disposition_notes,
+                        )
+                    )
+                    session.commit()
+                    st.success("Production output saved.")
+                    st.rerun()
 
-                            if good_rows and st.button("Confirm import", key="confirm_stream_import", disabled=not page_usable):
-                                # Dedupe on (production_run_id, stream_name): a repeat click of
-                                # this button (e.g. because the previous success message wasn't
-                                # visibly persistent) must not double-insert the same material's
-                                # reading for the same run.
-                                existing_keys = {
-                                    (r.phase.production_run_id, r.stream_name.strip().lower())
-                                    for r in session.query(ComponentStreamReading).all()
-                                    if r.phase
-                                }
-                                paired = list(zip(good_rows, resolved_phase_ids))
-                                accept, dup = [], []
-                                for row, phase_id in paired:
-                                    key = (row["production_run_id"], str(row["stream_name"]).strip().lower())
-                                    if key in existing_keys:
-                                        dup.append(row)
-                                    else:
-                                        existing_keys.add(key)
-                                        accept.append((row, phase_id))
-
-                                for row, phase_id in accept:
-                                    session.add(
-                                        ComponentStreamReading(
-                                            production_phase_id=phase_id,
-                                            stream_name=str(row["stream_name"]),
-                                            flow_unit=str(row.get("flow_unit", "") or "kg/min"),
-                                            flow=row.get("flow"),
-                                            pump_speed=row.get("pump_speed"),
-                                            flow_total_qty=row.get("flow_total_qty"),
-                                            pressure_bar=row.get("pressure_bar"),
-                                            temperature_c=row.get("temperature_c"),
-                                            calibration_status=str(row.get("calibration_status", "") or "") or None,
-                                            calibration_note=str(row.get("calibration_note", "") or ""),
-                                            notes=str(row.get("notes", "") or ""),
-                                            source_file_reference=uploaded.name,
-                                        )
-                                    )
-                                session.commit()
-                                msg = f"Imported {len(accept)} stream reading(s) from {uploaded.name}."
-                                if dup:
-                                    msg += (
-                                        f" Skipped {len(dup)} row(s) already recorded for that run/material "
-                                        "(likely a repeat click)."
-                                    )
-                                set_pending_banner("stream_import_msg", msg)
-                                st.rerun()
+        st.divider()
+        st.caption(
+            "For reference, the legacy calculated output (length/volume/weight from tunnel width x "
+            "foam height x conveyor speed) still shows on the Actual Run and Cycle Data tab. Per the "
+            "WP7 governing document, that universal calculation only applies to methods it was "
+            "designed for and is expected to be retired for others in a later WP7 phase - it is not "
+            "removed here."
+        )
 
 # ---------------------------------------------------------------------------
 # Production events (alarms / interventions / grade changes)
@@ -1285,6 +1641,39 @@ with tab_events:
         phases_for_run = (
             session.query(ProductionPhase).filter(ProductionPhase.production_run_id == run.id).all()
         )
+
+        # WP7 Phase 1/2 (2026-08-13/14, per Charlie's design review decision doc
+        # section 3.5): ProductionEvent now carries 4 optional context links -
+        # process setting, raw material lot use, quality issue, quality test
+        # result - scoped to what's actually available on this run (except the
+        # setting definition catalogue, which is global/controlled).
+        setting_defs_for_picker = (
+            session.query(ProcessSettingDefinition)
+            .filter(ProcessSettingDefinition.active == True)  # noqa: E712
+            .order_by(ProcessSettingDefinition.sort_order, ProcessSettingDefinition.name)
+            .all()
+        )
+        lot_uses_for_run = (
+            session.query(RawMaterialLotUse).filter(RawMaterialLotUse.production_run_id == run.id).all()
+        )
+        quality_obs_for_run = (
+            session.query(QualityObservation).filter(QualityObservation.production_run_id == run.id).all()
+        )
+        physical_results_for_run = (
+            session.query(PhysicalPropertyResult).filter(PhysicalPropertyResult.production_run_id == run.id).all()
+        )
+
+        def _setting_def_label(d):
+            return "—" if d is None else d.name
+
+        def _lot_use_label(l):
+            return "—" if l is None else f"{l.component_stream_name} — lot {l.supplier_lot_no}"
+
+        def _quality_obs_label(q):
+            return "—" if q is None else f"#{q.id} — {q.observation_type}"
+
+        def _physical_result_label(r):
+            return "—" if r is None else f"#{r.id} — {r.property_name}"
 
         # CR-11: wording/order aligned via cr11_function_tab_labels().
         tab_create, tab_edit_delete, tab_import = st.tabs(cr11_function_tab_labels("Production Event"))
@@ -1355,6 +1744,46 @@ with tab_events:
                             "Action taken", value=sel_event.action_taken or "", key=f"edit_event_action_{sel_event.id}"
                         )
 
+                        st.markdown("**Optional context links** (WP7 Phase 2)")
+                        ec1, ec2 = st.columns(2)
+                        setting_options = [None] + setting_defs_for_picker
+                        setting_idx = next(
+                            (i for i, d in enumerate(setting_options) if d is not None and d.id == sel_event.setting_definition_id),
+                            0,
+                        )
+                        setting_link = ec1.selectbox(
+                            "Related process setting", setting_options, index=setting_idx,
+                            format_func=_setting_def_label, key=f"edit_event_setting_{sel_event.id}",
+                        )
+                        lot_options = [None] + lot_uses_for_run
+                        lot_idx = next(
+                            (i for i, l in enumerate(lot_options) if l is not None and l.id == sel_event.raw_material_lot_use_id),
+                            0,
+                        )
+                        lot_link = ec2.selectbox(
+                            "Related raw material lot use", lot_options, index=lot_idx,
+                            format_func=_lot_use_label, key=f"edit_event_lot_{sel_event.id}",
+                        )
+                        ec3, ec4 = st.columns(2)
+                        obs_options = [None] + quality_obs_for_run
+                        obs_idx = next(
+                            (i for i, q in enumerate(obs_options) if q is not None and q.id == sel_event.quality_observation_id),
+                            0,
+                        )
+                        obs_link = ec3.selectbox(
+                            "Related quality issue", obs_options, index=obs_idx,
+                            format_func=_quality_obs_label, key=f"edit_event_obs_{sel_event.id}",
+                        )
+                        result_options = [None] + physical_results_for_run
+                        result_idx = next(
+                            (i for i, r in enumerate(result_options) if r is not None and r.id == sel_event.physical_property_result_id),
+                            0,
+                        )
+                        result_link = ec4.selectbox(
+                            "Related quality test result", result_options, index=result_idx,
+                            format_func=_physical_result_label, key=f"edit_event_result_{sel_event.id}",
+                        )
+
                         save = st.form_submit_button("Save changes", disabled=not page_usable)
                         if save and page_usable:
                             sel_event.event_type = event_type
@@ -1363,6 +1792,10 @@ with tab_events:
                             sel_event.event_ts = event_ts
                             sel_event.description = description
                             sel_event.action_taken = action_taken
+                            sel_event.setting_definition_id = setting_link.id if setting_link else None
+                            sel_event.raw_material_lot_use_id = lot_link.id if lot_link else None
+                            sel_event.quality_observation_id = obs_link.id if obs_link else None
+                            sel_event.physical_property_result_id = result_link.id if result_link else None
                             session.commit()
                             st.success("Event updated.")
                             st.rerun()
@@ -1394,6 +1827,26 @@ with tab_events:
                 description = st.text_area("Description")
                 action_taken = st.text_area("Action taken")
 
+                st.markdown("**Optional context links** (WP7 Phase 2)")
+                nc1, nc2 = st.columns(2)
+                setting_link = nc1.selectbox(
+                    "Related process setting", [None] + setting_defs_for_picker, format_func=_setting_def_label,
+                    key=f"new_event_setting_{run.id}",
+                )
+                lot_link = nc2.selectbox(
+                    "Related raw material lot use", [None] + lot_uses_for_run, format_func=_lot_use_label,
+                    key=f"new_event_lot_{run.id}",
+                )
+                nc3, nc4 = st.columns(2)
+                obs_link = nc3.selectbox(
+                    "Related quality issue", [None] + quality_obs_for_run, format_func=_quality_obs_label,
+                    key=f"new_event_obs_{run.id}",
+                )
+                result_link = nc4.selectbox(
+                    "Related quality test result", [None] + physical_results_for_run, format_func=_physical_result_label,
+                    key=f"new_event_result_{run.id}",
+                )
+
                 submitted = st.form_submit_button("Save event", disabled=not page_usable)
                 if submitted and page_usable:
                     session.add(
@@ -1405,6 +1858,10 @@ with tab_events:
                             severity=severity or None,
                             description=description,
                             action_taken=action_taken,
+                            setting_definition_id=setting_link.id if setting_link else None,
+                            raw_material_lot_use_id=lot_link.id if lot_link else None,
+                            quality_observation_id=obs_link.id if obs_link else None,
+                            physical_property_result_id=result_link.id if result_link else None,
                             source_file_reference="manual entry",
                         )
                     )

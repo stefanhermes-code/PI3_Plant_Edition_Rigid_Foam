@@ -456,7 +456,18 @@ def test_production_event_optional_context_links_and_legacy_behavior_unchanged(s
 
 
 # ---------------------------------------------------------------------------
-# 8. No Production Run UI/report/Intelligence cutover in Phase 1
+# 8. No Report/Intelligence cutover in Phase 1
+#
+# WP7 Phase 2 (2026-08-14) legitimately wired this Phase 1 schema into
+# pages/4 (the Method-Aware Process Settings tab calls
+# analytics.eligible_process_settings(); the Production Output and
+# Disposition tab uses ProductionOutputSummary/PRODUCTION_OUTPUT_
+# DISPOSITIONS) - that is exactly the Phase 2 scope per the WP7 governing
+# doc section 6 ("Implement context-first run creation/editing, dynamic
+# Planned/Actual process grid, ... output and disposition"). PAGE4 was
+# removed from this test's parametrize list for that reason; the
+# assertion still holds for the Report page and Industrial Intelligence
+# pages, which remain out of scope until Phase 4's reader cutover.
 # ---------------------------------------------------------------------------
 
 _PHASE1_SCHEMA_TOKEN_RE = re.compile(
@@ -491,7 +502,7 @@ def _live_code_hits(path):
     return hits
 
 
-@pytest.mark.parametrize("path", [PAGE4, REPORTS_PY] + INTELLIGENCE_PAGES)
+@pytest.mark.parametrize("path", [REPORTS_PY] + INTELLIGENCE_PAGES)
 def test_phase1_schema_not_yet_wired_into_live_surfaces(path):
     hits = _live_code_hits(path)
-    assert hits == [], f"Phase 1 schema/helper referenced in live code before Phase 2/4 cutover in {path}: {hits}"
+    assert hits == [], f"Phase 1 schema/helper referenced in live code before Phase 4 cutover in {path}: {hits}"
