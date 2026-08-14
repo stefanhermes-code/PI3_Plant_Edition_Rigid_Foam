@@ -10,10 +10,17 @@ independent levels before it ever touches real data:
    v_pi3_property_results, v_pi3_recipe_composition, v_pi3_stream_readings,
    and v_pi3_quality_issues (created directly in Supabase - see the
    project's SQL history, there is no migrations-file convention in this
-   repo). These mirror the same joins analytics.py already gets right
-   (Setup-vs-Finalized phases, recipe version chains, replicate handling)
-   so PI3 is filtering/aggregating over pre-tested ground, not re-deriving
-   multi-table joins itself on every question.
+   repo). WP7 Phase 4 (2026-08-14) discovered and corrected a defect here:
+   all 5 views were built against the flexible-foam app's `public` schema
+   tables (production_runs, foam_grades, etc.) instead of this app's own
+   `rigid_foam` schema tables - leftover from the app this project was
+   cloned from, never rebuilt when the rigid_foam schema was created. They
+   now query rigid_foam.* directly. v_pi3_production_runs also now carries
+   planned_quantity/actual_quantity/output_unit_symbol/disposition from
+   rigid_foam.production_output_summaries - per Charlie's Downstream
+   Reader Cutover Execution Instruction section 6, PI3 reads
+   ProductionOutputSummary's Actual quantity and controlled UOM, never the
+   retired compute_runtime_output() geometry formula.
 
 2. A dedicated, restricted Postgres role (pi3_readonly). This role has
    SELECT granted on exactly those 5 views and nothing else - no raw

@@ -5558,4 +5558,86 @@ exports), a static dependency scan, the remaining Charlie 11-gate test
 coverage, and the Phase 4 closeout package - proceeding incrementally.
 """
 
-APP_VERSION = "0.49.0"
+VERSION_0_50_0_NOTES = """
+WP7 Phase 4: cut over PI3 Production Run context to the shared reader
+(2026-08-14), plus a pre-existing cross-product data-scoping defect
+discovered and corrected along the way, per Charlie's Downstream Reader
+Cutover Execution Instruction section 6.
+
+Generated reports (task #974): grepped every report builder in
+reports.py for the retired ProductionPhase / PHASE_SETTING_FIELDS /
+PHASE_SETTING_LABELS / PHASE1_RIGID_INELIGIBLE_SETTINGS /
+compute_runtime_output() readers. The Batch Release/Conformance report
+(cut over in v0.49.0) was the only one that ever referenced them - Period
+Summary, Trial Closeout, Recipe Formulation, Where Used, Sample, Quality
+Test, Quality Issue, PI3 Q&A, Recipe Optimization, Trend Analysis,
+Correlation, Root Cause, Machine Settings, Expert Notes and WP3
+Conformance never touched them. No code changes required; task closed as
+satisfied by v0.49.0.
+
+PI3 Production Run context (task #975): while reviewing the 5 curated
+Supabase views backing PI3's free-form "Ask PI3" SQL tool
+(v_pi3_production_runs, v_pi3_property_results, v_pi3_recipe_composition,
+v_pi3_stream_readings, v_pi3_quality_issues - see pi3_query_tool.py),
+found all 5 were still querying unqualified table names (production_runs,
+foam_grades, recipe_versions, machines, etc.) that resolve to the
+flexible-foam app's tables in Postgres' public schema, not this app's own
+rigid_foam schema - leftover from the app this project was cloned from,
+never rebuilt when the rigid_foam schema was created. Confirmed via
+information_schema.tables that parallel tables exist in both schemas, so
+this was a real cross-product data-scoping defect (wrong/empty results
+for rigid-foam PI3 users, not just a stale-formula issue), not merely a
+Phase 4 cutover gap. Flagged to Stefan, who approved rebuilding the views
+immediately.
+
+Rebuilt all 5 views directly in Supabase (project aazkdsqpytjciiqtvnfj) to
+query rigid_foam.* tables. v_pi3_production_runs now also carries
+planned_quantity, actual_quantity, output_unit_symbol, disposition and
+disposition_notes from rigid_foam.production_output_summaries (left-
+joined, so a run with no ProductionOutputSummary row still appears with
+those columns null) - giving PI3 the same "read ProductionOutputSummary's
+Actual quantity and controlled UOM" behavior Charlie's instruction
+requires of every consumer, never the retired compute_runtime_output()
+geometry formula. The other 4 views were updated to join through the
+rebuilt v_pi3_production_runs and rigid_foam.* tables instead of their
+public-schema counterparts, preserving their existing column sets.
+GRANT SELECT on all 5 views and GRANT USAGE on the rigid_foam schema to
+the restricted pi3_readonly role were re-applied as part of the same
+migration.
+
+Verified via row-count and content queries against all 5 rebuilt views
+(production_runs: 1 row; property_results: 1; quality_issues: 0;
+recipe_composition: 5; stream_readings: 0 - consistent with the current
+sparse UAT baseline). Could not verify via SET ROLE pi3_readonly (the
+migration tool's connection isn't a superuser or role member and got a
+permission-denied error attempting it) - this is a verification-tooling
+gap, not a defect: the GRANT statements executed successfully as part of
+the same transaction the row-count checks confirmed, and the app's real
+PI3_READONLY_DATABASE_URL connection authenticates as pi3_readonly
+directly rather than via SET ROLE.
+
+pi3_query_tool.py: updated the module docstring's description of the 5
+views to document the defect and the fix (previously said the views
+"mirror the same joins analytics.py already gets right" - true of the
+join shape but silent on which schema they hit). No other code in this
+module changed: ALLOWED_VIEWS, _validate_select(), _recompute_live_pass_
+fail() and run_plant_query() are all schema-agnostic (they operate on
+view names and returned column names, never on which underlying schema a
+view's definition queries), so none of them carried the defect or needed
+a fix themselves. No new pytest coverage was added for this specific fix
+- the existing suite runs against local SQLite with no live-Supabase test
+path for this module, and the correction is entirely in the Supabase view
+definitions; verification is the row-count evidence above plus this
+changelog entry.
+
+Full regression: 529 passed, 0 skipped, 0 failed (full suite, run via
+pytest-xdist) - unchanged from v0.49.0 since no application logic changed,
+confirming the docstring-only edit didn't disturb anything.
+
+Not yet done: Root Cause Assistant, Trend Analysis, Process-Property
+Correlation, Process Parameter Optimization and shared CSV/Excel export
+cutovers, a static dependency scan, the remaining Charlie 11-gate test
+coverage, and the Phase 4 closeout package - proceeding incrementally.
+"""
+
+APP_VERSION = "0.50.0"
