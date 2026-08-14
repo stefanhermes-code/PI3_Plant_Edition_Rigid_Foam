@@ -32,7 +32,6 @@ from db import (
     Plant,
     ProductFamily,
     ProductionMethod,
-    ProductionPhase,
     ProductionRun,
     QualityObservation,
     RecipeVersion,
@@ -122,18 +121,32 @@ def render_overview():
     KPI aggregation rules (CR-02 section 6): the old "Meters produced /
     Kg produced" cards assumed a Flexible Foam/continuous-slabstock
     production model and are removed outright. In their place, a single
-    "Output Quantity and Unit" card only renders a number when exactly
-    one Production Method is selected AND that method's own runs in the
-    date range actually have the conveyor-speed/tunnel-geometry data
-    analytics.compute_runtime_output() needs (continuous, tunnel-based
-    production - in practice, today, only PM-200 Continuous Panel & Board
-    runs that recorded it). No output total is ever computed or shown
-    across "All Production Methods", or silently defaulted to 0/blank for
-    a method that doesn't have this data - the card explains why instead,
-    since summing across differently-measured methods is exactly the
-    "meaningless mixed-unit total" CR-02 section 8 prohibits. Every other
-    KPI ("cross-method comparable" per section 6 - runs, tests, issues,
-    samples, trials, active grades) is now scoped consistently to the
+    "Output Quantity and Unit" card renders a number for the runs scoped
+    by the filters above and the date range, using only recorded
+    ProductionOutputSummary.actual_quantity rows (WP7 Phase 4 cutover,
+    2026-08-14, per Charlie's Downstream Reader Cutover Execution
+    Instruction section 6 - see analytics.production_output_totals()).
+    This replaces the original CR-02 restriction to "a single Production
+    Method whose runs have conveyor-speed/tunnel-geometry data" - that
+    restriction existed only because the old analytics.
+    compute_runtime_output() geometry formula could only ever produce a
+    value for continuous, tunnel-based production (in practice, PM-200).
+    ProductionOutputSummary is method-agnostic (any Production Method's
+    runs can carry a recorded output row), so the KPI no longer requires
+    a single Production Method to be selected - it still, however, never
+    sums across different recorded units (CR-02 section 8's "meaningless
+    mixed-unit total" prohibition still applies, now enforced by
+    production_output_totals() grouping by unit_id instead of the old
+    single-formula-implies-single-unit assumption) - if the scoped runs'
+    recorded output spans more than one unit, the card explains why no
+    single figure is shown instead of guessing which one to display. A
+    run with no ProductionOutputSummary row, or one recorded without an
+    Actual quantity yet, contributes nothing and is never inferred from
+    geometry - compute_runtime_output() keeps zero authority over this
+    card as of Phase 4; it remains only as the Production Run page's own
+    legacy "Calculated output" display, unrelated to this KPI. Every
+    other KPI ("cross-method comparable" per section 6 - runs, tests,
+    issues, samples, trials, active grades) is scoped consistently to the
     same Plant/Method/Unit/Grade filters instead of being unscoped
     app-wide totals as before.
     """
@@ -338,44 +351,37 @@ def render_overview():
     )
     active_grades_count = len({r.foam_grade_id for r in scoped_runs})
 
-    # Output Quantity and Unit (CR-02 section 6/7, replacing the old
-    # Flexible-Foam "Meters/kg produced"): only computed for a single
-    # selected Production Method whose runs in range actually carry
-    # conveyor-speed/tunnel-geometry data - see analytics.
-    # compute_runtime_output(). Reuses that exact same function the
-    # Actual Run and Cycle Data tab's own calculated-output display
-    # uses, so the two never drift apart into two different answers for
-    # the same question. Deliberately never summed across methods or
-    # shown as a mixed-unit total (CR-02 section 8's explicit prohibition).
+    # Output Quantity and Unit (CR-02 section 6/7 KPI, cut over to
+    # ProductionOutputSummary under WP7 Phase 4, 2026-08-14 - see
+    # analytics.production_output_totals() and the docstring above for the
+    # full rationale). No longer requires a single Production Method to be
+    # selected - ProductionOutputSummary rows can exist for any method's
+    # runs, unlike the retired compute_runtime_output() formula this
+    # replaces. Still never sums across different recorded units.
     output_value, output_uom, output_note = None, None, None
-    if method_filter is None:
-        output_note = "Select a single Production Method to see its method-appropriate output."
-    elif not (range_start and range_end):
+    if not (range_start and range_end):
         output_note = "Pick a complete date range to compute output for this period."
     else:
         runs_in_range = [r for r in scoped_runs if r.run_date and range_start <= r.run_date <= range_end]
         run_ids_in_range = [r.id for r in runs_in_range]
-        phases_by_run = {}
-        if run_ids_in_range:
-            phases_by_run = {
-                p.production_run_id: p
-                for p in session.query(ProductionPhase).filter(
-                    ProductionPhase.production_run_id.in_(run_ids_in_range),
-                    ProductionPhase.phase_name == "Finalized",
-                ).all()
-            }
-        length_total = 0.0
-        for run in runs_in_range:
-            output = analytics.compute_runtime_output(phases_by_run.get(run.id), run.foam_grade)
-            if output["length_m"]:
-                length_total += output["length_m"]
-        if length_total:
-            output_value, output_uom = length_total, "m"
-        else:
+        output_totals = analytics.production_output_totals(session, run_ids_in_range)
+        totals_by_unit = output_totals["totals_by_unit"]
+        if len(totals_by_unit) == 1:
+            output_value = totals_by_unit[0]["actual_total"]
+            output_uom = totals_by_unit[0]["unit_symbol"] or ""
+        elif len(totals_by_unit) > 1:
+            unit_list = ", ".join(sorted({t["unit_symbol"] or "unlabeled unit" for t in totals_by_unit}))
             output_note = (
-                f"No conveyor-speed/tunnel-geometry data recorded for {method_filter.name} runs in this "
-                "period - output quantity is not yet computable for this Production Method."
+                f"Recorded output for these runs spans more than one unit ({unit_list}) - narrow the "
+                "filters above to a single Production Method or Product Grade to see one figure."
             )
+        elif output_totals["runs_without_summary"] and run_ids_in_range:
+            output_note = (
+                "No Production Output has been recorded yet for the runs in this period - see the "
+                "Production Output and Disposition tab on each run."
+            )
+        else:
+            output_note = "No production runs in this period."
 
     # --- KPI cards, grouped for visual separation ------------------------
     st.subheader("Volume")

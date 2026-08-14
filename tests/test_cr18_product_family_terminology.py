@@ -131,11 +131,15 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # the new pure shared reader (production_run_process_parameters()/
     # production_run_parameter_dataframe(), plus the retained
     # dynamic_process_setting_field_key() helper) - net addition of ~180
-    # lines of new docstring/code. The set below is the verified, current,
-    # exact hit list, not an arithmetic shift guess.
-    ("analytics.py", 15), ("analytics.py", 171), ("analytics.py", 305),
-    ("analytics.py", 319), ("analytics.py", 633), ("analytics.py", 901),
-    ("analytics.py", 976), ("analytics.py", 1462), ("analytics.py", 1627),
+    # lines of new docstring/code. Shifted a sixth time (same date) by the
+    # WP7 Phase 4 Overview/output KPI cutover: analytics.py gained the
+    # ProductionOutputSummary/UnitOfMeasure imports plus
+    # production_run_output_summary()/production_output_totals(). The set
+    # below is the verified, current, exact hit list, not an arithmetic
+    # shift guess.
+    ("analytics.py", 15), ("analytics.py", 173), ("analytics.py", 307),
+    ("analytics.py", 321), ("analytics.py", 742), ("analytics.py", 1010),
+    ("analytics.py", 1085), ("analytics.py", 1571), ("analytics.py", 1736),
     ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 184), ("pages/16_Trend_Analysis.py", 319),

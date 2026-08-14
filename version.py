@@ -5439,4 +5439,67 @@ Phase 4 closeout package - proceeding incrementally, matching how every
 prior WP7 phase was actually delivered.
 """
 
-APP_VERSION = "0.47.0"
+VERSION_0_48_0_NOTES = """
+WP7 Phase 4: cut over Overview/output KPIs to ProductionOutputSummary
+(2026-08-14), per Charlie's Downstream Reader Cutover Execution
+Instruction section 6: "ProductionOutputSummary becomes the active output
+fact. Overview, reports and PI3 read its Actual quantity and controlled
+UOM." analytics.compute_runtime_output() (the conveyor-speed x
+tunnel-width x foam-height geometry formula) loses universal KPI
+authority as of this release - it remains only as the Production Run
+page's own legacy "Calculated output" display in the Runtime Data tab
+(unaffected, not in the Phase 4 consumer matrix, still explicitly
+labeled as legacy there).
+
+analytics.py: added ProductionOutputSummary/UnitOfMeasure to the db
+import block. New production_run_output_summary(session, production_run)
+- the single-run shared reader (accepts a ProductionRun instance or id;
+returns None for a nonexistent run or one with no recorded output row,
+never inferred from geometry; otherwise planned_quantity, actual_quantity,
+unit_id, unit_symbol, disposition, disposition_notes). New
+production_output_totals(session, run_ids) - the multi-run aggregator
+Overview reads: sums actual_quantity across runs grouped by unit_id
+(never combined across different units, per CR-02 section 8's existing
+"no meaningless mixed-unit total" rule, now enforced generically instead
+of relying on one formula implying one unit), and separately reports how
+many of the requested runs have no ProductionOutputSummary row at all
+versus one with no Actual quantity recorded yet (both read as "missing",
+neither ever backfilled from Planned or geometry).
+
+app_rigid_foam.py: the Overview page's "Output Quantity and Unit" KPI
+card now reads analytics.production_output_totals() instead of looping
+compute_runtime_output() over each scoped run's Finalized phase. This
+also lifts the old CR-02 restriction requiring a single Production Method
+to be selected before any figure would show - that restriction existed
+only because the retired geometry formula could only ever produce a
+value for continuous, tunnel-based production; ProductionOutputSummary
+rows can exist for any method's runs. The card still explains itself
+instead of guessing when the scoped runs' recorded output spans more than
+one unit, and shows nothing (with an explanatory caption) when no output
+has been recorded yet for the period. Dropped the now-unused
+ProductionPhase import from app_rigid_foam.py.
+
+Tests: new tests/test_wp7_phase4_overview_output_cutover.py (14 cases) -
+production_run_output_summary()'s None-safe behavior for a missing run/
+row, production_output_totals()'s empty-input/single-unit-sum/multi-unit-
+separation/missing-vs-Planned-only-row/sort-by-run-count behavior, and
+live AppTest evidence that the Overview KPI card reads the new source,
+no longer requires a single Production Method selected, and explains a
+mixed-unit period instead of summing across units.
+tests/test_cr18_product_family_terminology.py's line-number-pinned "foam
+family" allowlist re-verified against analytics.py's new line positions.
+
+Full regression: 517 passed, 0 skipped, 0 failed (full suite; one
+transient failure seen under a parallel/xdist run was a shared-database
+worker collision, not a real regression - confirmed by an isolated rerun
+of that exact test passing clean).
+
+Not yet done: the 8 remaining consumer cutovers (Batch Release/
+Conformance report, generated reports, PI3 Production Run context, Root
+Cause Assistant, Trend Analysis, Process-Property Correlation, Process
+Parameter Optimization, shared CSV/Excel exports), a static dependency
+scan, the remaining Charlie 11-gate test coverage, and the Phase 4
+closeout package - proceeding incrementally.
+"""
+
+APP_VERSION = "0.48.0"

@@ -49,12 +49,14 @@ from db import (
     ProcessSettingApplicability,
     ProcessSettingDefinition,
     ProductionMethod,
+    ProductionOutputSummary,
     ProductionPhase,
     ProductionRun,
     RawMaterial,
     RawMaterialAttributeDefinition,
     RawMaterialAttributeValue,
     RecipeVersion,
+    UnitOfMeasure,
 )
 from quality_standards import compute_pass_fail
 
@@ -611,6 +613,113 @@ def production_run_parameter_dataframe(session, run_ids):
                 }
         values_by_run[run_id] = row
     return values_by_run, definitions_by_field
+
+
+def production_run_output_summary(session, production_run):
+    """WP7 Phase 4 shared reader (2026-08-14), output domain. THE canonical
+    single-run output fact, per Charlie's Downstream Reader Cutover
+    Execution Instruction section 6: "ProductionOutputSummary becomes the
+    active output fact. Overview, reports and PI3 read its Actual quantity
+    and controlled UOM. Planned quantity supports plan-versus-actual
+    comparison. Disposition remains a controlled run-level output
+    decision." compute_runtime_output() (the conveyor-speed x tunnel-width
+    x foam-height geometry formula above) loses universal KPI/report
+    authority as of this function's introduction - it remains in place
+    only as the legacy, additive "Calculated output" display inside the
+    Production Run page's own Runtime Data tab (never removed by Phase 4,
+    since that page-level display isn't in the Phase 4 consumer matrix),
+    never as a value this function or its callers fall back to.
+
+    `production_run` accepts either a ProductionRun instance or its id.
+    Returns None if the run doesn't exist, or if no ProductionOutputSummary
+    row has ever been recorded for it - a genuinely unrecorded output stays
+    unrecorded here; it is never inferred from geometry. Otherwise returns
+    a dict: production_run_id, planned_quantity, actual_quantity (the
+    production fact - Planned is separate plan/target context and never
+    substitutes for a missing Actual, same rule as the process-parameter
+    reader above), unit_id, unit_symbol (the row's own single controlled
+    UOM - both Planned and Actual already share it, per Charlie's decision
+    doc section 3.3), disposition, disposition_notes."""
+    if isinstance(production_run, int):
+        run = session.get(ProductionRun, production_run)
+    else:
+        run = production_run
+    if run is None:
+        return None
+
+    row = (
+        session.query(ProductionOutputSummary)
+        .filter(ProductionOutputSummary.production_run_id == run.id)
+        .first()
+    )
+    if row is None:
+        return None
+
+    return {
+        "production_run_id": run.id,
+        "planned_quantity": row.planned_quantity,
+        "actual_quantity": row.actual_quantity,
+        "unit_id": row.unit_id,
+        "unit_symbol": row.unit.symbol if row.unit else None,
+        "disposition": row.disposition,
+        "disposition_notes": row.disposition_notes,
+    }
+
+
+def production_output_totals(session, run_ids):
+    """WP7 Phase 4 shared reader (2026-08-14), output domain - multi-run
+    aggregation for KPI cards (first consumer: the Overview page's "Output
+    Quantity and Unit" card). Sums ProductionOutputSummary.actual_quantity
+    across `run_ids`, grouped by unit_id - deliberately never summed
+    across different units, mirroring the Overview page's own pre-existing
+    "never a meaningless mixed-unit total" rule (CR-02 section 8), which
+    Charlie's Phase 4 instruction reaffirms applies to ProductionOutputSummary
+    too. A run with no recorded ProductionOutputSummary row, or one whose
+    Actual quantity was never captured, contributes nothing to any total -
+    the honest missing-data state, never a compute_runtime_output fallback.
+
+    Returns a dict:
+      totals_by_unit: a list of dicts, one per distinct unit_id actually
+        present among `run_ids`' Actual quantities - {"unit_id",
+        "unit_symbol", "actual_total", "planned_total", "run_count"} -
+        sorted by run_count descending, so a caller showing a single
+        headline figure can prefer the unit most of the scoped runs used.
+        planned_total only sums the rows that also have a non-None
+        planned_quantity - it is not forced to the same row count as
+        actual_total.
+      runs_without_summary: count of `run_ids` with no ProductionOutputSummary
+        row at all (not even a Planned-only one) - distinguishable from a
+        run whose summary row exists but has no Actual quantity yet, which
+        instead simply doesn't add to any unit's actual_total/run_count."""
+    if not run_ids:
+        return {"totals_by_unit": [], "runs_without_summary": 0}
+
+    rows = (
+        session.query(ProductionOutputSummary)
+        .filter(ProductionOutputSummary.production_run_id.in_(run_ids))
+        .all()
+    )
+    covered_run_ids = {row.production_run_id for row in rows}
+
+    by_unit = {}
+    for row in rows:
+        if row.actual_quantity is None:
+            continue
+        slot = by_unit.setdefault(row.unit_id, {
+            "unit_id": row.unit_id,
+            "unit_symbol": row.unit.symbol if row.unit else None,
+            "actual_total": 0.0,
+            "planned_total": 0.0,
+            "run_count": 0,
+        })
+        slot["actual_total"] += row.actual_quantity
+        if row.planned_quantity is not None:
+            slot["planned_total"] += row.planned_quantity
+        slot["run_count"] += 1
+
+    totals_by_unit = sorted(by_unit.values(), key=lambda d: -d["run_count"])
+    runs_without_summary = len(set(run_ids) - covered_run_ids)
+    return {"totals_by_unit": totals_by_unit, "runs_without_summary": runs_without_summary}
 
 
 def format_setting_range(field, series):
