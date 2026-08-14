@@ -15,8 +15,6 @@ import streamlit as st
 import ai_assistant
 from access_control import can_use_page
 from analytics import (
-    BOOLEAN_SETTING_FIELDS,
-    PHASE_SETTING_LABELS,
     format_setting_range,
     merged_run_property_dataframe,
     production_methods_used,
@@ -200,13 +198,21 @@ st.download_button(
 
 st.divider()
 st.subheader("Drill into one setting")
+# WP7 Phase 4 cutover (2026-08-14): field -> label/data_type lookups used
+# to come from the static PHASE_SETTING_LABELS dict and a BOOLEAN_SETTING_
+# FIELDS membership check; ranked's own "field"/"label"/"data_type"
+# columns (sourced from analytics.merged_run_property_dataframe()'s live,
+# method-aware definitions_by_field) are now the only source, since a
+# dynamic "ps_<definition_id>" field key has no entry in either static.
+field_labels = dict(zip(ranked["field"], ranked["label"]))
+field_data_types = dict(zip(ranked["field"], ranked["data_type"]))
 setting_field = st.selectbox(
     "Process setting",
     ranked["field"].tolist(),
-    format_func=lambda f: PHASE_SETTING_LABELS.get(f, f),
+    format_func=lambda f: field_labels.get(f, f),
 )
 
-merged = merged_run_property_dataframe(
+merged, _field_defs = merged_run_property_dataframe(
     session, unit["grade_ids"], property_name, normalize_pct_of_target=pooling_grades,
     production_method_id=selected_method_id,
 )
@@ -223,7 +229,7 @@ merged["deviation_pct"] = ((merged["actual_value"] - merged["target_value"]) / m
 merged.loc[merged["target_value"].isna() | (merged["target_value"] == 0), "deviation_pct"] = float("nan")
 
 merged["range"] = None
-if setting_field in BOOLEAN_SETTING_FIELDS:
+if field_data_types.get(setting_field) == "Boolean":
     # Group comparison, not a quantile split - see the matching comment in
     # analytics.rank_setting_optimization for why pd.qcut is the wrong tool
     # for a strictly 0/1 field (fails outright on skewed Yes/No splits).
@@ -238,7 +244,7 @@ else:
 
 if merged["range"].isna().all() or merged["range"].nunique(dropna=True) < 2:
     st.info(
-        f"Not enough variation in {PHASE_SETTING_LABELS.get(setting_field, setting_field)} across these "
+        f"Not enough variation in {field_labels.get(setting_field, setting_field)} across these "
         "runs yet to split into ranges — showing the raw data instead."
     )
     fallback_columns = ["run_id", "run_date", setting_field, "actual_value", "target_value"]
@@ -252,7 +258,7 @@ else:
     summary = (
         merged.groupby("range", observed=True)
         .agg(
-            setting_range=(setting_field, lambda s: format_setting_range(setting_field, s)),
+            setting_range=(setting_field, lambda s: format_setting_range(field_data_types.get(setting_field) == "Boolean", s)),
             avg_actual=("actual_value", "mean"),
             avg_target=("target_value", "mean"),
             avg_abs_deviation_pct=("deviation_pct", "mean"),
@@ -271,7 +277,7 @@ else:
         best = with_deviation.sort_values("avg_abs_deviation_pct").iloc[0]
         st.caption(
             f"Closest to target historically: **{best['range']}** range "
-            f"({PHASE_SETTING_LABELS.get(setting_field, setting_field)} {best['setting_range']}), "
+            f"({field_labels.get(setting_field, setting_field)} {best['setting_range']}), "
             f"averaging {best['avg_abs_deviation_pct']:.1f}% deviation from target across "
             f"{int(best['runs'])} run(s). Review applicability against current raw materials and "
             "process conditions before adjusting settings."
@@ -280,11 +286,11 @@ else:
     render_scatter_chart_no_zero(
         merged.rename(
             columns={
-                setting_field: PHASE_SETTING_LABELS.get(setting_field, setting_field),
+                setting_field: field_labels.get(setting_field, setting_field),
                 "actual_value": property_axis_label,
             }
         ),
-        x=PHASE_SETTING_LABELS.get(setting_field, setting_field),
+        x=field_labels.get(setting_field, setting_field),
         y=property_axis_label,
     )
 

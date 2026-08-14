@@ -162,6 +162,32 @@ def rich_fixture():
     ))
     session.flush()
 
+    # WP7 Phase 4 Process-Property Correlation (#978) / Process Parameter
+    # Optimization (#979) cutover (2026-08-14): pages 17/19 now source
+    # process-setting facts exclusively through analytics.
+    # production_run_parameter_dataframe() (the dynamic ProcessSettingDefinition/
+    # ProcessParameterValue catalogue), not the legacy ProductionPhase columns
+    # seeded below (kept for other, still-legacy-reading fixtures/tests in
+    # this same file, e.g. the trend/root-cause pages' own settings paths).
+    # Without a matching dynamic-catalogue definition + Actual values, pages
+    # 17/19's ranked correlation table comes back empty and both pages
+    # st.stop() before reaching their Word-download button - so one Process
+    # Setting definition (mirroring the legacy mixer_rpm values below) is
+    # seeded here, scoped to this fixture's Production Method via
+    # ProcessSettingApplicability, per the seeding pattern established in
+    # tests/test_wp7_phase4_root_cause_cutover.py's _seed_definition/_add_actual
+    # helpers.
+    mixer_rpm_def = db.ProcessSettingDefinition(
+        controlled_id=f"PS-CR12-{u}", name=f"CR12 Mixer RPM {u}",
+        data_type="Float", parameter_category="Process Setting",
+    )
+    session.add(mixer_rpm_def); session.flush()
+    session.add(db.ProcessSettingApplicability(
+        setting_definition_id=mixer_rpm_def.id, production_method_id=method.id, machine_id=None,
+        controllable=True, analytics_eligible=True,
+    ))
+    session.flush()
+
     runs = []
     base_date = dt.date(2026, 6, 1)
     for i in range(10):
@@ -171,10 +197,15 @@ def rich_fixture():
             production_method_id=method.id,
         )
         session.add(run); session.flush()
+        mixer_rpm_value = 1000 + i * 10 + random.uniform(-5, 5)
         session.add(db.ProductionPhase(
             production_run_id=run.id, phase_name="Finalized",
-            mixer_rpm=1000 + i * 10 + random.uniform(-5, 5),
+            mixer_rpm=mixer_rpm_value,
             conveyor_speed=5.0 + i * 0.1, air_pressure_bar=2.0 + i * 0.05,
+        ))
+        session.add(db.ProcessParameterValue(
+            setting_definition_id=mixer_rpm_def.id, production_run_id=run.id,
+            snapshot_type="Actual", numeric_value=mixer_rpm_value, source="Test seed",
         ))
         session.add(db.PhysicalPropertyResult(
             production_run_id=run.id, property_name="Density", target_value=35.0,

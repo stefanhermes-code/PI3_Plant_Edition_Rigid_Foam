@@ -722,14 +722,19 @@ def production_output_totals(session, run_ids):
     return {"totals_by_unit": totals_by_unit, "runs_without_summary": runs_without_summary}
 
 
-def format_setting_range(field, series):
+def format_setting_range(is_boolean, series):
     """Human-readable label for one qcut bucket's range of a given setting
-    field - "Yes"/"No" for boolean fields (see BOOLEAN_SETTING_FIELDS),
-    "{min}-{max}" for every continuous field. Shared by
-    rank_setting_optimization below and the Machine Settings Optimization
-    page's own drill-down bucketing, so the two never disagree on how a
-    bucket is labeled."""
-    if field in BOOLEAN_SETTING_FIELDS:
+    field - "Yes"/"No" when is_boolean is True, "{min}-{max}" otherwise.
+    Shared by rank_setting_optimization below and the Process Parameter
+    Optimization page's own drill-down bucketing, so the two never disagree
+    on how a bucket is labeled.
+
+    WP7 Phase 4 cutover (2026-08-14): takes an explicit is_boolean flag
+    rather than a field name checked against the static BOOLEAN_SETTING_
+    FIELDS set - callers now source data_type from the live, dynamic
+    ProcessSettingDefinition catalogue (see merged_run_property_dataframe
+    below), which can't be looked up by static field-name membership."""
+    if is_boolean:
         return "Yes" if series.max() >= 0.5 else "No"
     return f"{series.min():g}–{series.max():g}"
 
@@ -1045,19 +1050,70 @@ def merged_run_property_dataframe(
 ):
     """One row per production run for a given grade/property: process
     settings joined to that run's mean result for the chosen property.
-    Used by Machine Settings vs Physical Properties Correlation and
-    Machine Settings Optimization, which both need "one settings snapshot"
+    Used by Process Parameters vs Product Properties Correlation and
+    Process Parameter Optimization, which both need "one settings snapshot"
     per "one quality outcome". `normalize_pct_of_target=True` re-expresses
     actual_value/target_value as percent-of-target before returning (see
     normalize_to_pct_of_target) - pass this when foam_grade_id is a foam
     family's list of grade ids, since those grades can have different
-    target values for the same property."""
-    settings_df = run_settings_dataframe(session, foam_grade_id=foam_grade_id, production_method_id=production_method_id)
+    target values for the same property.
+
+    WP7 Phase 4 cutover (2026-08-14, per Charlie's Downstream Reader
+    Cutover Execution Instruction): the settings side is now sourced from
+    analytics.production_run_parameter_dataframe() - the shared reader -
+    instead of run_settings_dataframe()'s PHASE_SETTING_FIELDS columns
+    (backed by ProductionPhase), which retain zero active-reader authority
+    under Phase 4. run_settings_dataframe() is still used here, unchanged,
+    for identity columns only (run_id, run_date, foam_grade, recipe_
+    version, machine, production_method) - never a legacy-reader concern,
+    since those come from ProductionRun itself. Scoped to parameter_
+    category == "Process Setting" and data_type in (Float, Integer,
+    Boolean) only - a String setting has no numeric meaning for a
+    correlation or a Low/Medium/High quantile split, and Environment/
+    Outcome definitions are excluded the same way pages/4's own Method-
+    Aware Process Settings tab excludes them (WP7 Phase 3 correction).
+
+    Returns a tuple (merged, definitions_by_field): merged is the joined
+    DataFrame (columns: identity columns, one dynamic_process_setting_
+    field_key() column per eligible definition, actual_value, target_value);
+    definitions_by_field is the {field_key: {"label", "data_type", ...}}
+    dict production_run_parameter_dataframe() returns, already filtered to
+    the eligible subset above - callers building a field-key -> label/
+    data_type lookup (e.g. a selectbox's format_func, or a Boolean-branch
+    check) should read it from here rather than the retired PHASE_SETTING_
+    LABELS/BOOLEAN_SETTING_FIELDS statics, which have no entry for a
+    dynamic "ps_<definition_id>" key."""
+    identity_df = run_settings_dataframe(session, foam_grade_id=foam_grade_id, production_method_id=production_method_id)
     results_df = property_results_dataframe(
         session, foam_grade_id=foam_grade_id, property_name=property_name, production_method_id=production_method_id
     )
-    if settings_df.empty or results_df.empty:
-        return pd.DataFrame()
+    if identity_df.empty or results_df.empty:
+        return pd.DataFrame(), {}
+
+    run_ids = identity_df["run_id"].tolist()
+    values_by_run, all_definitions_by_field = production_run_parameter_dataframe(session, run_ids)
+    definitions_by_field = {
+        field_key: meta for field_key, meta in all_definitions_by_field.items()
+        if meta["parameter_category"] == "Process Setting" and meta["data_type"] in ("Float", "Integer", "Boolean")
+    }
+
+    settings_rows = []
+    for _, id_row in identity_df.iterrows():
+        row = id_row.to_dict()
+        run_values = values_by_run.get(row["run_id"], {})
+        for field_key, meta in definitions_by_field.items():
+            raw = run_values.get(field_key)
+            if meta["data_type"] == "Boolean":
+                # Coerced to 0.0/1.0/NaN, matching every downstream
+                # consumer's expectation (.corr(), pd.qcut's numeric
+                # fields, the deviation_pct math) - the exact same
+                # None-safe coercion run_settings_dataframe used to apply
+                # to its own BOOLEAN_SETTING_FIELDS columns.
+                row[field_key] = (1.0 if raw else 0.0) if raw is not None else None
+            else:
+                row[field_key] = raw
+        settings_rows.append(row)
+    settings_df = pd.DataFrame(settings_rows)
 
     per_run_result = (
         results_df.groupby("run_id")
@@ -1067,7 +1123,7 @@ def merged_run_property_dataframe(
     merged = settings_df.merge(per_run_result, on="run_id", how="inner")
     if normalize_pct_of_target:
         merged = normalize_to_pct_of_target(merged)
-    return merged
+    return merged, definitions_by_field
 
 
 def rank_setting_correlations(
@@ -1078,24 +1134,41 @@ def rank_setting_correlations(
     |correlation| descending. This is the difference between "intelligence"
     and "a graph you have to already know where to point": instead of
     picking one setting and hoping it's the relevant one, the reviewer sees
-    immediately which of the 7 settings actually moves this property, and
-    by how much, before drilling into any single scatter plot.
+    immediately which of the live catalogue's settings actually moves this
+    property, and by how much, before drilling into any single scatter
+    plot.
 
     `normalize_pct_of_target` - see merged_run_property_dataframe - pass
-    True when pooling a foam family's grades together."""
-    merged = merged_run_property_dataframe(
+    True when pooling a foam family's grades together.
+
+    WP7 Phase 4 cutover (2026-08-14): iterates merged_run_property_
+    dataframe()'s definitions_by_field (the live, method-aware catalogue)
+    instead of the retired eligible_phase_setting_fields()/PHASE_SETTING_
+    LABELS statics. A definition with zero recorded values across every
+    requested run still gets a "no data yet" row (correlation=None) here,
+    matching the old static list's behavior of always showing every
+    tracked setting - the difference is this list is now the live
+    catalogue's own eligible settings, not a fixed 5-field list. Returns
+    the same columns as before (field/label/n/correlation) plus a new
+    data_type column, so callers needing a Boolean-vs-numeric branch (e.g.
+    format_setting_range) don't have to re-derive it from a separate
+    lookup."""
+    merged, definitions_by_field = merged_run_property_dataframe(
         session, foam_grade_id, property_name,
         normalize_pct_of_target=normalize_pct_of_target, production_method_id=production_method_id,
     )
     rows = []
-    for field in eligible_phase_setting_fields(session, foam_grade_id):
+    for field, meta in definitions_by_field.items():
         if merged.empty:
             sub = merged
         else:
             sub = merged.dropna(subset=[field, "actual_value"])
         n = len(sub)
         corr = round(sub[field].corr(sub["actual_value"]), 3) if n >= 3 else None
-        rows.append({"field": field, "label": PHASE_SETTING_LABELS.get(field, field), "n": n, "correlation": corr})
+        rows.append({
+            "field": field, "label": meta["label"], "data_type": meta["data_type"],
+            "n": n, "correlation": corr,
+        })
     ranked = pd.DataFrame(rows)
     # Every field is appended above regardless of whether a correlation could
     # be computed (unlike rank_component_actual_correlations etc., which
@@ -1105,6 +1178,9 @@ def rank_setting_correlations(
     # rather than treating it as NaN. pd.to_numeric coerces None/object-None
     # to a proper float NaN first, which .abs() (and na_position="last"
     # below) handle correctly regardless of how many rows have no value yet.
+    if ranked.empty:
+        ranked = pd.DataFrame(columns=["field", "label", "data_type", "n", "correlation"])
+        return ranked
     ranked["_abs"] = pd.to_numeric(ranked["correlation"], errors="coerce").abs()
     ranked = ranked.sort_values("_abs", ascending=False, na_position="last").drop(columns=["_abs"]).reset_index(drop=True)
     return ranked
@@ -1118,8 +1194,8 @@ def rank_setting_optimization(
     worst-performing range's average absolute deviation from target. A
     bigger gap means that setting more clearly separates good outcomes from
     bad ones for this grade/property - ranked so the most actionable
-    setting surfaces first, instead of the reviewer checking each of the 7
-    settings one at a time to find out which one matters.
+    setting surfaces first, instead of the reviewer checking each of the
+    live catalogue's settings one at a time to find out which one matters.
 
     `normalize_pct_of_target` - see merged_run_property_dataframe. Note this
     function's own deviation_pct math below is already scale-invariant
@@ -1128,16 +1204,26 @@ def rank_setting_optimization(
     passing True here only matters for keeping this function's INPUT
     consistent with rank_setting_correlations' when both are shown
     side-by-side for the same foam-family selection - it does not change
-    this function's own ranking numbers."""
-    merged = merged_run_property_dataframe(
+    this function's own ranking numbers.
+
+    WP7 Phase 4 cutover (2026-08-14): iterates merged_run_property_
+    dataframe()'s definitions_by_field instead of the retired eligible_
+    phase_setting_fields()/PHASE_SETTING_LABELS statics, and branches on
+    meta["data_type"] == "Boolean" instead of a field in BOOLEAN_SETTING_
+    FIELDS membership check - BOOLEAN_SETTING_FIELDS is a static field-name
+    set that has no entry for a dynamic "ps_<definition_id>" key. Returns
+    the same columns as before plus a new data_type column (see
+    rank_setting_correlations)."""
+    merged, definitions_by_field = merged_run_property_dataframe(
         session, foam_grade_id, property_name,
         normalize_pct_of_target=normalize_pct_of_target, production_method_id=production_method_id,
     )
     rows = []
-    for field in eligible_phase_setting_fields(session, foam_grade_id):
-        label = PHASE_SETTING_LABELS.get(field, field)
+    for field, meta in definitions_by_field.items():
+        label = meta["label"]
+        is_boolean = meta["data_type"] == "Boolean"
         empty_row = {
-            "field": field, "label": label, "n": 0,
+            "field": field, "label": label, "data_type": meta["data_type"], "n": 0,
             "best_range": None, "best_range_setting": None,
             "best_range_avg_dev_pct": None, "spread_pct": None,
         }
@@ -1154,7 +1240,7 @@ def rank_setting_optimization(
         sub.loc[sub["target_value"].isna() | (sub["target_value"] == 0), "deviation_pct"] = float("nan")
 
         range_col = None
-        if field in BOOLEAN_SETTING_FIELDS:
+        if is_boolean:
             # A strictly 0/1 field is a group comparison, not a quantile
             # split - pd.qcut is the wrong tool here regardless, and
             # actively fails (raises ValueError under duplicates="drop")
@@ -1178,7 +1264,7 @@ def rank_setting_optimization(
         sub["range"] = range_col
         summary = (
             sub.groupby("range", observed=True)
-            .agg(avg_dev=("deviation_pct", "mean"), setting_range=(field, lambda s: format_setting_range(field, s)))
+            .agg(avg_dev=("deviation_pct", "mean"), setting_range=(field, lambda s: format_setting_range(is_boolean, s)))
             .dropna(subset=["avg_dev"])
         )
         if summary.empty:
@@ -1192,6 +1278,7 @@ def rank_setting_optimization(
             {
                 "field": field,
                 "label": label,
+                "data_type": meta["data_type"],
                 "n": len(sub),
                 "best_range": summary.index[0],
                 "best_range_setting": best["setting_range"],
@@ -1200,6 +1287,11 @@ def rank_setting_optimization(
             }
         )
     ranked = pd.DataFrame(rows)
+    if ranked.empty:
+        return pd.DataFrame(columns=[
+            "field", "label", "data_type", "n",
+            "best_range", "best_range_setting", "best_range_avg_dev_pct", "spread_pct",
+        ])
     ranked = ranked.sort_values("spread_pct", ascending=False, na_position="last").reset_index(drop=True)
     return ranked
 

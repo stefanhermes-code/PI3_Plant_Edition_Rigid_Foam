@@ -5707,4 +5707,85 @@ dependency scan, the remaining Charlie 11-gate test coverage, and the
 Phase 4 closeout package - proceeding incrementally.
 """
 
-APP_VERSION = "0.51.0"
+VERSION_0_52_0_NOTES = """
+WP7 Phase 4: cut over Process-Property Correlation (#978) and Process
+Parameter Optimization (#979) to the shared reader (2026-08-14), per
+Charlie's Downstream Reader Cutover Execution Instruction. Trend Analysis
+(#977) was reviewed and confirmed already out of scope in v0.51.0 - it has
+no process-parameter read path at all (pure PhysicalPropertyResult-based
+SPC), so no code changed there this batch.
+
+analytics.py: merged_run_property_dataframe(), rank_setting_correlations(),
+and rank_setting_optimization() rewritten to source process-setting facts
+exclusively through analytics.production_run_parameter_dataframe(), never
+through ProductionPhase or the retired PHASE_SETTING_FIELDS/
+PHASE_SETTING_LABELS/BOOLEAN_SETTING_FIELDS/eligible_phase_setting_fields()
+combination, which retain zero active-reader authority under Phase 4.
+merged_run_property_dataframe() now returns a
+(merged_dataframe, definitions_by_field) tuple instead of a bare
+DataFrame - definitions_by_field is the live, method-aware
+{field_key: {"label", "data_type", "parameter_category", ...}} map sourced
+from the shared reader, filtered to parameter_category == "Process
+Setting" and data_type in (Float, Integer, Boolean) (String excluded - no
+numeric meaning for correlation/optimization). rank_setting_correlations()
+and rank_setting_optimization() both unpack that tuple and iterate
+definitions_by_field for their field/label/data_type columns instead of
+the old static dicts, so a dynamic "ps_<definition_id>" field key (which
+has no entry in any static dict) now resolves correctly everywhere. Both
+ranking functions gained an explicit empty-columns-DataFrame return path
+for the no-data case (previously implicit). format_setting_range()'s
+signature changed from (field, series) to (is_boolean, series) - the
+Boolean/non-Boolean branch is now decided by the caller from the live
+data_type map, not a static field-name set membership test.
+
+pages/17_Process_Property_Correlation.py and pages/19_Machine_Settings_
+Optimization.py: removed the PHASE_SETTING_LABELS / BOOLEAN_SETTING_
+FIELDS imports; both pages now build a field_labels (and, on page 19,
+field_data_types) dict from the ranked DataFrame's own "field"/"label"/
+"data_type" columns immediately after computing `ranked`, and use that for
+every selectbox format_func, chart axis label, and Boolean-branch check
+that previously read the static dicts. Both pages' merged_run_property_
+dataframe() call sites updated for the new tuple return. reports.py needed
+no changes - build_correlation_report_data() and build_machine_settings_
+report_data() already consumed only label/n/correlation/best_range/*
+columns from the ranked DataFrame passed in, never "field" or the two
+retired static dicts.
+
+Fixture gap found and fixed: tests/test_cr12_reporting_parity.py's shared
+rich_fixture (used by every CR-12 reporting-parity test in that file) only
+ever seeded process settings through the legacy ProductionPhase columns
+(mixer_rpm/conveyor_speed/air_pressure_bar), never through the dynamic
+ProcessSettingDefinition/ProcessParameterValue catalogue the shared reader
+now exclusively reads - so after this cutover, pages 17/19's ranked
+correlation table came back empty against that fixture and both pages
+st.stop()'d before reaching their Word-download button, failing
+test_process_property_correlation_report_generates and
+test_machine_settings_optimization_report_generates. Fixed by seeding one
+Process Setting ProcessSettingDefinition (mirroring the existing mixer_rpm
+values, scoped to the fixture's Production Method via
+ProcessSettingApplicability) alongside the existing ProductionPhase row for
+each of the fixture's 10 runs, per the seeding pattern already established
+in tests/test_wp7_phase4_root_cause_cutover.py's _seed_definition/
+_add_actual helpers. The legacy ProductionPhase seeding was left in place
+unchanged (other, still-legacy-reading fixtures/tests in the same file
+depend on it).
+
+Tests: re-ran the full 6-file targeted subset (test_cr18_product_family_
+terminology.py, test_cr12_reporting_parity.py, test_wp7_phase4_shared_
+reader.py, test_flat_pm_propagation_smoke.py, test_cr12_report_scope_
+isolation.py, test_wp7_phase4_root_cause_cutover.py) - 91 passed, 0
+failed. tests/test_cr18_product_family_terminology.py's ALLOWED_FOAM_
+FAMILY_HITS allowlist updated for the line-number shift this batch's
+analytics.py/pages 17/19 edits caused (mechanical maintenance step, no
+behavior change - see that test file's own comments for the running
+history of this shift).
+
+Full regression: 536 passed, 0 skipped, 0 failed (full suite, run via
+pytest-xdist).
+
+Not yet done: shared CSV/Excel export cutover, a static dependency scan,
+the remaining Charlie 11-gate test coverage, and the Phase 4 closeout
+package - proceeding incrementally.
+"""
+
+APP_VERSION = "0.52.0"

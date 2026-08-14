@@ -17,7 +17,6 @@ import streamlit as st
 import ai_assistant
 from access_control import can_use_page
 from analytics import (
-    PHASE_SETTING_LABELS,
     merged_run_property_dataframe,
     production_methods_used,
     property_results_dataframe,
@@ -200,13 +199,20 @@ st.download_button(
 
 st.divider()
 st.subheader("Detailed correlation graph")
+# WP7 Phase 4 cutover (2026-08-14): the "field" -> "label" lookup used to
+# come from the static PHASE_SETTING_LABELS dict; ranked's own "field"/
+# "label" columns (sourced from analytics.merged_run_property_dataframe()'s
+# live, method-aware definitions_by_field - see that function's docstring)
+# are now the only source, since a dynamic "ps_<definition_id>" field key
+# has no entry in any static dict.
+field_labels = dict(zip(ranked["field"], ranked["label"]))
 setting_field = st.selectbox(
     "Process setting",
     ranked["field"].tolist(),
-    format_func=lambda f: PHASE_SETTING_LABELS.get(f, f),
+    format_func=lambda f: field_labels.get(f, f),
 )
 
-merged = merged_run_property_dataframe(
+merged, _field_defs = merged_run_property_dataframe(
     session, unit["grade_ids"], property_name, normalize_pct_of_target=pooling_grades,
     production_method_id=selected_method_id,
 )
@@ -220,10 +226,10 @@ if len(merged) < 2:
     )
 else:
     chart_df = merged[[setting_field, "actual_value"]].rename(
-        columns={setting_field: PHASE_SETTING_LABELS.get(setting_field, setting_field), "actual_value": property_axis_label}
+        columns={setting_field: field_labels.get(setting_field, setting_field), "actual_value": property_axis_label}
     )
     render_scatter_chart_no_zero(
-        chart_df, x=PHASE_SETTING_LABELS.get(setting_field, setting_field), y=property_axis_label
+        chart_df, x=field_labels.get(setting_field, setting_field), y=property_axis_label
     )
     drill_columns = ["run_id", "run_date", "machine", setting_field, "actual_value", "target_value"]
     if pooling_grades:

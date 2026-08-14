@@ -134,17 +134,25 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # lines of new docstring/code. Shifted a sixth time (same date) by the
     # WP7 Phase 4 Overview/output KPI cutover: analytics.py gained the
     # ProductionOutputSummary/UnitOfMeasure imports plus
-    # production_run_output_summary()/production_output_totals(). The set
-    # below is the verified, current, exact hit list, not an arithmetic
-    # shift guess.
+    # production_run_output_summary()/production_output_totals(). Shifted a
+    # seventh time (same date) by the WP7 Phase 4 Process-Property
+    # Correlation (#978) / Process Parameter Optimization (#979) cutover:
+    # merged_run_property_dataframe()/rank_setting_correlations()/
+    # rank_setting_optimization() rewritten onto production_run_parameter_
+    # dataframe() (new docstring paragraphs + tuple-return/data_type
+    # branching logic), and pages 17/19 updated to consume the returned
+    # field_labels/data_type maps instead of PHASE_SETTING_LABELS/
+    # BOOLEAN_SETTING_FIELDS - same unchanged comment/docstring text
+    # elsewhere, new line positions. The set below is the verified,
+    # current, exact hit list, not an arithmetic shift guess.
     ("analytics.py", 15), ("analytics.py", 173), ("analytics.py", 307),
-    ("analytics.py", 321), ("analytics.py", 742), ("analytics.py", 1010),
-    ("analytics.py", 1085), ("analytics.py", 1571), ("analytics.py", 1736),
+    ("analytics.py", 321), ("analytics.py", 747), ("analytics.py", 1015),
+    ("analytics.py", 1142), ("analytics.py", 1663), ("analytics.py", 1828),
     ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 184), ("pages/16_Trend_Analysis.py", 319),
-    ("pages/17_Process_Property_Correlation.py", 110),
-    ("pages/19_Machine_Settings_Optimization.py", 107),
+    ("pages/17_Process_Property_Correlation.py", 109),
+    ("pages/19_Machine_Settings_Optimization.py", 105),
     ("pages/20_Expert_Notes.py", 6), ("pages/20_Expert_Notes.py", 38),
     ("pages/20_Expert_Notes.py", 146),
     ("pages/5_Physical_Property_Result.py", 632),
