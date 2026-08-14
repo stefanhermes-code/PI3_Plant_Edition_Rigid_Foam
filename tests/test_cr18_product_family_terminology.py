@@ -156,12 +156,25 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # gained a 12-line docstring paragraph plus 4 additive dict keys
     # (min_value/max_value/min_value_override/max_value_override) - net
     # +18 lines, pushing every later hit down by 18.
+    # Shifted a tenth time (2026-08-14), by WP7 Phase 4 targeted-completion
+    # Item 3 (Trend Analysis method-aware parameter path):
+    # process_parameter_definitions_for_trend()/process_parameter_run_
+    # series() were added to analytics.py between production_run_parameter_
+    # dataframe() and production_run_output_summary() - the former's own
+    # docstring legitimately uses the same established "(a pooled foam
+    # family) - see _grade_id_list" phrasing as every other foam_grade_id
+    # docstring in this file (new hit, analytics.py:652), and every later
+    # pre-existing hit shifted down by the ~130 new lines. pages/
+    # 16_Trend_Analysis.py also gained ~110 lines (the new "What to trend"
+    # radio branch and its setup-section restructuring), shifting its own
+    # two pre-existing hits down in turn.
     ("analytics.py", 15), ("analytics.py", 173), ("analytics.py", 307),
-    ("analytics.py", 321), ("analytics.py", 765), ("analytics.py", 1033),
-    ("analytics.py", 1171), ("analytics.py", 1692), ("analytics.py", 1857),
+    ("analytics.py", 321), ("analytics.py", 652), ("analytics.py", 904),
+    ("analytics.py", 1172), ("analytics.py", 1310), ("analytics.py", 1831),
+    ("analytics.py", 1996),
     ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
-    ("pages/16_Trend_Analysis.py", 184), ("pages/16_Trend_Analysis.py", 319),
+    ("pages/16_Trend_Analysis.py", 228), ("pages/16_Trend_Analysis.py", 411),
     ("pages/17_Process_Property_Correlation.py", 109),
     ("pages/19_Machine_Settings_Optimization.py", 105),
     ("pages/20_Expert_Notes.py", 6), ("pages/20_Expert_Notes.py", 38),

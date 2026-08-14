@@ -633,6 +633,145 @@ def production_run_parameter_dataframe(session, run_ids):
     return values_by_run, definitions_by_field
 
 
+def process_parameter_definitions_for_trend(session, foam_grade_id, production_method_id=None):
+    """WP7 Phase 4 targeted completion, Item 3 (2026-08-14, per Charlie's
+    WP7 Phase 4 Closeout Review Return to JC, Material Completion Item 3 -
+    "the governing Phase 4 instruction explicitly includes Trend Analysis
+    ... this acceptance path therefore cannot be skipped"). The picker
+    list behind Trend Analysis's new "Process parameter" trend subject:
+    every ProcessSettingDefinition eligible for at least one of this
+    grade's/family's production runs (via the shared reader,
+    production_run_parameter_dataframe - never ProductionPhase), with no
+    category restriction - Process Setting, Environment, and Outcome are
+    all offered, per Charlie's instruction 3.2 ("Trend may expose Process
+    Setting, Environment and Outcome categories as recorded facts").
+    Restricted to a numeric data_type (Float/Integer) because the SPC
+    toolkit (control chart/capability/CUSUM/trend test) this page reuses
+    unchanged needs a numeric series - a Boolean or Text definition has no
+    meaningful control limit or slope. `foam_grade_id` accepts a single id
+    or a list (a pooled foam family) - see _grade_id_list.
+
+    Returns a list of (field_key, meta_dict) pairs, meta_dict being the
+    same dict shape production_run_parameter_dataframe's definitions_by_field
+    already returns (definition_id, label, parameter_category, data_type,
+    controllable, analytics_eligible, unit_symbol), sorted by label."""
+    grade_ids = _grade_id_list(foam_grade_id)
+    q = session.query(ProductionRun.id)
+    if grade_ids:
+        q = q.filter(ProductionRun.foam_grade_id.in_(grade_ids))
+    if production_method_id:
+        q = q.filter(ProductionRun.production_method_id == production_method_id)
+    run_ids = [row[0] for row in q.all()]
+    if not run_ids:
+        return []
+    _values_by_run, definitions_by_field = production_run_parameter_dataframe(session, run_ids)
+    items = [
+        (field_key, meta) for field_key, meta in definitions_by_field.items()
+        if meta["data_type"] in ("Float", "Integer")
+    ]
+    items.sort(key=lambda pair: pair[1]["label"])
+    return items
+
+
+def process_parameter_run_series(session, foam_grade_id, setting_definition_id, production_method_id=None):
+    """WP7 Phase 4 targeted completion, Item 3 (2026-08-14). One row per
+    production run for a single method-aware ProcessSettingDefinition,
+    sourced exclusively through the shared reader
+    (production_run_parameter_dataframe, itself built on
+    production_run_process_parameters) - never ProductionPhase or the
+    legacy PHASE_SETTING_FIELDS/PHASE_SETTING_LABELS lists, which retain
+    zero active-reader authority under the Phase 4 architecture. A run
+    whose ProductionPhase happens to carry a same-named legacy field (e.g.
+    ambient_temperature_c) with a conflicting value never enters this
+    series - only a real ProcessParameterValue Actual snapshot for this
+    exact setting_definition_id does (see
+    tests/test_wp7_phase4_trend_cutover.py's source-isolation test, which
+    seeds a deliberately conflicting ProductionPhase value to prove this).
+
+    Mirrors property_run_series's output shape/contract exactly (run_id,
+    tested_at, actual_value, target_value, recipe_version, machine,
+    foam_grade, source, n_replicates columns) so it plugs into the
+    existing SPC functions (control_chart_analysis, capability_analysis,
+    cusum_analysis, trend_test) - and the existing
+    reports.build_trend_analysis_report_data() - completely unchanged.
+    This is a second, fully separate series builder; property_run_series
+    itself is not touched, so "existing physical-property SPC
+    functionality remains intact" per Charlie's instruction.
+
+    A run with no recorded Actual for this definition is dropped from the
+    series - NULL preserved as unrecorded, per Charlie's instruction 3.2.
+    A run with a recorded Actual of exactly 0 is kept - dropna() only
+    removes None/NaN, never a real recorded zero, exactly as
+    property_run_series already behaves for a quality property.
+    target_value is this run's own Planned snapshot for the same
+    definition (when recorded) - the process-parameter analogue of a
+    property's target_value, letting capability_analysis's +/-10%
+    fallback and cusum_analysis's reference-point logic work unchanged.
+    unit_symbol (canonical UOM) always comes from the definition itself,
+    the same single source of truth eligible_process_settings/
+    production_run_process_parameters already resolve it from - never
+    re-derived or caller-supplied here.
+
+    Returns an empty DataFrame if this definition isn't eligible for any
+    of this grade's/family's runs, isn't numeric (Float/Integer), or has
+    no recorded Actual anywhere yet."""
+    grade_ids = _grade_id_list(foam_grade_id)
+    q = session.query(ProductionRun).options(
+        joinedload(ProductionRun.recipe_version),
+        joinedload(ProductionRun.machine),
+        joinedload(ProductionRun.foam_grade),
+    )
+    if grade_ids:
+        q = q.filter(ProductionRun.foam_grade_id.in_(grade_ids))
+    if production_method_id:
+        q = q.filter(ProductionRun.production_method_id == production_method_id)
+    runs = q.order_by(ProductionRun.run_date).all()
+    if not runs:
+        return pd.DataFrame()
+
+    run_ids = [run.id for run in runs]
+    runs_by_id = {run.id: run for run in runs}
+    field_key = dynamic_process_setting_field_key(setting_definition_id)
+
+    values_by_run, definitions_by_field = production_run_parameter_dataframe(session, run_ids)
+    definition_meta = definitions_by_field.get(field_key)
+    if definition_meta is None or definition_meta["data_type"] not in ("Float", "Integer"):
+        return pd.DataFrame()
+
+    planned_by_run = {
+        row.production_run_id: row.numeric_value
+        for row in session.query(ProcessParameterValue).filter(
+            ProcessParameterValue.production_run_id.in_(run_ids),
+            ProcessParameterValue.setting_definition_id == setting_definition_id,
+            ProcessParameterValue.snapshot_type == "Planned",
+        ).all()
+    }
+
+    rows = []
+    for run_id in run_ids:
+        actual = values_by_run.get(run_id, {}).get(field_key)
+        if actual is None:
+            continue
+        run = runs_by_id[run_id]
+        planned = planned_by_run.get(run_id)
+        rows.append({
+            "run_id": run_id,
+            "tested_at": run.run_date,
+            "actual_value": float(actual),
+            "target_value": float(planned) if planned is not None else None,
+            "recipe_version": run.recipe_version.version_label if run.recipe_version else None,
+            "machine": run.machine.name if run.machine else None,
+            "foam_grade": run.foam_grade.grade_name if run.foam_grade else None,
+            "source": "Production Run",
+            "n_replicates": 1,
+        })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    return df.dropna(subset=["tested_at", "actual_value"]).sort_values("tested_at").reset_index(drop=True)
+
+
 def production_run_output_summary(session, production_run):
     """WP7 Phase 4 shared reader (2026-08-14), output domain. THE canonical
     single-run output fact, per Charlie's Downstream Reader Cutover

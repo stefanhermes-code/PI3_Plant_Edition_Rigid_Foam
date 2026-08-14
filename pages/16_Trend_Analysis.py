@@ -27,13 +27,15 @@ from analytics import (
     capability_analysis,
     control_chart_analysis,
     cusum_analysis,
+    process_parameter_definitions_for_trend,
+    process_parameter_run_series,
     production_methods_used,
     property_results_dataframe,
     property_run_series,
     trend_test,
 )
 from auth import current_user, logout_button, require_login
-from db import FoamGrade, GradeSpecification, QualityObservation, get_session, init_db
+from db import FoamGrade, GradeSpecification, ProductionRun, QualityObservation, get_session, init_db
 import reports
 from tenant_scope import apply_scope, company_picker, grade_ids_for_company
 from helpers import (
@@ -64,15 +66,19 @@ render_function_action_intro(
         "tolerance band (catches 'in control but too close to spec'), a CUSUM chart (catches a "
         "slow drift a control chart is bad at catching early - pump wear, catalyst degradation, an "
         "off-spec raw-material lot), and a formal trend test (replaces an eyeballed "
-        "first-half-vs-second-half comparison with an actual significance test). PI3 is used only "
+        "first-half-vs-second-half comparison with an actual significance test). The same SPC "
+        "toolkit is also available for a method-aware Process Setting, Environment, or Outcome "
+        "value (e.g. a machine setting or an ambient condition), not only a lab/physical quality "
+        "property - choose which kind to trend below. PI3 is used only "
         "after these numbers exist, to help interpret a real flag against recipe changes, "
         "production unit or cell changes, and quality-issue history - never to guess whether a "
         "trend exists in the first place."
     ),
     action_text=(
         "Choose whether to analyze one product grade or a whole product family (its grades pooled "
-        "together), pick the property you want to track (density, hardness/IFD, tensile, and so "
-        "on). Read the control chart first for sudden shifts, then capability for how much margin "
+        "together), then choose what to trend: a quality property (density, hardness/IFD, "
+        "tensile, and so on) or a method-aware Process Setting/Environment/Outcome value recorded "
+        "on the Production Run page. Read the control chart first for sudden shifts, then capability for how much margin "
         "there is to spec, then CUSUM for a slower drift the control chart might miss, and the "
         "trend test to confirm whether an apparent trend is statistically real. If something "
         "flags, use 'Ask PI3' to get it interpreted against recipe changes, production unit or "
@@ -152,31 +158,69 @@ def _line_chart_no_zero(df, value_cols):
     st.caption(CHART_ZOOM_HINT)
 
 
-# Only offer a grade here if it actually has quality test results to trend -
-# otherwise picking it just leads to a dead-end message (see Recipe
-# Optimization's identical filter).
+# Only offer a grade here if it actually has quality test results OR
+# production run data to trend - otherwise picking it just leads to a
+# dead-end message (see Recipe Optimization's identical filter). Broadened
+# 2026-08-14 (WP7 Phase 4 targeted completion, Item 3) to also admit a
+# grade whose only recorded data is method-aware process parameters (no
+# quality test results yet) - the OR keeps every grade that used to
+# qualify still qualifying, so the existing quality-property path never
+# loses a grade it used to offer.
 grades = [
     g for g in apply_scope(session.query(FoamGrade), FoamGrade.id, scoped_grade_ids).all()
     if not property_results_dataframe(session, foam_grade_id=g.id, include_trials=True).empty
+    or session.query(ProductionRun.id).filter(ProductionRun.foam_grade_id == g.id).first() is not None
 ]
 if not grades:
-    st.warning("No product grade yet has quality test results recorded - add these first before using Trend Analysis.")
+    st.warning(
+        "No product grade yet has quality test results or production run data recorded - add "
+        "these first before using Trend Analysis."
+    )
     st.stop()
 
 unit = analysis_unit_picker(grades, key_prefix="trend")
 
-include_trials = st.checkbox(
-    "Include lab trial data (Customer Trials / Optimization Trials)",
-    value=False,
-    key=f"trend_include_trials_{unit['state_key']}",
+# WP7 Phase 4 targeted completion, Item 3 (2026-08-14, per Charlie's WP7
+# Phase 4 Closeout Review Return to JC, Material Completion Item 3): "Add
+# the method-aware parameter trend path using ProcessSettingDefinition +
+# ProcessParameterValue ... Existing physical-property SPC functionality
+# remains intact." This radio is the only branch point - everything from
+# the "Sudden changes check" divider onward is one shared code path for
+# both trend subjects, driven entirely by the `series` DataFrame each
+# branch below produces in the same shape (run_id/tested_at/actual_value/
+# target_value/recipe_version/machine/foam_grade/source/n_replicates).
+trend_subject = st.radio(
+    "What to trend",
+    ["Quality property (physical/lab test result)", "Process parameter (Process Setting / Environment / Outcome)"],
+    key=f"trend_subject_{unit['state_key']}",
+    horizontal=True,
     help=(
-        "Off by default: only production-run results are shown. Turning this on pools in results "
-        "from Customer Trial and Optimization Trial lab samples for this grade/family too - useful "
-        "for spotting a pattern across everything tested, but these lab trials have no production "
-        "unit/cell or process settings behind them, so they're shown with a blank production "
-        "unit/cell and won't line up with a specific production run."
+        "Quality property trends a lab/physical test result (density, hardness, thermal "
+        "conductivity, and so on) over time - the original SPC path this page has always "
+        "offered. Process parameter trends one method-aware Process Setting, Environment, or "
+        "Outcome value - recorded through the Production Run page's Method-Aware Process "
+        "Settings tab, and read here exclusively through the same shared reader Batch Release "
+        "and Root-Cause Assistant use - over time, with the same control-chart/capability/"
+        "CUSUM/trend-test toolkit a quality property already gets."
     ),
 )
+is_parameter_mode = trend_subject.startswith("Process parameter")
+
+if is_parameter_mode:
+    include_trials = False
+else:
+    include_trials = st.checkbox(
+        "Include lab trial data (Customer Trials / Optimization Trials)",
+        value=False,
+        key=f"trend_include_trials_{unit['state_key']}",
+        help=(
+            "Off by default: only production-run results are shown. Turning this on pools in results "
+            "from Customer Trial and Optimization Trial lab samples for this grade/family too - useful "
+            "for spotting a pattern across everything tested, but these lab trials have no production "
+            "unit/cell or process settings behind them, so they're shown with a blank production "
+            "unit/cell and won't line up with a specific production run."
+        ),
+    )
 # Production Method filter (added 2026-08-10, per Charlie's flat-PM
 # technical completion instruction): only shown when this grade/family's
 # runs actually span more than one Production Method - same "nothing to
@@ -184,6 +228,10 @@ include_trials = st.checkbox(
 # the isolation dimension that matters most when pooling a foam family
 # whose grades sit under different Production Methods - without it,
 # trending "the family" would silently blend two methods' runs together.
+# For Process parameter mode this filter is also what makes the trend
+# genuinely "method-aware" per Charlie's Item 3 wording, since a
+# ProcessSettingDefinition's eligibility itself resolves through each
+# run's own Production Method/Machine (see analytics.eligible_process_settings).
 methods_used = production_methods_used(session, unit["grade_ids"])
 if len(methods_used) > 1:
     method_choice = st.selectbox(
@@ -194,58 +242,102 @@ if len(methods_used) > 1:
 else:
     selected_method_id = None
 
-results_df = property_results_dataframe(
-    session, foam_grade_id=unit["grade_ids"], include_trials=include_trials,
-    production_method_id=selected_method_id,
-)
-
-if results_df.empty:
-    # Can happen when this grade/family's only quality test results come from
-    # a Customer Trial / Optimization Trial and the toggle above is off - the
-    # grade still passed the (include_trials=True) availability filter above,
-    # so it's offered here even though its production-run-only view is empty.
-    st.info(
-        "No production-run quality test results for this selection - only lab trial results exist. "
-        "Turn on 'Include lab trial data' above to trend them."
+if is_parameter_mode:
+    param_defs = process_parameter_definitions_for_trend(
+        session, unit["grade_ids"], production_method_id=selected_method_id,
     )
-    st.stop()
+    if not param_defs:
+        st.warning(
+            "No numeric Process Setting, Environment, or Outcome values are recorded yet for "
+            "this selection - add Method-Aware Process Settings data on the Production Run "
+            "page first before using this trend path."
+        )
+        st.stop()
+    param_labels = {
+        field_key: f"{meta['label']} ({meta['parameter_category']}" + (
+            f", {meta['unit_symbol']})" if meta["unit_symbol"] else ")"
+        )
+        for field_key, meta in param_defs
+    }
+    selected_field_key = st.selectbox(
+        "Process parameter", list(param_labels.keys()), format_func=lambda k: param_labels[k],
+    )
+    selected_meta = dict(param_defs)[selected_field_key]
+    property_name = selected_meta["label"]
 
-properties = sorted(results_df["property_name"].dropna().unique())
-property_name = st.selectbox("Property", properties)
+    series = process_parameter_run_series(
+        session, unit["grade_ids"], selected_meta["definition_id"], production_method_id=selected_method_id,
+    )
+    if series.empty:
+        st.info(
+            f"No recorded Actual values yet for {param_labels[selected_field_key]} across this "
+            "selection's production runs."
+        )
+        st.stop()
 
-c1, c2 = st.columns(2)
-recipe_versions = sorted(results_df["recipe_version"].dropna().unique())
-recipe_filter = c1.selectbox("Recipe version filter", ["All"] + list(recipe_versions))
-# Only offer a production unit/cell filter when this selection's runs
-# actually span more than one - with a single one (today's actual
-# production state), "Production Unit or Cell filter: All" vs "Production
-# Unit or Cell filter: <the only one>" is the same noise problem the
-# Company selector had: nothing to choose between, identical result set
-# either way. (CR-01 follow-up, 2026-08-10: label renamed from "Machine
-# filter" per task #746 - the underlying results_df["machine"] column/
-# variable names are unchanged, per CR-01's own "label-only, backend
-# unchanged" principle.)
-machines = sorted(m for m in results_df["machine"].dropna().unique())
-if len(machines) > 1:
-    machine_filter = c2.selectbox("Production Unit or Cell filter", ["All"] + list(machines))
+    c1, c2 = st.columns(2)
+    recipe_versions = sorted(series["recipe_version"].dropna().unique())
+    recipe_filter = c1.selectbox("Recipe version filter", ["All"] + list(recipe_versions))
+    machines = sorted(m for m in series["machine"].dropna().unique())
+    if len(machines) > 1:
+        machine_filter = c2.selectbox("Production Unit or Cell filter", ["All"] + list(machines))
+    else:
+        machine_filter = "All"
+    pooling_grades = False
 else:
-    machine_filter = "All"
-
-pooling_grades = unit["mode"] == "family"
-if pooling_grades:
-    st.caption(
-        f"Pooling {len(unit['grade_ids'])} grade(s) in product family **{unit['label']}**: "
-        f"{', '.join(unit['member_grade_names'])}. Because grades in a family can have different "
-        f"target values for the same property, everything below is shown as **% of each run's own "
-        f"target** (100% = exactly on target) instead of {property_name}'s raw unit - this is what "
-        "keeps pooling grades together from reading a plain grade-to-grade target difference as a "
-        "false shift, drift, or trend."
+    results_df = property_results_dataframe(
+        session, foam_grade_id=unit["grade_ids"], include_trials=include_trials,
+        production_method_id=selected_method_id,
     )
 
-series = property_run_series(
-    session, unit["grade_ids"], property_name, normalize_pct_of_target=pooling_grades, include_trials=include_trials,
-    production_method_id=selected_method_id,
-)
+    if results_df.empty:
+        # Can happen when this grade/family's only quality test results come from
+        # a Customer Trial / Optimization Trial and the toggle above is off - the
+        # grade still passed the (include_trials=True) availability filter above,
+        # so it's offered here even though its production-run-only view is empty.
+        st.info(
+            "No production-run quality test results for this selection - only lab trial results exist. "
+            "Turn on 'Include lab trial data' above to trend them."
+        )
+        st.stop()
+
+    properties = sorted(results_df["property_name"].dropna().unique())
+    property_name = st.selectbox("Property", properties)
+
+    c1, c2 = st.columns(2)
+    recipe_versions = sorted(results_df["recipe_version"].dropna().unique())
+    recipe_filter = c1.selectbox("Recipe version filter", ["All"] + list(recipe_versions))
+    # Only offer a production unit/cell filter when this selection's runs
+    # actually span more than one - with a single one (today's actual
+    # production state), "Production Unit or Cell filter: All" vs "Production
+    # Unit or Cell filter: <the only one>" is the same noise problem the
+    # Company selector had: nothing to choose between, identical result set
+    # either way. (CR-01 follow-up, 2026-08-10: label renamed from "Machine
+    # filter" per task #746 - the underlying results_df["machine"] column/
+    # variable names are unchanged, per CR-01's own "label-only, backend
+    # unchanged" principle.)
+    machines = sorted(m for m in results_df["machine"].dropna().unique())
+    if len(machines) > 1:
+        machine_filter = c2.selectbox("Production Unit or Cell filter", ["All"] + list(machines))
+    else:
+        machine_filter = "All"
+
+    pooling_grades = unit["mode"] == "family"
+    if pooling_grades:
+        st.caption(
+            f"Pooling {len(unit['grade_ids'])} grade(s) in product family **{unit['label']}**: "
+            f"{', '.join(unit['member_grade_names'])}. Because grades in a family can have different "
+            f"target values for the same property, everything below is shown as **% of each run's own "
+            f"target** (100% = exactly on target) instead of {property_name}'s raw unit - this is what "
+            "keeps pooling grades together from reading a plain grade-to-grade target difference as a "
+            "false shift, drift, or trend."
+        )
+
+    series = property_run_series(
+        session, unit["grade_ids"], property_name, normalize_pct_of_target=pooling_grades, include_trials=include_trials,
+        production_method_id=selected_method_id,
+    )
+
 if recipe_filter != "All":
     series = series[series["recipe_version"] == recipe_filter]
 if machine_filter != "All":

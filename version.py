@@ -6018,4 +6018,82 @@ corrected closeout package) - proceeding per Charlie's targeted closure
 gate.
 """
 
-APP_VERSION = "0.55.0"
+VERSION_0_56_0_NOTES = """
+WP7 Phase 4 targeted completion, Item 3 (2026-08-14) - per Charlie's
+WP7 Phase 4 Closeout Review Return to JC. This batch closes Item 3: Trend
+Analysis acceptance path. Charlie's exact requirement: "The closeout
+package classifies Trend Analysis as out of scope because the current
+page is property-result SPC only. The governing Phase 4 instruction
+explicitly includes Trend Analysis and requires direct UI/AppTest
+evidence using seeded method-aware values. This acceptance path therefore
+cannot be skipped."
+
+3.1 New method-aware parameter trend path: added
+analytics.process_parameter_definitions_for_trend() (the picker list -
+every numeric ProcessSettingDefinition eligible for at least one of the
+selected grade's/family's runs, Process Setting/Environment/Outcome all
+offered together) and analytics.process_parameter_run_series() (one row
+per run for a single definition, sourced exclusively through the
+existing shared reader - production_run_parameter_dataframe /
+production_run_process_parameters - never ProductionPhase). Both mirror
+property_run_series's output shape exactly, so the page's existing
+control_chart_analysis/capability_analysis/cusum_analysis/trend_test
+functions, and reports.build_trend_analysis_report_data(), work
+unchanged against either trend subject - property_run_series itself is
+untouched, so "existing physical-property SPC functionality remains
+intact" per Charlie's instruction.
+
+3.2 Category-agnostic exposure, correct NULL/zero handling:
+process_parameter_definitions_for_trend() offers Process Setting,
+Environment, and Outcome definitions together (restricted only to
+numeric data_type, since the SPC toolkit needs a number - Boolean/Text
+excluded). process_parameter_run_series() drops a run with no recorded
+Actual for the picked definition (NULL stays unrecorded) while keeping a
+run with a recorded Actual of exactly 0 (a genuine zero is never
+mistaken for missing) - the same dropna()-only-removes-None/NaN
+behavior property_run_series already has. Canonical UOM (unit_symbol)
+always comes from the definition itself.
+
+3.3 pages/16_Trend_Analysis.py: added a "What to trend" radio (Quality
+property / Process parameter) right after the existing grade/family
+picker. Quality property keeps 100% of the prior code path unchanged.
+Process parameter branches into a definition picker (labelled with
+category + canonical unit) and builds `series` via
+process_parameter_run_series() - from the "Sudden changes check" divider
+onward, both branches share one identical code path (control chart,
+capability, CUSUM, trend test, "what else changed" timeline, the Trend
+Analysis Report, raw results table, PI3 interpretation, freeform Ask
+PI3), driven entirely by the `series` DataFrame's shared shape. The
+grade-eligibility gate at the top of the page was broadened (OR, not
+replacing) to also admit a grade whose only recorded data is process
+parameters, so this path isn't silently unreachable for a grade with no
+quality test results yet.
+
+New/updated tests: tests/test_wp7_phase4_trend_cutover.py - 7 new tests:
+category-agnostic/numeric-only definition picker; NULL-dropped/zero-kept
+series behavior; canonical UOM sourced from the definition; a direct
+source-isolation test seeding a deliberately conflicting legacy
+ProductionPhase.ambient_temperature_c value on the same run as a real
+Environment ProcessSettingDefinition Actual, proving only the real value
+ever reaches the series; 3 live AppTest cases (Process Setting trend
+renders with canonical UOM, an Environment-category trend also renders
+cleanly, and the original Quality property path still renders unaffected
+against the same fixture). tests/test_cr18_product_family_terminology.py's
+ALLOWED_FOAM_FAMILY_HITS allowlist updated for the resulting analytics.py/
+pages/16_Trend_Analysis.py line-number shifts (mechanical maintenance -
+one legitimate new "pooled foam family" docstring hit in the new
+process_parameter_definitions_for_trend(), matching the established
+foam_grade_id docstring convention elsewhere in the file; no other
+behavior change).
+
+Full regression: 558 passed, 0 skipped, 0 failed (pytest-xdist -n 4).
+
+Targeted closure gate remains: re-run the application-wide dependency
+scan (including direct ProductionPhase model reads, not just fixed-symbol
+searches) and build the corrected Phase 4 closeout package with new
+direct evidence and a consumer matrix reflecting the completed Trend,
+Root Cause, and Batch Release/report paths - proceeding next per
+Charlie's targeted closure gate.
+"""
+
+APP_VERSION = "0.56.0"
