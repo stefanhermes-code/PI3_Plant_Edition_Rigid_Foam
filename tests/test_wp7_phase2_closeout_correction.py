@@ -410,6 +410,135 @@ def test_edit_run_persists_new_context_fields(seeded_run):
     session.close()
 
 
+@pytest.fixture()
+def two_chain_run():
+    """Two complete, independent Plant -> Production Method -> Machine ->
+    Product Grade -> RecipeVersion chains (A and B) under the same Company,
+    plus one ProductionRun created under chain A - the minimum content
+    needed to prove the Edit Run form's Plant/Method/Unit/Grade pickers
+    reactively refresh against each other (WP7 Phase 2 Closeout Correction
+    v2, Charlie's material completion item 1) rather than only the
+    single-chain fixtures above, which can't distinguish 'the right chain
+    happened to already be selected' from 'the cascade actually recomputed
+    when Plant changed'."""
+    db.init_db()
+    _reset_schema()
+    u = uuid.uuid4().hex[:8]
+    session = db.get_session()
+
+    company = db.Company(name=f"WP7P2C2 Co {u}", is_platform_owner=True)
+    session.add(company); session.flush()
+
+    chains = {}
+    for label in ("a", "b"):
+        plant = db.Plant(company_id=company.id, name=f"WP7P2C2 Plant {label.upper()} {u}")
+        session.add(plant); session.flush()
+        method = db.ProductionMethod(controlled_id=f"PM-WP7P2C2-{label}-{u}", name=f"WP7P2C2 Method {label.upper()} {u}")
+        session.add(method); session.flush()
+        session.add(db.PlantProductionMethod(plant_id=plant.id, production_method_id=method.id, active=True))
+        session.flush()
+        machine = db.Machine(
+            plant_id=plant.id, name=f"WP7P2C2 Unit {label.upper()} {u}",
+            production_method_id=method.id, active=True,
+        )
+        session.add(machine); session.flush()
+        family = db.ProductFamily(plant_id=plant.id, name=f"WP7P2C2 Family {label.upper()} {u}")
+        session.add(family); session.flush()
+        grade = db.FoamGrade(product_family_id=family.id, grade_name=f"WP7P2C2 Grade {label.upper()} {u}")
+        session.add(grade); session.flush()
+        grade.machines = [machine]
+        session.flush()
+        recipe = db.RecipeVersion(
+            foam_grade_id=grade.id, version_label="v1", approval_status="Approved", is_active=True,
+        )
+        session.add(recipe); session.flush()
+        chains[label] = {
+            "plant_id": plant.id, "plant_name": plant.name, "method_id": method.id,
+            "machine_id": machine.id, "machine_name": machine.name, "grade_id": grade.id,
+            "grade_name": grade.name if hasattr(grade, "name") else grade.grade_name,
+            "recipe_version_id": recipe.id,
+        }
+
+    run = db.ProductionRun(
+        plant_id=chains["a"]["plant_id"],
+        foam_grade_id=chains["a"]["grade_id"],
+        recipe_version_id=chains["a"]["recipe_version_id"],
+        run_date=dt.date(2026, 8, 1),
+        batch_reference=f"B-WP7P2C2-{u}",
+        machine_id=chains["a"]["machine_id"],
+        production_method_id=chains["a"]["method_id"],
+        operator_or_team_reference="Shift A",
+        notes="seed run on chain A",
+    )
+    session.add(run); session.commit()
+    out = {"company_id": company.id, "run_id": run.id, "chain_a": chains["a"], "chain_b": chains["b"]}
+    session.close()
+    return out
+
+
+def test_edit_run_reactive_cascade_produces_internally_consistent_chain(two_chain_run):
+    """WP7 Phase 2 Closeout Correction v2 (2026-08-14, Charlie's material
+    completion item 1): switching Edit Run's Plant selector to a different
+    valid chain must reactively refresh the Production Method, Production
+    Unit or Cell and Product Grade option sets to that new Plant's own
+    chain - not silently carry over stale selections from the previously
+    rendered chain - and the persisted run must end up wholly on the new
+    chain (no cross-chain mix)."""
+    ids = two_chain_run
+    chain_b = ids["chain_b"]
+    table_state = {"runs_overview_table": {"selection": {"rows": [0], "columns": []}}}
+    at = _run(table_state)
+    assert not at.exception
+    assert at.session_state["pr_selected_run_id"] == ids["run_id"]
+
+    plant_sb = at.selectbox(key=f"edit_run_plant_{ids['run_id']}")
+    plant_b_idx = next(i for i, opt in enumerate(plant_sb.options) if opt == chain_b["plant_name"])
+    plant_sb.select_index(plant_b_idx).run()
+    assert not at.exception, f"Unhandled exception after switching Plant: {at.exception}"
+
+    # Production Method must have reactively refreshed to chain B's own
+    # Method - proving the picker actually recomputed against the new
+    # Plant rather than still offering (or defaulting to) chain A's Method.
+    method_sb = at.selectbox(key=f"edit_run_method_{ids['run_id']}")
+    assert all("WP7P2C2 Method A" not in opt for opt in method_sb.options), (
+        f"Production Method options should be scoped to the newly selected Plant B, got {method_sb.options}"
+    )
+    method_b_idx = next(i for i, opt in enumerate(method_sb.options) if "WP7P2C2 Method B" in opt)
+    method_sb.select_index(method_b_idx).run()
+    assert not at.exception
+
+    # Production Unit or Cell must have reactively refreshed to chain B's
+    # own Machine.
+    machine_sb = at.selectbox(key=f"edit_run_machine_{ids['run_id']}")
+    assert all("WP7P2C2 Unit A" not in opt for opt in machine_sb.options), (
+        f"Production Unit or Cell options should be scoped to the newly selected Plant/Method B, got {machine_sb.options}"
+    )
+    machine_b_idx = next(i for i, opt in enumerate(machine_sb.options) if "WP7P2C2 Unit B" in opt)
+    machine_sb.select_index(machine_b_idx).run()
+    assert not at.exception
+
+    # Product Grade (still inside the form, same as Create Run) must now
+    # only offer chain B's grade.
+    grade_sb = next(sb for sb in at.selectbox if sb.label and sb.label.startswith("Product grade"))
+    assert all("WP7P2C2 Grade A" not in opt for opt in grade_sb.options), (
+        f"Product Grade options should be scoped to the newly selected Production Unit B, got {grade_sb.options}"
+    )
+    grade_b_idx = next(i for i, opt in enumerate(grade_sb.options) if "WP7P2C2 Grade B" in opt)
+    grade_sb.select_index(grade_b_idx)
+
+    save = _submit_key(at, f"edit_run_form_{ids['run_id']}", "Save changes")
+    save.click().run()
+    assert not at.exception, f"Unhandled exception saving the cross-chain edit: {at.exception}"
+
+    session = db.get_session()
+    reloaded = session.get(db.ProductionRun, ids["run_id"])
+    assert reloaded.plant_id == chain_b["plant_id"]
+    assert reloaded.production_method_id == chain_b["method_id"]
+    assert reloaded.machine_id == chain_b["machine_id"]
+    assert reloaded.foam_grade_id == chain_b["grade_id"]
+    session.close()
+
+
 # ---------------------------------------------------------------------------
 # 3. Material Gap 3 - conditional Cycle / Shot Data module
 # ---------------------------------------------------------------------------

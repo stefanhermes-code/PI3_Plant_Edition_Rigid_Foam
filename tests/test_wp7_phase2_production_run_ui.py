@@ -243,6 +243,14 @@ def test_production_output_create_and_edit_via_form(seeded_run):
     at = _run({"pr_selected_run_id": ids["run_id"]})
     assert not at.exception
 
+    # WP7 Phase 2 Closeout Correction v2 (2026-08-14, Charlie's material
+    # completion item 2): planned_quantity/actual_quantity are only
+    # persisted when their companion "Record a ... quantity" checkbox is
+    # explicitly checked - see test_wp7_phase2_closeout_correction.py for
+    # the zero-vs-NULL evidence itself. Check both here since this test's
+    # point is proving a normal non-zero save still works end-to-end.
+    at.checkbox(key=f"new_output_planned_recorded_{ids['run_id']}").set_value(True)
+    at.checkbox(key=f"new_output_actual_recorded_{ids['run_id']}").set_value(True)
     at.number_input(key=f"new_output_planned_{ids['run_id']}").set_value(500.0)
     at.number_input(key=f"new_output_actual_{ids['run_id']}").set_value(480.0)
     # Selectbox.options returns FORMATTED display strings (post format_func),

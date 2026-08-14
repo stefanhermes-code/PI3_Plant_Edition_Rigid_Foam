@@ -5103,4 +5103,51 @@ pattern as this session's prior CR corrections.
 Full regression: 465 passed, 0 skipped, 0 failed (full suite).
 """
 
-APP_VERSION = "0.42.0"
+VERSION_0_43_0_NOTES = """
+WP7 Phase 2 Closeout Correction v2 (2026-08-14). Charlie's technical
+review of the v0.42.0 correction package (WP7_Phase2_Closeout_Correction_
+Review_Return_to_JC.docx) found 2 remaining Material Completion Items
+before Phase 2 can close:
+
+Material Completion Item 1 - Edit Run's Plant/Production Method/
+Production Unit or Cell pickers did not reactively cascade the way
+Create Run's already did. Fixed: moved all three selectboxes (Plant,
+Production Method, Production Unit or Cell) out of
+st.form(f"edit_run_form_{run.id}") to render as ordinary widgets above
+it, mirroring Create Run's existing layout exactly - a change to any one
+of them now triggers an immediate rerun, so each downstream picker's
+option set (and Product Grade, still inside the form) is always freshly
+computed against the current upstream selection before the run is saved,
+rather than a user being able to submit a new Plant together with stale
+Method/Unit/Grade selections carried over from a previously rendered
+chain. Proven directly: a new test switches an existing run's Plant to a
+second, fully independent Plant -> Method -> Unit -> Grade chain,
+asserts each downstream selectbox's options are scoped to the new chain
+only (never contain the original chain's Method/Unit/Grade names) at
+each step, and asserts the saved run's plant_id/production_method_id/
+machine_id/foam_grade_id all end up on the new chain with none left over
+from the original one.
+
+Material Completion Item 2 - Production Output's Planned/Actual quantity
+fields collapsed a real zero to NULL. Fixed: applied the same "Record a
+... quantity" checkbox pattern already used for Gap 1's process settings
+to both the Create and Edit Production Output forms - a companion
+checkbox, independent of the number_input's own state, is now the sole
+source of truth for whether planned_quantity/actual_quantity is
+persisted (value if checked else None), replacing the previous `value or
+None` expression that treated a typed 0.0 as blank.
+
+No schema/migration impact - both fixes are Streamlit UI/application-
+logic changes only (widget placement and save-handler logic); confirmed
+via diff that db.py is unchanged in this correction.
+
+Tests: 1 new direct AppTest test added in tests/
+test_wp7_phase2_closeout_correction.py proving the Edit Run reactive
+cascade end-to-end across two independent chains; tests/
+test_wp7_phase2_production_run_ui.py's existing Production Output
+create/edit test updated for the new checkboxes.
+
+Full regression: 466 passed, 0 skipped, 0 failed (full suite).
+"""
+
+APP_VERSION = "0.43.0"

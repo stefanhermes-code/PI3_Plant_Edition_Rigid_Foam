@@ -421,63 +421,79 @@ with tab_runs:
             if selected_run:
                 st.divider()
                 st.markdown(f"#### Edit Run #{selected_run.id}")
-                with st.form(f"edit_run_form_{selected_run.id}"):
+                st.caption(
+                    "WP7 Phase 2 Closeout Correction: Run Context is captured context-first - "
+                    "Plant, then Production Method, then Production Unit or Cell, then Product "
+                    "Grade - since the Production Unit or Cell you pick is what actually "
+                    "determines which Product Grades are producible on it."
+                )
+                # WP7 Phase 2 Closeout Correction v2 (2026-08-14, Charlie's
+                # material completion item 1): Plant / Production Method /
+                # Production Unit or Cell live OUTSIDE st.form(...) here,
+                # exactly like the Create Run form below - st.form widgets
+                # only release their changed values at submit, so an
+                # upstream change (e.g. a new Plant) could not refresh the
+                # downstream Method/Unit/Grade option sets within the same
+                # edit interaction while these lived inside the form. A
+                # user could then submit a new Plant together with stale
+                # Method/Unit/Grade selections carried over from the
+                # previously rendered options. Rendering them as ordinary
+                # (non-form) widgets means every change triggers an
+                # immediate rerun, so each downstream picker's options are
+                # always freshly computed from the current upstream
+                # selection before Product Grade (still inside the form,
+                # same as Create Run) is ever shown.
+                # Step 1: Plant.
+                plant_idx = next((i for i, p in enumerate(plants) if p.id == selected_run.plant_id), 0)
+                plant = st.selectbox(
+                    "Plant *", plants, index=plant_idx, format_func=lambda p: p.name,
+                    key=f"edit_run_plant_{selected_run.id}",
+                )
+                # Step 2: Production Method - only methods activated for
+                # this plant (see helpers.activated_methods_for_plant),
+                # matching the same gate Machine setup and Product Grade
+                # method pickers already use.
+                methods = activated_methods_for_plant(session, plant.id) if plant else []
+                if plant and not methods:
                     st.caption(
-                        "WP7 Phase 2 Closeout Correction: Run Context is captured context-first - "
-                        "Plant, then Production Method, then Production Unit or Cell, then Product "
-                        "Grade - since the Production Unit or Cell you pick is what actually "
-                        "determines which Product Grades are producible on it."
+                        "⚠️ This plant has no activated Production Method yet - activate one on "
+                        "the Production Methods page first."
                     )
-                    # Step 1: Plant.
-                    plant_idx = next((i for i, p in enumerate(plants) if p.id == selected_run.plant_id), 0)
-                    plant = st.selectbox(
-                        "Plant *", plants, index=plant_idx, format_func=lambda p: p.name,
-                        key=f"edit_run_plant_{selected_run.id}",
+                method_idx = next(
+                    (i for i, m in enumerate(methods) if m.id == selected_run.production_method_id), 0,
+                )
+                method = st.selectbox(
+                    "Production Method *", methods, index=method_idx,
+                    format_func=lambda m: m.name, key=f"edit_run_method_{selected_run.id}",
+                    disabled=not methods,
+                ) if methods else None
+                # Step 3: Production Unit or Cell - Machines at this plant
+                # whose own production_method_id matches the chosen
+                # Production Method (helpers.machines_for_plant_and_method).
+                # Same NULL-is-active handling as before (a row written
+                # via raw SQL can have active=NULL; only an explicit
+                # False deactivates).
+                candidate_machines = (
+                    machines_for_plant_and_method(session, plant.id, method.id) if (plant and method) else []
+                )
+                active_machines = [m for m in candidate_machines if m.active is not False]
+                if plant and method and not active_machines:
+                    st.caption(
+                        "⚠️ No Production Unit or Cell is assigned to this Plant/Production Method "
+                        "combination yet - assign one on the Plant & Foam Equipment Overview page "
+                        "first."
                     )
-                    # Step 2: Production Method - only methods activated for
-                    # this plant (see helpers.activated_methods_for_plant),
-                    # matching the same gate Machine setup and Product Grade
-                    # method pickers already use.
-                    methods = activated_methods_for_plant(session, plant.id) if plant else []
-                    if plant and not methods:
-                        st.caption(
-                            "⚠️ This plant has no activated Production Method yet - activate one on "
-                            "the Production Methods page first."
-                        )
-                    method_idx = next(
-                        (i for i, m in enumerate(methods) if m.id == selected_run.production_method_id), 0,
-                    )
-                    method = st.selectbox(
-                        "Production Method *", methods, index=method_idx,
-                        format_func=lambda m: m.name, key=f"edit_run_method_{selected_run.id}",
-                        disabled=not methods,
-                    ) if methods else None
-                    # Step 3: Production Unit or Cell - Machines at this plant
-                    # whose own production_method_id matches the chosen
-                    # Production Method (helpers.machines_for_plant_and_method).
-                    # Same NULL-is-active handling as before (a row written
-                    # via raw SQL can have active=NULL; only an explicit
-                    # False deactivates).
-                    candidate_machines = (
-                        machines_for_plant_and_method(session, plant.id, method.id) if (plant and method) else []
-                    )
-                    active_machines = [m for m in candidate_machines if m.active is not False]
-                    if plant and method and not active_machines:
-                        st.caption(
-                            "⚠️ No Production Unit or Cell is assigned to this Plant/Production Method "
-                            "combination yet - assign one on the Plant & Foam Equipment Overview page "
-                            "first."
-                        )
-                    machine_options = [None] + active_machines
-                    machine_idx = next(
-                        (i for i, m in enumerate(machine_options) if m is not None and m.id == selected_run.machine_id),
-                        0,
-                    )
-                    machine = st.selectbox(
-                        "Production Unit or Cell *", machine_options, index=machine_idx,
-                        format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
-                        key=f"edit_run_machine_{selected_run.id}",
-                    )
+                machine_options = [None] + active_machines
+                machine_idx = next(
+                    (i for i, m in enumerate(machine_options) if m is not None and m.id == selected_run.machine_id),
+                    0,
+                )
+                machine = st.selectbox(
+                    "Production Unit or Cell *", machine_options, index=machine_idx,
+                    format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
+                    key=f"edit_run_machine_{selected_run.id}",
+                )
+                with st.form(f"edit_run_form_{selected_run.id}"):
                     # Step 4: Product Grade - filtered to grades actually
                     # assigned to the chosen machine (Machine.foam_grades,
                     # the reverse side of FoamGrade.machines), scoped to this
@@ -1736,10 +1752,33 @@ with tab_output:
         if output_summary:
             st.markdown("##### Edit production output")
             with st.form(f"edit_output_form_{output_summary.id}"):
+                # WP7 Phase 2 Closeout Correction v2 (2026-08-14, Charlie's
+                # material completion item 2): planned_quantity/actual_
+                # quantity used to be persisted via "value or None", which
+                # collapsed a real recorded zero into NULL. Same explicit
+                # "Record a value" checkbox pattern as the Method-Aware
+                # Process Settings numeric fields - the checkbox alone
+                # decides persistence at save time, independent of the
+                # number field's own contents, and is never wired to the
+                # number_input's disabled= (st.form widgets don't rerun on
+                # interaction until submit).
+                record_planned = st.checkbox(
+                    "Record a planned quantity", value=output_summary.planned_quantity is not None,
+                    key=f"edit_output_planned_recorded_{output_summary.id}",
+                    help="Check this to save the number entered below, including zero - zero is a "
+                    "distinct, valid recorded output quantity and is never treated as blank.",
+                )
                 planned_quantity = st.number_input(
                     "Planned quantity", min_value=0.0, step=0.1,
                     value=float(output_summary.planned_quantity or 0.0),
                     key=f"edit_output_planned_{output_summary.id}",
+                )
+                record_actual = st.checkbox(
+                    "Record an actual quantity", value=output_summary.actual_quantity is not None,
+                    key=f"edit_output_actual_recorded_{output_summary.id}",
+                    help="Check this to save the number entered below, including zero - zero is a "
+                    "distinct, valid recorded output quantity (e.g. a run that produced no released "
+                    "output) and is never treated as blank.",
                 )
                 actual_quantity = st.number_input(
                     "Actual quantity", min_value=0.0, step=0.1,
@@ -1769,8 +1808,8 @@ with tab_output:
                 )
                 save = st.form_submit_button("Save changes", disabled=not page_usable)
                 if save and page_usable:
-                    output_summary.planned_quantity = planned_quantity or None
-                    output_summary.actual_quantity = actual_quantity or None
+                    output_summary.planned_quantity = planned_quantity if record_planned else None
+                    output_summary.actual_quantity = actual_quantity if record_actual else None
                     output_summary.unit_id = unit.id if unit else None
                     output_summary.disposition = disposition or None
                     output_summary.disposition_notes = disposition_notes
@@ -1792,8 +1831,22 @@ with tab_output:
         else:
             st.info("No production output recorded yet for this run — use the form below.")
             with st.form(f"add_output_{run.id}"):
+                # Same explicit "Record a value" checkbox pattern as the Edit
+                # form above - see the comment there for why it's never wired
+                # to number_input's disabled=.
+                record_planned = st.checkbox(
+                    "Record a planned quantity", value=False, key=f"new_output_planned_recorded_{run.id}",
+                    help="Check this to save the number entered below, including zero - zero is a "
+                    "distinct, valid recorded output quantity and is never treated as blank.",
+                )
                 planned_quantity = st.number_input(
                     "Planned quantity", min_value=0.0, step=0.1, key=f"new_output_planned_{run.id}"
+                )
+                record_actual = st.checkbox(
+                    "Record an actual quantity", value=False, key=f"new_output_actual_recorded_{run.id}",
+                    help="Check this to save the number entered below, including zero - zero is a "
+                    "distinct, valid recorded output quantity (e.g. a run that produced no released "
+                    "output) and is never treated as blank.",
                 )
                 actual_quantity = st.number_input(
                     "Actual quantity", min_value=0.0, step=0.1, key=f"new_output_actual_{run.id}"
@@ -1810,8 +1863,8 @@ with tab_output:
                     session.add(
                         ProductionOutputSummary(
                             production_run_id=run.id,
-                            planned_quantity=planned_quantity or None,
-                            actual_quantity=actual_quantity or None,
+                            planned_quantity=planned_quantity if record_planned else None,
+                            actual_quantity=actual_quantity if record_actual else None,
                             unit_id=unit.id if unit else None,
                             disposition=disposition or None,
                             disposition_notes=disposition_notes,
