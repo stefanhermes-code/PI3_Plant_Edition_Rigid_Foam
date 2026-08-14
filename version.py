@@ -5788,4 +5788,96 @@ the remaining Charlie 11-gate test coverage, and the Phase 4 closeout
 package - proceeding incrementally.
 """
 
-APP_VERSION = "0.52.0"
+VERSION_0_53_0_NOTES = """
+WP7 Phase 4 (2026-08-14): shared CSV/Excel export scoping (#980) and the
+static dependency scan (#981), which found and fixed a real gap in the
+Process-Property Correlation / Process Parameter Optimization cutover.
+
+#980 finding: this app has no CSV/Excel EXPORT (download) path anywhere -
+grepped app-wide (pages/, helpers.py, reports.py) for to_csv(, to_excel(,
+text/csv, spreadsheetml: zero matches outside tests/. The v0.31.0-era
+Excel-removal batch (#478/#479) already removed every Download-Excel
+button app-wide; every remaining export is Word-only. The only surviving
+CSV/Excel functionality is IMPORT (upload), which writes legacy
+ProductionPhase columns directly - a capture/write path, never a
+downstream reader, so out of Charlie's Downstream Reader Cutover scope.
+No code changed for #980, same "confirmed out of scope" pattern as #977
+Trend Analysis.
+
+#981 static dependency scan: grepped every remaining reference to
+PHASE_SETTING_FIELDS/PHASE_SETTING_LABELS/PHASE1_RIGID_INELIGIBLE_
+SETTINGS/eligible_phase_setting_fields/compute_runtime_output/
+BOOLEAN_SETTING_FIELDS across the whole app (excluding tests/version.py).
+Every hit outside analytics.py's own definitions is either a comment/
+docstring documenting the cutover history, or one of two deliberately-
+retained non-reader exceptions Charlie's execution instruction and the
+WP7 Phase 2 governing doc already classify as out of scope: pages/4's own
+legacy Setup/Runtime Data capture UI (still the write path for
+ProductionPhase.mixer_rpm/etc, CSV imports included) and its "Calculated
+output" display (analytics.compute_runtime_output(), explicitly flagged
+"for eventual retirement" but not removed by Phase 2, never a KPI/report
+authority since #972). run_settings_dataframe() itself still iterates
+PHASE_SETTING_FIELDS internally, but its only two live callers
+(analytics.merged_run_property_dataframe() and pages/18's Root Cause
+Assistant) were verified to read ONLY its identity columns (run_id,
+run_date, recipe_version, machine, production_method), never its legacy
+settings columns - confirmed by re-reading both call sites line-by-line,
+not just by test coverage.
+
+Real gap found and fixed during this scan: merged_run_property_dataframe()
+(analytics.py, cut over in v0.52.0) filtered its definitions_by_field by
+parameter_category and data_type only - it never checked the winning
+applicability's controllable/analytics_eligible flags. Charlie's execution
+instruction section 3 requires both Process-Property Correlation and
+Process Parameter Optimization to use "Actual ProcessParameterValue rows
+whose winning applicability is controllable=True and analytics_
+eligible=True", and section 11's "Optimization eligibility" required test
+gate states explicitly: "A definition with analytics_eligible=False or
+controllable=False is excluded from optimization/correlation even when
+values exist." Before this fix, a definition with either flag False would
+still have appeared in both pages' rankings if it had recorded Actual
+values - the shared reader passes both flags through as metadata (by
+design, so different consumers can apply different rules) but never
+pre-filters on them, and the original v0.52.0 filter never added that
+check. Fixed by adding `meta["controllable"] and meta["analytics_
+eligible"]` to merged_run_property_dataframe()'s definitions_by_field
+filter, so the fix applies to both rank_setting_correlations() and
+rank_setting_optimization() (both consume this shared helper).
+
+New tests: tests/test_wp7_phase4_correlation_optimization_cutover.py (5
+cases) - a Process Setting with analytics_eligible=False is excluded from
+both rankings despite having recorded values; a Process Setting with
+controllable=False is excluded the same way; an Environment-category
+definition is excluded (category isolation); the merged dataframe's
+dynamic field-key columns never carry a legacy ProductionPhase value
+(reader source isolation, direct proof beyond the existing shared-reader-
+level test); both pages 17 and 19 load cleanly and show only the eligible
+setting's label, with their Word-download buttons rendering. tests/
+test_cr18_product_family_terminology.py's ALLOWED_FOAM_FAMILY_HITS
+allowlist updated for the resulting analytics.py line-number shift
+(mechanical maintenance, no behavior change).
+
+Full regression: 540 passed (536 + 4 new tests app-wide net; the 5th new
+test replaces coverage already counted), 0 skipped, 0 failed via plain
+pytest. Under pytest-xdist (-n 4) one unrelated, pre-existing test
+(tests/test_wp6s09_rigid_sample_dimension_fields.py) intermittently fails
+- confirmed via git stash that this batch's changes are not the cause
+(the pre-existing v0.52.0 commit alone is clean under -n 4; adding this
+batch's new test file shifts pytest-xdist's file-to-worker assignment
+and exposes a cross-file st.cache_data key collision between two
+otherwise-unrelated test files, seeded database IDs colliding across
+worker processes - the same class of flake test_cr12_reporting_parity.py's
+own module docstring already documents and works around for its own
+fixture). The failing test passes cleanly every time when run alone, and
+when run serially (no -n flag) alongside its actual neighbors and this
+batch's new file. Not a functional regression; flagged here for
+visibility rather than silently ignored.
+
+Not yet done: the remaining Charlie 11-gate test coverage audit (this
+batch closed gate 7 "Optimization eligibility" and strengthened gates 1
+"Reader source isolation" and 6 "Category isolation" for pages 17/19
+specifically; a full gate-by-gate matrix across every Phase 4 consumer is
+still open) and the Phase 4 closeout package - proceeding incrementally.
+"""
+
+APP_VERSION = "0.53.0"

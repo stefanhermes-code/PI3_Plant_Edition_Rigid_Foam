@@ -145,9 +145,14 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # BOOLEAN_SETTING_FIELDS - same unchanged comment/docstring text
     # elsewhere, new line positions. The set below is the verified,
     # current, exact hit list, not an arithmetic shift guess.
+    # Shifted an eighth time (same date), when the Correlation/Optimization
+    # cutover's controllable/analytics_eligible filter (a real gap found by
+    # the WP7 Phase 4 required-test-gate 7 audit, "Optimization
+    # eligibility") added ~15 lines of docstring to merged_run_property_
+    # dataframe() explaining the fix.
     ("analytics.py", 15), ("analytics.py", 173), ("analytics.py", 307),
     ("analytics.py", 321), ("analytics.py", 747), ("analytics.py", 1015),
-    ("analytics.py", 1142), ("analytics.py", 1663), ("analytics.py", 1828),
+    ("analytics.py", 1153), ("analytics.py", 1674), ("analytics.py", 1839),
     ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 184), ("pages/16_Trend_Analysis.py", 319),

@@ -1067,11 +1067,21 @@ def merged_run_property_dataframe(
     for identity columns only (run_id, run_date, foam_grade, recipe_
     version, machine, production_method) - never a legacy-reader concern,
     since those come from ProductionRun itself. Scoped to parameter_
-    category == "Process Setting" and data_type in (Float, Integer,
-    Boolean) only - a String setting has no numeric meaning for a
-    correlation or a Low/Medium/High quantile split, and Environment/
-    Outcome definitions are excluded the same way pages/4's own Method-
-    Aware Process Settings tab excludes them (WP7 Phase 3 correction).
+    category == "Process Setting", data_type in (Float, Integer, Boolean),
+    controllable == True, and analytics_eligible == True - a String
+    setting has no numeric meaning for a correlation or a Low/Medium/High
+    quantile split, Environment/Outcome definitions are excluded the same
+    way pages/4's own Method-Aware Process Settings tab excludes them
+    (WP7 Phase 3 correction), and the controllable/analytics_eligible
+    filter is section 3 of the execution instruction's explicit
+    requirement for both Process-Property Correlation ("Actual
+    ProcessParameterValue rows whose winning applicability is
+    controllable=True and analytics_eligible=True") and Process Parameter
+    Optimization ("Actual values for controllable=True and analytics_
+    eligible=True definitions") - a definition with either flag False on
+    its winning applicability must never enter either ranking, even when
+    values are recorded for it (Required Tests section 11, "Optimization
+    eligibility" gate).
 
     Returns a tuple (merged, definitions_by_field): merged is the joined
     DataFrame (columns: identity columns, one dynamic_process_setting_
@@ -1095,6 +1105,7 @@ def merged_run_property_dataframe(
     definitions_by_field = {
         field_key: meta for field_key, meta in all_definitions_by_field.items()
         if meta["parameter_category"] == "Process Setting" and meta["data_type"] in ("Float", "Integer", "Boolean")
+        and meta["controllable"] and meta["analytics_eligible"]
     }
 
     settings_rows = []
