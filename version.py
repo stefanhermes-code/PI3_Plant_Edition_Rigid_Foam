@@ -4947,4 +4947,80 @@ already migrated to Supabase), so no new Supabase migration is required;
 the WP7 Phase 2 closeout package for Charlie/Stefan.
 """
 
-APP_VERSION = "0.40.0"
+VERSION_0_41_0_NOTES = """
+WP7 Phase 1 Closeout Correction (2026-08-14). Charlie's WP7 Phase 1
+Closeout Review (WP7_Phase1_Closeout_Review_Return_to_JC.docx, 14 August
+2026) returned Phase 1 as OPEN - structurally close to the approved
+architecture, but three material acceptance gaps required completion
+before closure, since Phase 2's UI/imports would otherwise build on
+data-layer conventions the schema itself did not yet enforce:
+
+2.1 Applicability precedence needs same-scope integrity. Fixed: added
+ix_psa_unique_active_scope, a partial/functional unique index on
+ProcessSettingApplicability (setting_definition_id, coalesce(production_
+method_id, -1), coalesce(machine_id, -1)) WHERE active = true - one
+active applicability row per definition per scope (Global, a given
+Method, or a given Machine), enforced identically on SQLite (tests) and
+Postgres (production) since both support expression-based partial unique
+indexes. Retired (active=false) rows are excluded, so the normal soft-
+retire-then-replace workflow is unaffected - proven by a direct test.
+analytics.eligible_process_settings() also gained a deterministic ORDER
+BY as defense-in-depth, so tie-break behavior no longer depends on
+unordered database row order even in a hypothetical bypass.
+
+2.2 Controlled categories and output disposition need enforced
+validation. Fixed: added SQLAlchemy @validates hooks on
+ProcessSettingDefinition.parameter_category and ProductionOutputSummary.
+disposition that reject any value outside PROCESS_PARAMETER_CATEGORIES /
+PRODUCTION_OUTPUT_DISPOSITIONS through the accepted write path (any ORM
+attribute assignment), backed by matching Postgres CHECK constraints
+(ck_process_setting_definitions_parameter_category,
+ck_production_output_summaries_disposition) for defense-in-depth and
+database parity.
+
+2.3 ProcessParameterValue UOM snapshot needs controlled derivation.
+Fixed: added a before_insert/before_update SQLAlchemy mapper event that
+re-derives (overwrites) ProcessParameterValue.unit from the linked
+ProcessSettingDefinition's controlled unit_id immediately before every
+flush, regardless of what value was assigned - a caller-supplied
+conflicting unit is ignored in favor of the controlled definition, one of
+the three resolutions Charlie's review explicitly accepted. Pure
+application logic; no schema change needed for this item.
+
+Migration: applied directly to the live rigid_foam Postgres schema
+(Supabase project PI3_Plant_Edition) as migration
+wp7_phase1_closeout_correction. Pre-migration audit confirmed zero
+existing rows in process_setting_applicabilities and
+production_output_summaries and zero out-of-vocabulary parameter_category
+values, so no dedup/backfill was required before adding the constraints.
+
+Tests: 9 new direct tests added to tests/test_wp7_phase1_method_aware_
+schema.py's new section 10 (duplicate Global/Method/Machine applicability
+rejected, soft-retire-then-replace still works, eligibility stays
+deterministic, invalid parameter_category/disposition rejected, valid
+values still accepted, conflicting ProcessParameterValue.unit is
+overwritten, and unit derives correctly per-definition when multiple
+definitions with different units coexist on one run). tests/
+test_cr18_product_family_terminology.py's line-number allowlist was
+updated for the line shifts these edits caused in analytics.py/db.py (no
+behavior change, same comment/docstring text).
+
+Full regression: 458 passed, 0 skipped, 0 failed (the full suite; this
+run also happened to pick up the two normally-skipped Flexible Foam
+sibling-app tests as passing, which is environment-dependent and outside
+WP7 acceptance either way).
+
+Scope note: this correction batch and the already-implemented WP7 Phase
+2 UI (v0.40.0) were both completed in this session before Charlie's
+Phase 1 closeout review was read - the "continue with next phase"
+instruction predated the review being returned. Phase 2's implementation
+was checked against this correction and requires no changes of its own:
+it only calls eligible_process_settings() (read-only) and constructs
+ProductionOutputSummary/ProcessParameterValue rows through the same ORM
+write path these fixes now govern, so it inherits the corrected behavior
+automatically. See the WP7 Phase 1 Closeout Correction package and the
+WP7 Phase 2 closeout package (delivered together) for the full
+reconciliation.
+"""
+
+APP_VERSION = "0.41.0"

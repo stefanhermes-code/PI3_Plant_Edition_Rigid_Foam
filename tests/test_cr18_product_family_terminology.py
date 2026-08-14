@@ -99,18 +99,20 @@ def _extract_docx_text(docx_bytes):
 # ---------------------------------------------------------------------------
 
 ALLOWED_FOAM_FAMILY_HITS = {
-    # analytics.py/db.py line numbers shifted again by WP7 Phase 1
-    # (2026-08-13), which added the ProcessSettingApplicability model,
-    # ProductionOutputSummary corrections, and the eligible_process_
-    # settings() helper (plus its imports) above/around these lines - same
-    # unchanged comment/docstring text, new line positions. One of the
-    # previously-listed analytics.py lines (the old "347" entry) no longer
-    # exists as a separate hit after this edit; the set below is the
-    # verified, current, exact hit list, not an arithmetic shift guess.
+    # analytics.py/db.py line numbers shifted again by the WP7 Phase 1
+    # Closeout Correction (2026-08-14, Charlie's review items 2.1-2.3):
+    # db.py gained new imports (CheckConstraint, Index, event, func,
+    # select, validates) plus the applicability same-scope unique index,
+    # controlled-vocabulary @validates hooks, and the ProcessParameterValue
+    # controlled-UOM-derivation event listener; analytics.py gained a
+    # deterministic ORDER BY + comment in eligible_process_settings() -
+    # same unchanged comment/docstring text elsewhere, new line positions.
+    # The set below is the verified, current, exact hit list, not an
+    # arithmetic shift guess.
     ("analytics.py", 15), ("analytics.py", 170), ("analytics.py", 304),
-    ("analytics.py", 318), ("analytics.py", 415), ("analytics.py", 683),
-    ("analytics.py", 758), ("analytics.py", 1244), ("analytics.py", 1409),
-    ("db.py", 1995),
+    ("analytics.py", 318), ("analytics.py", 423), ("analytics.py", 691),
+    ("analytics.py", 766), ("analytics.py", 1252), ("analytics.py", 1417),
+    ("db.py", 2000),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 184), ("pages/16_Trend_Analysis.py", 319),
     ("pages/17_Process_Property_Correlation.py", 110),

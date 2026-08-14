@@ -371,12 +371,20 @@ def eligible_process_settings(session, production_method_id, machine_id=None):
     else:
         query = query.filter(ProcessSettingApplicability.machine_id.is_(None))
 
+    # WP7 Phase 1 correction (Charlie's closeout review, 2026-08-14, item
+    # 2.1): db.py's ix_psa_unique_active_scope partial unique index now
+    # makes a same-scope active tie impossible at the data layer. This
+    # ORDER BY is defense-in-depth only, so that even if that constraint
+    # were ever bypassed, tie resolution below is deterministic (lowest id
+    # wins) rather than depending on unordered database row order.
+    query = query.order_by(ProcessSettingApplicability.id)
+
     rows = query.all()
 
     # Deterministic precedence per definition: Machine-specific (2) >
-    # Method-specific (1) > Global (0). Highest-specificity row wins; ties
-    # (shouldn't occur with clean data, but guard anyway) keep the first
-    # one encountered.
+    # Method-specific (1) > Global (0). Highest-specificity row wins; a
+    # same-specificity tie (prevented by ix_psa_unique_active_scope, see
+    # above) would keep the lowest-id row, per the ORDER BY.
     def _specificity(row):
         if row.machine_id is not None:
             return 2

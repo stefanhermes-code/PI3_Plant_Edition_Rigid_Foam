@@ -33,6 +33,19 @@ Each test below is numbered to match that section 6 acceptance list:
   9. (Full-suite, zero-skip acceptance is proven by the full regression
      run itself, not by an individual test in this file.)
 
+Section 10 (added 2026-08-14) covers Charlie's WP7 Phase 1 Closeout Review
+(WP7_Phase1_Closeout_Review_Return_to_JC.docx, 14 August 2026), which
+returned Phase 1 as OPEN pending three targeted corrections before
+closure:
+  2.1 Applicability precedence needs same-scope integrity - one active
+      ProcessSettingApplicability row per (setting_definition_id, scope).
+  2.2 Controlled categories and output disposition need enforced
+      validation - invalid parameter_category/disposition values must be
+      rejected through the accepted write path.
+  2.3 ProcessParameterValue UOM snapshot needs controlled derivation - a
+      caller-supplied conflicting unit must not be able to persist
+      independently of the definition's controlled unit_id.
+
 MANDATORY TEMPLATE: tests/test_wp7_phase0_containment.py (AUTH_DISABLED/
 sqlite:// boilerplate, _reset_schema(), seeded_grade_chain -> seeded_run
 fixture chain, source-grep-with-allowlist pattern).
@@ -49,6 +62,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 import access_control
 import analytics
@@ -506,3 +520,258 @@ def _live_code_hits(path):
 def test_phase1_schema_not_yet_wired_into_live_surfaces(path):
     hits = _live_code_hits(path)
     assert hits == [], f"Phase 1 schema/helper referenced in live code before Phase 4 cutover in {path}: {hits}"
+
+
+# ---------------------------------------------------------------------------
+# 10. WP7 Phase 1 Closeout Correction (Charlie's review, 2026-08-14)
+# ---------------------------------------------------------------------------
+
+# --- 2.1 Applicability precedence needs same-scope integrity -------------
+
+def test_duplicate_active_global_applicability_rejected(seeded_grade_chain):
+    """Two active Global-scope (production_method_id=None, machine_id=None)
+    applicability rows for the same definition must not both persist."""
+    ids = seeded_grade_chain
+    session = db.get_session()
+    definition = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P1C-{uuid.uuid4().hex[:6]}", name="Duplicate Global test setting",
+        data_type="Float", parameter_category="Process Setting",
+    )
+    session.add(definition); session.flush()
+
+    session.add(db.ProcessSettingApplicability(setting_definition_id=definition.id))
+    session.commit()
+
+    session.add(db.ProcessSettingApplicability(setting_definition_id=definition.id))
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+    session.close()
+
+
+def test_duplicate_active_method_applicability_rejected(seeded_grade_chain):
+    """Two active Method-scope rows for the same definition and the same
+    production_method_id must not both persist."""
+    ids = seeded_grade_chain
+    session = db.get_session()
+    definition = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P1C-{uuid.uuid4().hex[:6]}", name="Duplicate Method test setting",
+        data_type="Float", parameter_category="Process Setting",
+    )
+    session.add(definition); session.flush()
+
+    session.add(db.ProcessSettingApplicability(
+        setting_definition_id=definition.id, production_method_id=ids["method_a_id"],
+    ))
+    session.commit()
+
+    session.add(db.ProcessSettingApplicability(
+        setting_definition_id=definition.id, production_method_id=ids["method_a_id"],
+    ))
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+    session.close()
+
+
+def test_duplicate_active_machine_applicability_rejected(seeded_grade_chain):
+    """Two active Machine-scope rows for the same definition and the same
+    machine_id must not both persist."""
+    ids = seeded_grade_chain
+    session = db.get_session()
+    definition = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P1C-{uuid.uuid4().hex[:6]}", name="Duplicate Machine test setting",
+        data_type="Float", parameter_category="Process Setting",
+    )
+    session.add(definition); session.flush()
+
+    session.add(db.ProcessSettingApplicability(
+        setting_definition_id=definition.id, machine_id=ids["machine_id"],
+    ))
+    session.commit()
+
+    session.add(db.ProcessSettingApplicability(
+        setting_definition_id=definition.id, machine_id=ids["machine_id"],
+    ))
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+    session.close()
+
+
+def test_soft_retiring_then_replacing_applicability_at_same_scope_still_works(seeded_grade_chain):
+    """The same-scope uniqueness control only applies to ACTIVE rows -
+    soft-retiring one applicability (active=False) and adding its live
+    replacement at the same scope must remain possible, since this is the
+    normal correction/versioning workflow for controlled applicability
+    data."""
+    ids = seeded_grade_chain
+    session = db.get_session()
+    definition = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P1C-{uuid.uuid4().hex[:6]}", name="Retire-and-replace test setting",
+        data_type="Float", parameter_category="Process Setting",
+    )
+    session.add(definition); session.flush()
+
+    original = db.ProcessSettingApplicability(
+        setting_definition_id=definition.id, production_method_id=ids["method_a_id"], min_value_override=5.0,
+    )
+    session.add(original); session.commit()
+
+    original.active = False
+    session.add(db.ProcessSettingApplicability(
+        setting_definition_id=definition.id, production_method_id=ids["method_a_id"], min_value_override=7.5,
+    ))
+    session.commit()  # must not raise
+
+    rows = session.query(db.ProcessSettingApplicability).filter(
+        db.ProcessSettingApplicability.setting_definition_id == definition.id
+    ).all()
+    assert len(rows) == 2
+    active_rows = [r for r in rows if r.active]
+    assert len(active_rows) == 1
+    assert active_rows[0].min_value_override == 7.5
+    session.close()
+
+
+def test_eligibility_remains_deterministic_after_same_scope_integrity_control(seeded_grade_chain):
+    """analytics.eligible_process_settings() must still return exactly one
+    row per definition (Machine > Method > Global precedence intact) now
+    that same-scope duplicates are impossible."""
+    ids = seeded_grade_chain
+    session = db.get_session()
+    definition = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P1C-{uuid.uuid4().hex[:6]}", name="Post-correction precedence setting",
+        data_type="Float", parameter_category="Process Setting",
+    )
+    session.add(definition); session.flush()
+    session.add(db.ProcessSettingApplicability(setting_definition_id=definition.id))
+    session.add(db.ProcessSettingApplicability(
+        setting_definition_id=definition.id, production_method_id=ids["method_a_id"],
+    ))
+    session.commit()
+
+    eligible = analytics.eligible_process_settings(session, ids["method_a_id"])
+    matches = [app for d, app in eligible if d.id == definition.id]
+    assert len(matches) == 1
+    assert matches[0].production_method_id == ids["method_a_id"]
+    session.close()
+
+
+# --- 2.2 Controlled categories and output disposition need enforced validation ---
+
+def test_invalid_parameter_category_rejected():
+    with pytest.raises(ValueError):
+        db.ProcessSettingDefinition(
+            controlled_id=f"PS-WP7P1C-{uuid.uuid4().hex[:6]}", name="Bad category setting",
+            data_type="Float", parameter_category="Not A Real Category",
+        )
+
+
+def test_valid_parameter_category_still_accepted(seeded_grade_chain):
+    session = db.get_session()
+    definition = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P1C-{uuid.uuid4().hex[:6]}", name="Valid category setting",
+        data_type="Float", parameter_category="Environment",
+    )
+    session.add(definition); session.commit()
+    reloaded = session.query(db.ProcessSettingDefinition).get(definition.id)
+    assert reloaded.parameter_category == "Environment"
+    session.close()
+
+
+def test_invalid_disposition_rejected(seeded_run):
+    ids = seeded_run
+    with pytest.raises(ValueError):
+        db.ProductionOutputSummary(
+            production_run_id=ids["run_id"], planned_quantity=100.0, actual_quantity=95.0,
+            unit_id=ids["unit_id"], disposition="Not A Real Disposition",
+        )
+
+
+def test_valid_disposition_still_accepted(seeded_run):
+    ids = seeded_run
+    session = db.get_session()
+    summary = db.ProductionOutputSummary(
+        production_run_id=ids["run_id"], planned_quantity=100.0, actual_quantity=95.0,
+        unit_id=ids["unit_id"], disposition="Quarantined",
+    )
+    session.add(summary); session.commit()
+    reloaded = session.query(db.ProductionOutputSummary).filter(
+        db.ProductionOutputSummary.production_run_id == ids["run_id"]
+    ).one()
+    assert reloaded.disposition == "Quarantined"
+    session.close()
+
+
+# --- 2.3 ProcessParameterValue UOM snapshot needs controlled derivation ---
+
+def test_conflicting_process_parameter_value_unit_is_overwritten_by_controlled_definition(seeded_run):
+    """A caller-supplied unit that conflicts with the definition's
+    controlled UOM must not be able to persist - the snapshot is always
+    re-derived from ProcessSettingDefinition.unit_id (item 2.3)."""
+    ids = seeded_run
+    session = db.get_session()
+    definition = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P1C-{uuid.uuid4().hex[:6]}", name="Controlled UOM test setting",
+        data_type="Float", unit_id=ids["unit_id"], parameter_category="Process Setting",
+    )
+    session.add(definition); session.flush()
+    definition_unit_symbol = session.query(db.UnitOfMeasure).get(ids["unit_id"]).symbol
+    assert definition_unit_symbol == "kg"
+
+    value = db.ProcessParameterValue(
+        setting_definition_id=definition.id, production_run_id=ids["run_id"],
+        snapshot_type="Actual", numeric_value=5.2, unit="conflicting-unit-string",
+    )
+    session.add(value); session.commit()
+
+    reloaded = session.query(db.ProcessParameterValue).get(value.id)
+    assert reloaded.unit == "kg"
+    assert reloaded.unit != "conflicting-unit-string"
+
+    # A later update attempting to re-introduce a conflicting unit is
+    # likewise overwritten on the next flush.
+    reloaded.unit = "still-conflicting"
+    session.commit()
+    reloaded2 = session.query(db.ProcessParameterValue).get(value.id)
+    assert reloaded2.unit == "kg"
+    session.close()
+
+
+def test_process_parameter_value_unit_derives_correctly_per_definition(seeded_run):
+    """Sanity check that the controlled-derivation hook pulls the RIGHT
+    definition's unit (not a stale/global value) when two definitions with
+    different units both have values on the same run."""
+    ids = seeded_run
+    session = db.get_session()
+
+    kg_unit_id = ids["unit_id"]  # symbol "kg", from seeded_grade_chain
+    rpm_unit = db.UnitOfMeasure(controlled_id=f"UOM-WP7P1C-{uuid.uuid4().hex[:6]}", symbol="rpm", name="RPM")
+    session.add(rpm_unit); session.flush()
+
+    def_kg = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P1C-{uuid.uuid4().hex[:6]}", name="Weight setting",
+        data_type="Float", unit_id=kg_unit_id, parameter_category="Process Setting",
+    )
+    def_rpm = db.ProcessSettingDefinition(
+        controlled_id=f"PS-WP7P1C-{uuid.uuid4().hex[:6]}", name="Speed setting",
+        data_type="Float", unit_id=rpm_unit.id, parameter_category="Process Setting",
+    )
+    session.add_all([def_kg, def_rpm]); session.flush()
+
+    v_kg = db.ProcessParameterValue(
+        setting_definition_id=def_kg.id, production_run_id=ids["run_id"],
+        snapshot_type="Actual", numeric_value=10.0,
+    )
+    v_rpm = db.ProcessParameterValue(
+        setting_definition_id=def_rpm.id, production_run_id=ids["run_id"],
+        snapshot_type="Actual", numeric_value=1200.0,
+    )
+    session.add_all([v_kg, v_rpm]); session.commit()
+
+    reloaded_kg = session.query(db.ProcessParameterValue).get(v_kg.id)
+    reloaded_rpm = session.query(db.ProcessParameterValue).get(v_rpm.id)
+    assert reloaded_kg.unit == "kg"
+    assert reloaded_rpm.unit == "rpm"
+    session.close()

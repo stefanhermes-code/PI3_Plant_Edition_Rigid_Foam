@@ -26,11 +26,13 @@ import os
 import streamlit as st
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     MetaData,
     String,
@@ -38,9 +40,12 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    event,
+    func,
+    select,
     text,
 )
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker, validates
 
 
 class _NoDeepCopyMixin:
@@ -4021,8 +4026,33 @@ class ProductionOutputSummary(Base):
     created_at = Column(DateTime, default=dt.datetime.utcnow)
     updated_at = Column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
 
+    # --- WP7 Phase 1 correction (Charlie's closeout review, 2026-08-14,
+    # item 2.2): "Controlled categories and output disposition need
+    # enforced validation." A DB-level CHECK constraint backs the
+    # accepted-write-path @validates below - see the matching correction
+    # on ProcessSettingDefinition.parameter_category. Applied additively
+    # to production/rigid_foam via the WP7 Phase 1 correction migration.
+    __table_args__ = (
+        CheckConstraint(
+            "disposition IS NULL OR disposition IN ('Released', 'Quarantined', 'Rejected', 'Rework')",
+            name="ck_production_output_summaries_disposition",
+        ),
+    )
+
     production_run = relationship("ProductionRun")
     unit = relationship("UnitOfMeasure")
+
+    @validates("disposition")
+    def _validate_disposition(self, key, value):
+        """WP7 Phase 1 correction (Charlie's closeout review, 2026-08-14,
+        item 2.2): writes outside PRODUCTION_OUTPUT_DISPOSITIONS must fail
+        through the accepted application/data write path (any ORM
+        attribute assignment), not just be provably storable."""
+        if value is not None and value not in PRODUCTION_OUTPUT_DISPOSITIONS:
+            raise ValueError(
+                f"disposition must be one of {PRODUCTION_OUTPUT_DISPOSITIONS} or None, got {value!r}"
+            )
+        return value
 
 
 # ---------------------------------------------------------------------------
@@ -4096,8 +4126,33 @@ class ProcessSettingDefinition(Base):
     # ProcessParameterValue rows or breaking their FK.
     active = Column(Boolean, default=True)
 
+    # --- WP7 Phase 1 correction (Charlie's closeout review, 2026-08-14,
+    # item 2.2): "Controlled categories and output disposition need
+    # enforced validation." DB-level CHECK constraint backs the
+    # accepted-write-path @validates below. Applied additively to
+    # production/rigid_foam via the WP7 Phase 1 correction migration.
+    __table_args__ = (
+        CheckConstraint(
+            "parameter_category IS NULL OR parameter_category IN "
+            "('Process Setting', 'Environment', 'Process Observation', 'Outcome', 'Other')",
+            name="ck_process_setting_definitions_parameter_category",
+        ),
+    )
+
     unit = relationship("UnitOfMeasure")
     production_method = relationship("ProductionMethod")
+
+    @validates("parameter_category")
+    def _validate_parameter_category(self, key, value):
+        """WP7 Phase 1 correction (Charlie's closeout review, 2026-08-14,
+        item 2.2): writes outside PROCESS_PARAMETER_CATEGORIES must fail
+        through the accepted application/data write path (any ORM
+        attribute assignment), not just be provably storable."""
+        if value is not None and value not in PROCESS_PARAMETER_CATEGORIES:
+            raise ValueError(
+                f"parameter_category must be one of {PROCESS_PARAMETER_CATEGORIES} or None, got {value!r}"
+            )
+        return value
 
 
 # ---------------------------------------------------------------------------
@@ -4150,6 +4205,35 @@ class ProcessSettingApplicability(Base):
     max_value_override = Column(Float)
     active = Column(Boolean, default=True)
 
+    # --- WP7 Phase 1 correction (Charlie's closeout review, 2026-08-14,
+    # item 2.1): "Applicability precedence needs same-scope integrity."
+    # eligible_process_settings() correctly applies Machine > Method >
+    # Global precedence, but nothing previously stopped two active rows
+    # existing for the same definition at the SAME scope (e.g. two active
+    # Global rows, or two active Method rows for the same method) - in
+    # that case the helper resolved the tie by arbitrary first-row
+    # selection. This partial/functional unique index enforces one active
+    # applicability row per (setting_definition_id, scope) - scope being
+    # the (production_method_id, machine_id) pair, with NULLs coalesced to
+    # a sentinel so Postgres/SQLite both treat two NULL/NULL (Global) rows
+    # as a collision rather than "not equal". Retired (active=False) rows
+    # are excluded, so soft-retiring one applicability and activating its
+    # replacement is unaffected. Expression-based partial unique indexes
+    # are supported by both Postgres and SQLite (3.9+), so this applies
+    # identically via Base.metadata.create_all() (tests/local SQLite) and
+    # the WP7 Phase 1 correction Supabase migration (production Postgres).
+    __table_args__ = (
+        Index(
+            "ix_psa_unique_active_scope",
+            setting_definition_id,
+            func.coalesce(production_method_id, -1),
+            func.coalesce(machine_id, -1),
+            unique=True,
+            sqlite_where=text("active = 1"),
+            postgresql_where=text("active = true"),
+        ),
+    )
+
     setting_definition = relationship("ProcessSettingDefinition")
     production_method = relationship("ProductionMethod")
     machine = relationship("Machine")
@@ -4196,6 +4280,41 @@ class ProcessParameterValue(Base):
     production_run = relationship("ProductionRun")
     production_cycle = relationship("ProductionCycle")
     production_shot = relationship("ProductionShot")
+
+
+# ---------------------------------------------------------------------------
+# WP7 Phase 1 correction (Charlie's closeout review, 2026-08-14, item 2.3):
+# "ProcessParameterValue UOM snapshot needs controlled derivation."
+# ProcessSettingDefinition.unit_id is the canonical UOM; ProcessParameterValue
+# .unit was a plain writable text column, so a caller could in principle
+# persist a snapshot unit that conflicts with the definition's controlled
+# UOM. This mapper-level hook re-derives (overwrites) the unit snapshot from
+# the definition's controlled UOM immediately before every insert/update,
+# regardless of what value was assigned - "ignored in favor of the
+# controlled definition", one of the three resolutions Charlie's review
+# explicitly accepts. Implemented as a mapper event rather than a
+# @validates hook because @validates fires at attribute-assignment time,
+# before setting_definition_id is necessarily known yet (kwarg order is not
+# guaranteed) and before a still-transient object can safely resolve its
+# relationship; a before_insert/before_update event fires once every
+# attribute on the instance is already set and the flush's Core connection
+# is available to resolve the controlled unit deterministically. No
+# migration needed - this is pure application logic, identical on SQLite
+# and Postgres.
+# ---------------------------------------------------------------------------
+@event.listens_for(ProcessParameterValue, "before_insert")
+@event.listens_for(ProcessParameterValue, "before_update")
+def _process_parameter_value_enforce_controlled_unit(mapper, connection, target):
+    if target.setting_definition_id is None:
+        target.unit = None
+        return
+    row = connection.execute(
+        select(UnitOfMeasure.symbol)
+        .select_from(ProcessSettingDefinition)
+        .outerjoin(UnitOfMeasure, ProcessSettingDefinition.unit_id == UnitOfMeasure.id)
+        .where(ProcessSettingDefinition.id == target.setting_definition_id)
+    ).first()
+    target.unit = row[0] if row else None
 
 
 # ---------------------------------------------------------------------------
