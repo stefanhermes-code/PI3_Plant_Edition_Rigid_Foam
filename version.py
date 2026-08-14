@@ -6096,4 +6096,117 @@ Root Cause, and Batch Release/report paths - proceeding next per
 Charlie's targeted closure gate.
 """
 
-APP_VERSION = "0.56.0"
+VERSION_0_57_0_NOTES = """
+WP7 Phase 4 targeted closure gate (2026-08-14) - per Charlie's Closeout
+Review Return to JC, this is the fourth and final targeted-completion
+item: "Complete the three material items above without reopening already
+accepted Phase 4 cutovers... Re-run the application-wide dependency scan.
+Include direct model reads such as ProductionPhase in addition to
+fixed-symbol searches... Run the full Rigid Foam regression with zero
+failures and zero skipped WP7 Phase 4 acceptance paths... Return a
+corrected Phase 4 closeout package with the new direct evidence and a
+consumer matrix reflecting the completed Trend, Root Cause and Batch
+Release/report paths."
+
+1. Re-ran the dependency scan app-wide, this time by grepping for the
+ProductionPhase model symbol directly (`grep -rn "ProductionPhase"`)
+across every .py file, not just PHASE_SETTING_FIELDS/PHASE_SETTING_LABELS
+references - the gap in the original Item 1 scan (task #981) that Charlie
+flagged. 13 files matched. Each was individually inspected and classified
+(full reasoning kept in tests/test_wp7_phase4_targeted_closure.py's module
+docstring and this app's returned closeout package):
+  - analytics.actual_usage_dataframe(): a genuine, previously-undetected
+    active dependency - FIXED (see 2 below).
+  - analytics.run_settings_dataframe(): still queries ProductionPhase for
+    PHASE_SETTING_FIELDS values, but both of its only 2 live callers
+    (pages/18_Root_Cause_Assistant.py's "most recent prior run" lookup,
+    analytics.merged_run_property_dataframe()'s settings-side join) use it
+    for identity columns only (run_id, run_date, recipe_version, machine,
+    production_method - all sourced from ProductionRun itself, never the
+    PHASE_SETTING_FIELDS value columns) - zero setting-value leakage into
+    any active consumer. Left unchanged: refactoring it further would mean
+    reopening the already-accepted Correlation (#978) and Root Cause
+    (#986) cutovers, which Charlie's closure gate instruction 1 explicitly
+    prohibits.
+  - pages/4_Production_Run_Trial_Record.py: the active authoring/write
+    path for ProductionPhase itself (Setup/Finalized capture, plus CSV
+    import matching an existing Finalized phase for continuity).
+    ProductionPhase is not retired as an entity in Phase 4, only as an
+    active-reader source for other consumers - this page's writes are
+    exactly what Phase 5 will eventually retire, not a Phase 4 concern.
+  - pages/9_Samples_Conditioning.py: reads ProductionPhase.phase_start
+    (twice, add + edit forms) purely as a sample-creation-time sanity
+    bound ("was this sample logged before the run even started") - not a
+    process-setting value, out of scope for the retired setting
+    architecture.
+  - cascades.py: cascade-delete cleanup (collects ProductionPhase ids for
+    a run being deleted, for referential integrity) - not a facts/settings
+    reader.
+  - legacy_migration.py: the intentional, designed-to-read-ProductionPhase
+    migration/backfill tool (backfill_component_stream_reading_run_ids()
+    and the process-setting migration functions) - by design, not a gap.
+  - demo_data.py, gen_uat015_019_live_pages.py: seed-data writers, not
+    consumers; the latter is a one-off UAT fixture generator not imported
+    by the live app.
+  - db.py: model/relationship definitions only.
+  - reports.py, pages/11_Customer_Trials.py,
+    pages/12_Optimization_Trials.py, pages/18_Root_Cause_Assistant.py:
+    comment-only references documenting the ProductionPhase-free reads
+    already in place (Items 1 and 2) - no live read.
+
+2. Fixed analytics.actual_usage_dataframe() (backing Recipe Optimization's
+material correlation, rank_component_actual_correlations()): it located
+each run's Finalized ProductionPhase first and only read
+ComponentStreamReading rows linked to that phase - the same class of live
+ProductionPhase dependency Item 1.3 already removed from Batch Release's
+build_batch_release_record_data(). Since pages/4's Material Metering
+capture UI was decoupled from ProductionPhase in WP7 Phase 2 ("a Finalized
+phase is no longer required first" - see that page's stream-import tab
+caption), any run metered under the current architecture with no
+Finalized ProductionPhase ever created for it was silently excluded from
+this correlation - a real data-completeness gap, not just an
+architectural-cleanliness one. Fixed the same way Item 1.3 fixed Batch
+Release: ComponentStreamReading is now queried directly by
+production_run_id (batch-loaded for all the grade's runs in one query,
+same N+1 fix pattern as before), never via a located ProductionPhase.
+
+Fixture correction: tests/test_recipe_optimization_baseline.py's and
+tests/test_wp4_recipe_optimization_page_smoke.py's shared
+_seed_run_with_metered_streams()/fixture helpers previously wrote
+ComponentStreamReading rows with only production_phase_id set (valid
+under the pre-correction reader, but not what pages/4 actually writes
+today) - updated to also set production_run_id, matching the real write
+path and the corrected reader. Confirmed this was the only fixture shape
+affected: every other ComponentStreamReading-seeding test either already
+sets production_run_id (test_wp7_phase4_batch_release_cutover.py), or
+exercises the model/backfill layer directly rather than
+actual_usage_dataframe() (test_wp7_phase1_method_aware_schema.py,
+test_wp7_phase3_reconciliation.py, test_cr11_functional_evidence_group_d.py).
+
+New/updated tests: tests/test_wp7_phase4_targeted_closure.py - 2 new
+tests: direct evidence that actual_usage_dataframe() surfaces a
+production_run_id-linked reading for a run with zero ProductionPhase rows
+at all (mirroring Item 1.3's Batch Release proof), plus a backward-
+compatibility check that a reading carrying both production_run_id and a
+legacy production_phase_id is still found (only production_run_id drives
+the read). tests/test_cr18_product_family_terminology.py's
+ALLOWED_FOAM_FAMILY_HITS allowlist updated for the resulting analytics.py
+line-number shift (mechanical maintenance - the corrected function's
+docstring grew by ~10 net lines, shifting the one hit below it from
+analytics.py:1996 to analytics.py:2006; no other behavior change).
+
+Full regression: 560 passed, 0 skipped, 0 failed (pytest-xdist -n 4).
+
+WP7 Phase 4 closure: all three material items (Batch Release/report
+contract, Root Cause Assistant context, Trend Analysis method-aware path)
+plus this targeted closure gate (re-run scan, one additional gap found
+and fixed, full regression clean) are now complete. Corrected closeout
+package with direct evidence and consumer matrix delivered to Stefan/
+Charlie alongside this version. Phase 5 (retiring ProductionPhase as an
+active machine-setting structure) can proceed on the basis that this
+scan found zero remaining active downstream dependency on the retired
+ProductionPhase setting architecture, with the classification above
+recorded as the evidence trail.
+"""
+
+APP_VERSION = "0.57.0"

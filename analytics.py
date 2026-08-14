@@ -1821,21 +1821,47 @@ def recipe_version_diff(version_a, version_b):
 @st.cache_data(ttl=_DATA_CACHE_TTL, show_spinner=False)
 def actual_usage_dataframe(_session, foam_grade_id=None, production_method_id=None):
     """One row per (production run, raw-material stream): that stream's
-    actual delivered quantity for the run's Finalized phase, re-expressed as
-    an actual-php-equivalent using the run's own Base-polyol stream reading
-    as the 100-parts basis - the same convention every planned recipe uses,
+    actual delivered quantity for the run, re-expressed as an actual-php-
+    equivalent using the run's own Base-polyol stream reading as the
+    100-parts basis - the same convention every planned recipe uses,
     computed here from what the flow meters actually measured for that one
-    batch instead of from the recipe. Runs with no Finalized-phase stream
-    readings, or with no identifiable Base-polyol reading to normalize
-    against, are skipped rather than guessed at. `foam_grade_id` accepts a
-    single id or a list of ids (a foam family's grades pooled together).
+    batch instead of from the recipe. Runs with no metered stream readings,
+    or with no identifiable Base-polyol reading to normalize against, are
+    skipped rather than guessed at. `foam_grade_id` accepts a single id or
+    a list of ids (a foam family's grades pooled together).
 
-    Cached (see _DATA_CACHE_TTL) and batch-loads this grade's Finalized
-    phases and their stream readings in two queries total instead of one
-    query per run plus one query per phase - fixed 2026-08-02, same N+1
-    pattern as run_settings_dataframe/property_results_dataframe above.
-    Logs its own duration to PerformanceLog on every call (see
-    _log_performance) - only runs at all on a cache miss."""
+    WP7 Phase 4 targeted-completion correction (2026-08-14, Charlie's
+    Closeout Review Return to JC, targeted closure gate instruction 2 -
+    "Include direct model reads such as ProductionPhase in addition to
+    fixed-symbol searches"): this function previously located each run's
+    Finalized ProductionPhase first and only read ComponentStreamReading
+    rows linked to that phase (production_phase_id) - a direct
+    ProductionPhase model read that the original Item-1/fixed-symbol scan
+    missed because it doesn't touch PHASE_SETTING_FIELDS/PHASE_SETTING_
+    LABELS at all. pages/4_Production_Run_Trial_Record.py's Material
+    Metering capture UI was decoupled from ProductionPhase back in WP7
+    Phase 2 ("a Finalized phase is no longer required first" - see that
+    page's stream-import tab caption) and always writes production_run_id
+    directly, so a run metered under the current architecture with no
+    Finalized ProductionPhase ever created for it was silently excluded
+    here - the same class of bug Item 1.3 already fixed for Batch
+    Release's build_batch_release_record_data(). Fixed the same way:
+    ComponentStreamReading is now queried directly by production_run_id
+    (backfilled onto every historical row by legacy_migration.py's
+    backfill_component_stream_reading_run_ids() during WP7 Phase 3), never
+    via a located ProductionPhase. See
+    tests/test_wp7_phase4_targeted_closure.py for the direct-evidence
+    proof: a ComponentStreamReading with production_phase_id left NULL for
+    a run that has zero ProductionPhase rows at all still surfaces here.
+
+    Cached (see _DATA_CACHE_TTL) and batch-loads this grade's runs' stream
+    readings in one query instead of one query per run - originally fixed
+    2026-08-02 against the N+1 pattern shared with run_settings_dataframe/
+    property_results_dataframe above; the ProductionPhase indirection
+    removed in this correction was itself a second, smaller N+1-shaped
+    query this batch load no longer needs. Logs its own duration to
+    PerformanceLog on every call (see _log_performance) - only runs at all
+    on a cache miss."""
     _t0 = time.perf_counter()
     q = _session.query(ProductionRun).options(
         joinedload(ProductionRun.recipe_version).joinedload(RecipeVersion.components)
@@ -1848,35 +1874,19 @@ def actual_usage_dataframe(_session, foam_grade_id=None, production_method_id=No
     runs = q.all()
 
     run_ids = [run.id for run in runs]
-    phase_by_run = {}
+    readings_by_run = {}
     if run_ids:
-        phases = (
-            _session.query(ProductionPhase)
-            .filter(
-                ProductionPhase.production_run_id.in_(run_ids),
-                ProductionPhase.phase_name == "Finalized",
-            )
-            .all()
-        )
-        phase_by_run = {p.production_run_id: p for p in phases}
-
-    readings_by_phase = {}
-    phase_ids = [p.id for p in phase_by_run.values()]
-    if phase_ids:
         all_readings = (
             _session.query(ComponentStreamReading)
-            .filter(ComponentStreamReading.production_phase_id.in_(phase_ids))
+            .filter(ComponentStreamReading.production_run_id.in_(run_ids))
             .all()
         )
         for r in all_readings:
-            readings_by_phase.setdefault(r.production_phase_id, []).append(r)
+            readings_by_run.setdefault(r.production_run_id, []).append(r)
 
     rows = []
     for run in runs:
-        phase = phase_by_run.get(run.id)
-        if phase is None:
-            continue
-        readings = readings_by_phase.get(phase.id, [])
+        readings = readings_by_run.get(run.id, [])
         if not readings:
             continue
 

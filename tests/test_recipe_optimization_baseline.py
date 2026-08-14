@@ -149,8 +149,21 @@ def _seed_run_with_metered_streams(session, grade, plant, machine, recipe, run_d
     phase = db.ProductionPhase(production_run_id=run.id, phase_name="Finalized")
     session.add(phase); session.flush()
     # Base polyol reading fixed at 100 -> additive's actual_php_equivalent == its own flow_total_qty.
-    session.add(db.ComponentStreamReading(production_phase_id=phase.id, stream_name="Polyol A", flow_total_qty=100.0))
-    session.add(db.ComponentStreamReading(production_phase_id=phase.id, stream_name="Additive X", flow_total_qty=additive_php))
+    # WP7 Phase 4 targeted-completion correction (2026-08-14): also set
+    # production_run_id directly, not just production_phase_id - since
+    # analytics.actual_usage_dataframe() now reads ComponentStreamReading
+    # exclusively by production_run_id (the same ProductionPhase-free
+    # pattern Item 1.3 already applied to Batch Release), matching what
+    # pages/4's own Material Metering capture UI actually writes today.
+    # The ProductionPhase row above is still seeded/kept for realism (a
+    # Finalized phase legitimately coexists with metering on a real run)
+    # but is no longer what makes these readings findable.
+    session.add(db.ComponentStreamReading(
+        production_run_id=run.id, production_phase_id=phase.id, stream_name="Polyol A", flow_total_qty=100.0,
+    ))
+    session.add(db.ComponentStreamReading(
+        production_run_id=run.id, production_phase_id=phase.id, stream_name="Additive X", flow_total_qty=additive_php,
+    ))
     session.add(db.PhysicalPropertyResult(
         production_run_id=run.id, property_name="Density", target_value=25.0, actual_value=outcome_value, unit="kg/m3",
     ))

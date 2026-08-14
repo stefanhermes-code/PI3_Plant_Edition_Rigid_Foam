@@ -95,8 +95,12 @@ def seeded_flexible_only():
     session.add(run); session.flush()
     phase = db.ProductionPhase(production_run_id=run.id, phase_name="Finalized")
     session.add(phase); session.flush()
-    session.add(db.ComponentStreamReading(production_phase_id=phase.id, stream_name="Polyol A", flow_total_qty=100.0))
-    session.add(db.ComponentStreamReading(production_phase_id=phase.id, stream_name="Additive X", flow_total_qty=5.0))
+    # production_run_id set directly (WP7 Phase 4 targeted-completion
+    # correction, 2026-08-14): analytics.actual_usage_dataframe() now reads
+    # ComponentStreamReading exclusively by production_run_id, never via a
+    # located ProductionPhase - matching pages/4's actual write path.
+    session.add(db.ComponentStreamReading(production_run_id=run.id, production_phase_id=phase.id, stream_name="Polyol A", flow_total_qty=100.0))
+    session.add(db.ComponentStreamReading(production_run_id=run.id, production_phase_id=phase.id, stream_name="Additive X", flow_total_qty=5.0))
     session.add(db.PhysicalPropertyResult(production_run_id=run.id, property_name="Density", target_value=25.0, actual_value=25.5, unit="kg/m3"))
     session.commit()
     session.close()

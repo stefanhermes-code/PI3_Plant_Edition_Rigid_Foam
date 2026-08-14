@@ -168,10 +168,22 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # 16_Trend_Analysis.py also gained ~110 lines (the new "What to trend"
     # radio branch and its setup-section restructuring), shifting its own
     # two pre-existing hits down in turn.
+    # Shifted an eleventh time (2026-08-14), by the WP7 Phase 4 targeted
+    # closure gate's re-run dependency scan (Charlie's Closeout Review
+    # Return to JC, targeted closure gate instruction 2): the scan's
+    # direct-model-read pass (not just fixed-symbol) found analytics.
+    # actual_usage_dataframe() still routed through a located
+    # ProductionPhase to reach ComponentStreamReading - the same class of
+    # gap Item 1.3 already fixed for Batch Release. Its docstring gained a
+    # ~20-line correction paragraph explaining the fix (net +10 lines after
+    # also trimming the now-stale "Finalized phase"/N+1 wording it
+    # replaced), pushing only the one hit below it (previously
+    # analytics.py:1996) down to analytics.py:2006. Every hit above this
+    # function's docstring is unaffected.
     ("analytics.py", 15), ("analytics.py", 173), ("analytics.py", 307),
     ("analytics.py", 321), ("analytics.py", 652), ("analytics.py", 904),
     ("analytics.py", 1172), ("analytics.py", 1310), ("analytics.py", 1831),
-    ("analytics.py", 1996),
+    ("analytics.py", 2006),
     ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 228), ("pages/16_Trend_Analysis.py", 411),
