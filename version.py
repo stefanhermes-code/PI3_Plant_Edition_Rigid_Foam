@@ -6531,4 +6531,93 @@ Production Run UI confirmation (this batch) complete. Remaining sub-tasks
 closeout) continue under the same accepted disposition plan.
 """
 
-APP_VERSION = "0.61.0"
+VERSION_0_62_0_NOTES = """
+WP7 Phase 5 (2026-08-15): end-to-end UAT + downstream consumer verification,
+against the contract's acceptance matrix items A5-04 through A5-07.
+
+Method: rather than assume the large existing test suite (571 tests
+inherited from earlier WP7 phases) already proved every acceptance item, a
+dedicated coverage audit was run first, checking each of A5-04/A5-05/A5-06/
+A5-07 against exact existing test file/function names and grep evidence
+before writing anything new. Result: A5-05 (Downstream UAT - Overview,
+Batch Release, reports, PI3, Root Cause, Trend, Correlation, Optimization)
+was found fully COVERED by the existing test_wp7_phase4_*_cutover.py suite
+plus test_wp7_phase5_migration_cleanup.py - zero remaining direct
+ProductionPhase reads in any of those consumers, no new test needed. Three
+real gaps were found and closed:
+
+A5-06 (Delete/cascade integrity) - cascades.py's
+delete_production_run_cascade() had only ever been exercised in this
+suite against a run seeded with ZERO dependents (proving only that the
+ProductionRun row itself disappears). The function's own logic was
+correct (confirmed by direct code review: it deletes ProcessParameterValue
+filtered on production_run_id, which does cover the new Environment/
+Outcome Actual rows added in v0.61.0's Observations block), but nothing
+proved it. New test
+test_cascade_delete_removes_all_dependent_records_including_environment_outcome_actuals
+seeds a run with a dependent row in every child table the function
+touches - both Method-Aware and Environment/Outcome ProcessParameterValue
+rows, both direct-to-run and phase-linked ComponentStreamReading,
+ProductionEvent, ProductionOutputSummary, ProductionPhase,
+RuntimeDataRecord, Sample, and a ProductionCycle/ProductionShot pair with
+its own cycle-linked ProcessParameterValue row - and proves every one is
+gone after cascade delete, while unrelated master data (the
+ProcessSettingDefinition rows themselves) survives.
+
+A5-07 (Imports/exports) - the Component Stream Reading CSV import
+(pages/4, tab_import under Stream Reading) accepted ANY string for
+flow_unit and silently defaulted blank/garbage alike toward "kg/min" -
+the manual create/edit forms have always constrained this to the
+controlled 2-value list. Extracted that list into a new module-level
+STREAM_FLOW_UNIT_OPTIONS constant (replacing 3 separate inline literals),
+and added import-path validation: a row with a flow_unit outside the
+controlled list is now flagged/rejected exactly like an unknown
+production_run_id or missing stream_name, surfaced in the same
+"flagged/rejected" table and warning banner. A blank flow_unit still
+defaults to the first controlled option, unchanged (a real usability
+default, not a gap). New test
+test_stream_reading_csv_import_rejects_invalid_flow_unit proves a
+3-row CSV (valid unit / invalid unit / blank unit) imports exactly the
+2 valid rows with correct flow_unit values, rejecting the invalid one -
+this test also caught and fixed a real bug in the write path itself
+(pandas' NaN for a blank CSV cell is truthy in Python, so the original
+`str(x) or default` idiom wrote the literal string "nan" instead of
+defaulting - fixed with an explicit pd.notna() check).
+
+A5-04 (Production Run UAT) - two sub-gaps: (1) the v0.61.0 Observations
+(Environment & Outcome) block's own zero-vs-NULL "Record" checkbox
+convention had never been exercised with an actual zero value (only a
+non-zero 42.5 was tested) or with the checkbox left unset - both are now
+covered by test_observations_zero_value_persists_as_numeric_zero_not_blank
+and test_observations_unchecked_record_checkbox_leaves_value_unset,
+mirroring the same proof already established for the Method-Aware tab in
+WP7 Phase 2's closeout correction. (2) no single test walked run context
+-> Method-Aware settings -> output -> metering -> events -> observations
+for one run in one place - existing coverage was piecemeal across 4
+different test files. New test
+test_production_run_full_lifecycle_end_to_end seeds one run with data in
+every one of those categories and proves the whole page loads without
+exception and each category's data actually renders (not just "no
+crash") - closing that specific "no single end-to-end test" gap while the
+piecemeal per-tab tests remain the more detailed proof for each area.
+
+New file tests/test_wp7_phase5_uat_evidence.py (5 tests, all passing;
+each test's own docstring cites exactly which acceptance-matrix gap it
+closes and why).
+
+Full regression: 576 passed, 0 skipped, 0 failed, 16 warnings (pytest-xdist
+-n 4; a single unrelated xdist-ordering flake in
+test_wp6s09_rigid_sample_dimension_fields.py appeared on one run and
+passed cleanly on an immediate full-suite rerun and in isolation - the
+same pre-existing test-isolation characteristic already disclosed in the
+v0.61.0 changelog, not a regression from this batch). Warnings are the
+same pre-existing SQLAlchemy Query.get() legacy-API deprecation notices as
+prior releases.
+
+WP7 Phase 5 status: active code retirement, migration cleanup, Production
+Run UI confirmation, and end-to-end UAT/downstream verification (this
+batch) all complete. Remaining sub-task: release hardening (final
+dependency scan re-run, full regression, release note, closeout package).
+"""
+
+APP_VERSION = "0.62.0"

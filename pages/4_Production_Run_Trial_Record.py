@@ -216,6 +216,14 @@ RUNTIME_OPTIONAL_COLUMNS = SETUP_OPTIONAL_COLUMNS
 # Setup (which is the planned/configured snapshot before the run starts).
 # phase_name is therefore not part of the import contract; the Finalized
 # phase for the run is resolved automatically.
+# Controlled vocabulary for flow_unit, shared by the manual create/edit
+# forms and the CSV/Excel import validation below (WP7 Phase 5, A5-07:
+# run-linked imports must use canonical field semantics and controlled
+# UOMs - the import path previously accepted any string here and silently
+# defaulted to "kg/min", which is a validation gap the manual form never
+# had).
+STREAM_FLOW_UNIT_OPTIONS = ["kg/min", "L/min"]
+
 STREAM_REQUIRED_COLUMNS = ["production_run_id", "stream_name"]
 STREAM_OPTIONAL_COLUMNS = [
     "flow_unit", "flow", "pump_speed", "flow_total_qty", "pressure_bar", "temperature_c",
@@ -1431,7 +1439,7 @@ with tab_streams:
                             "Stream / raw material name *", value=sel_stream.stream_name,
                             key=f"edit_stream_name_{sel_stream.id}",
                         )
-                        flow_unit_options = ["kg/min", "L/min"]
+                        flow_unit_options = STREAM_FLOW_UNIT_OPTIONS
                         flow_unit_idx = (
                             flow_unit_options.index(sel_stream.flow_unit)
                             if sel_stream.flow_unit in flow_unit_options else 0
@@ -1548,7 +1556,7 @@ with tab_streams:
                 stream_other = st.text_input(
                     "Or type a stream not in the recipe (e.g. blended stream, process air, water addition)"
                 )
-                flow_unit = st.selectbox("Flow unit", ["kg/min", "L/min"])
+                flow_unit = st.selectbox("Flow unit", STREAM_FLOW_UNIT_OPTIONS)
                 c1, c2, c3, c4 = st.columns(4)
                 flow = c1.number_input("Flow", min_value=0.0, step=0.1)
                 pump_speed = c2.number_input(
@@ -1628,7 +1636,10 @@ with tab_streams:
                         good_rows, bad_rows, resolved_phase_ids = [], [], []
                         for _, row in df.iterrows():
                             run_id_val = row.get("production_run_id")
-                            if run_id_val in valid_run_ids and row.get("stream_name"):
+                            raw_flow_unit = row.get("flow_unit")
+                            flow_unit_val = str(raw_flow_unit).strip() if pd.notna(raw_flow_unit) else ""
+                            flow_unit_ok = not flow_unit_val or flow_unit_val in STREAM_FLOW_UNIT_OPTIONS
+                            if run_id_val in valid_run_ids and row.get("stream_name") and flow_unit_ok:
                                 good_rows.append(row)
                                 match = finalized_by_run.get(run_id_val)
                                 resolved_phase_ids.append(match.id if match else None)
@@ -1638,7 +1649,10 @@ with tab_streams:
                         st.write(f"Rows ready to import: **{len(good_rows)}** | Rows flagged/rejected: **{len(bad_rows)}**")
                         if bad_rows:
                             st.warning(
-                                "Flagged rows reference an unknown production_run_id, or are missing stream_name."
+                                "Flagged rows reference an unknown production_run_id, are missing "
+                                "stream_name, or give a flow_unit outside the controlled list ("
+                                + ", ".join(STREAM_FLOW_UNIT_OPTIONS) + " - leave blank to default to "
+                                + STREAM_FLOW_UNIT_OPTIONS[0] + ")."
                             )
                             render_data_table(pd.DataFrame(bad_rows), max_height="300px")
 
@@ -1670,7 +1684,10 @@ with tab_streams:
                                         production_run_id=int(row["production_run_id"]),
                                         production_phase_id=phase_id,
                                         stream_name=str(row["stream_name"]),
-                                        flow_unit=str(row.get("flow_unit", "") or "kg/min"),
+                                        flow_unit=(
+                                            str(row.get("flow_unit")).strip()
+                                            if pd.notna(row.get("flow_unit")) else ""
+                                        ) or STREAM_FLOW_UNIT_OPTIONS[0],
                                         flow=row.get("flow"),
                                         pump_speed=row.get("pump_speed"),
                                         flow_total_qty=row.get("flow_total_qty"),
