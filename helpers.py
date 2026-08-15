@@ -376,8 +376,11 @@ def activated_methods_for_plant(session, plant_id):
 
 def method_activatable_by_customer(method):
     """Only Production Methods with is_released=True may be activated for a
-    plant - at the Phase 1 baseline that's PM-100 only, per Charlie's
-    maturity/release table (see ProductionMethod's own docstring in db.py).
+    plant - as of CR-21 (2026-08-15) that's PM-100 and PM-800, per
+    Charlie's maturity/release table (see ProductionMethod's own docstring
+    in db.py). This function itself is intentionally count-independent -
+    it reads only method.is_released, never a hardcoded method count or
+    ID - so any future release-state change needs no code change here.
     A pure function (no DB/session access) so it's trivial to unit-test.
 
     CR-04 step 6 (2026-08-10) originally exempted the platform-owner company

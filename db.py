@@ -2300,10 +2300,10 @@ class Chemistry(Base):
 
 class ProductionMethod(Base):
     """Charlie's PM-* vocabulary - the controlled, customer-facing
-    Production Method identities (PM-100 through PM-700). Drives which
-    ProcessSettingDefinition rows apply (method-aware settings, see WP3e
-    below) and which equipment hierarchy makes sense for a given
-    Machine/ProductionUnit.
+    Production Method identities (PM-100 through PM-800 as of CR-21, see
+    below). Drives which ProcessSettingDefinition rows apply (method-aware
+    settings, see WP3e below) and which equipment hierarchy makes sense
+    for a given Machine/ProductionUnit.
 
     Flat Production Method model (2026-08-10, per Charlie's technical
     completion instruction, superseding the 2026-08-09 parent/child
@@ -2315,17 +2315,33 @@ class ProductionMethod(Base):
     Charlie's explicit instruction the next day reversed that design
     ("This is a flat Production Method level under Plant. Do not create
     parent/child Production Method levels.") and supplied the
-    permanent 7-code controlled vocabulary below. parent_method_id was
+    permanent controlled vocabulary below. parent_method_id was
     dropped from the schema and every row was replaced/remapped - see
     version.py's changelog entry for this batch for the full old-code
     to new-code mapping. Process variants (what the old leaf codes
     captured) now live as method-specific configuration/data beneath
     the relevant flat Production Method, not as separate controlled
-    IDs. The 7 permanent codes: PM-100 Discontinuous Factory Foaming,
-    PM-200 Continuous Panel & Board Production, PM-300 Field Cavity
-    Foaming, PM-400 Spray Foam Application, PM-500 Free-Rise Rigid
-    Block Production, PM-600 Pre-Insulated Pipe & Vessel Foaming,
-    PM-700 Structural & Composite Rigid Foam Processing.
+    IDs.
+
+    CR-21 (2026-08-15, Production Method Master Revision and PM-800
+    Addition, Architecture Freeze AF21-01) added an eighth permanent code
+    and renamed three existing ones - see cr21_pm_migration.py for the
+    idempotent migration logic. The 8 permanent codes as of CR-21: PM-100
+    Discontinuous Panel & Board Production (renamed from "Discontinuous
+    Factory Foaming" - narrowed to exclude appliance/cavity work, which
+    moved to PM-800), PM-200 Continuous Panel & Board Production, PM-300
+    Field Cavity Foaming, PM-400 Spray Foam Application, PM-500 Rigid
+    Block Production (renamed from "Free-Rise Rigid Block Production" -
+    name only, technical behavior unchanged), PM-600 Pre-insulated Pipe
+    Processing (renamed from "Pre-Insulated Pipe & Vessel Foaming" -
+    scope narrowed to pipe-only; zero live vessel-scoped data existed at
+    migration time, so no reconciliation was required), PM-700 Structural
+    & Composite Rigid Foam Processing, PM-800 Discontinuous Appliance &
+    Cavity Foaming (new - factory-based discontinuous rigid PUR/PIR
+    foaming of enclosed appliance/component cavities: refrigerator/
+    freezer cabinets and doors, commercial refrigeration equipment,
+    water-heater insulation, and comparable factory-filled enclosed
+    assemblies).
 
     maturity_status / is_released (added 2026-08-10, per Charlie's
     "Database Reset and Clean UAT Baseline" instruction, item 5 and
@@ -2334,15 +2350,15 @@ class ProductionMethod(Base):
     available for a real customer to activate. maturity_status is the
     free-text label shown to engineering/Charlie ("Released",
     "Defined / planned", "Placeholder"); is_released is the boolean
-    gate the UI actually enforces. At the Phase 1 baseline only PM-100
-    has is_released=True; PM-200 through PM-700 are defined/placeholder
-    and NOT activatable by anyone - for any company, including HTC
-    Global - until a future release decision. CR-04 originally exempted
-    the platform-owner company from this gate for its own UAT/reference
-    activation; CR-06 (Production Method Release-Gate Enforcement and
-    Platform-Owner Bypass Removal, 2026-08-11) removed that exemption
-    after a UAT finding showed it let unreleased methods get written
-    into live plant configuration - see
+    gate the UI actually enforces. As of CR-21, PM-100 and PM-800 have
+    is_released=True; PM-200, PM-300, PM-400, PM-500, PM-600, and PM-700
+    are defined/placeholder and NOT activatable by anyone - for any
+    company, including HTC Global - until a future release decision.
+    CR-04 originally exempted the platform-owner company from this gate
+    for its own UAT/reference activation; CR-06 (Production Method
+    Release-Gate Enforcement and Platform-Owner Bypass Removal,
+    2026-08-11) removed that exemption after a UAT finding showed it let
+    unreleased methods get written into live plant configuration - see
     helpers.method_activatable_by_customer and
     pages/30_Production_Methods.py."""
 

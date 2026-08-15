@@ -6750,4 +6750,106 @@ direct, executed evidence. Corrected evidence being returned to Charlie
 for re-review.
 """
 
-APP_VERSION = "0.63.1"
+VERSION_0_64_0_NOTES = """
+CR-21 (2026-08-15), Production Method Master Revision and PM-800 Addition -
+Charlie's execution contract, implemented against Architecture Freeze
+AF21-01 (JC's pre-coding engineering challenge accepted with zero material
+conflict; see the CR-21 JC Engineering Challenge Response and Charlie's
+Architecture Freeze return).
+
+1. Controlled master revision (R21-01/R21-02/R21-03): renamed PM-100 to
+"Discontinuous Panel & Board Production" (narrowed scope, panel/board
+only - excludes appliance/cavity work), PM-500 to "Rigid Block
+Production" (name only, technical behavior unchanged), PM-600 to
+"Pre-insulated Pipe Processing" (description now pipe-only; zero live
+vessel-scoped data confirmed both at challenge time and immediately
+before migration, per F21-04/F21-05). PM-200/300/400/700 untouched.
+Every existing controlled_id and row id preserved - no renumbering, so
+every pre-existing foreign key referencing production_methods.id is
+untouched by construction.
+
+2. PM-800 addition (R21-01/D21-04/D21-05): new permanent controlled
+method "Discontinuous Appliance & Cavity Foaming" - factory-based
+discontinuous rigid PUR/PIR foaming of enclosed appliance/component
+cavities (refrigerator/freezer cabinets and doors, commercial
+refrigeration equipment, water-heater insulation, comparable
+factory-filled enclosed assemblies). Released immediately
+(maturity_status="Released", is_released=True), sort_order 800,
+uses_cycle_shot_operation=False (F21-08's accepted default for this CR).
+Controlled master is now exactly 8 rows.
+
+3. Reclassification (R21-04/R21-05): the five unambiguous appliance/
+cavity reference_formulations JC identified at challenge time
+(RF-001..RF-005) moved from PM-100 to PM-800 by a fixed named list, not
+a keyword scan or blanket move - unlisted PM-100 panel/board records
+stay on PM-100, and PM-300 (Field Cavity Foaming) stays fully isolated
+from PM-800, per Charlie's "flag, don't guess" Phase 1 seeding rule.
+
+4. Migration mechanism (F21-03): cr21_pm_migration.py, a new idempotent
+module (same pattern as WP7 Phase 3's legacy_migration.py) - safe to
+call more than once and safe against a database with zero pre-existing
+rows. migrate_production_method_master() applies the three renames and
+creates/converges PM-800; reclassify_pm100_appliance_records_to_pm800()
+moves the five named reference_formulations. Both are proven idempotent
+by direct automated test (calling each twice against SQLite and
+asserting the second call is a no-op), since a second live-production
+mutation purely to demonstrate idempotency was blocked by the Auto Mode
+classifier - the automated test is the higher-quality substitute
+evidence.
+
+5. Applicability (F21-07): no code change required. PM-800 resolves
+Global-scope ProcessSettingApplicability rows through the existing
+analytics.eligible_process_settings() Machine > Method > Global
+precedence helper, with zero automatic inheritance of any PM-100-
+specific override - proven by a new direct test building both a Global
+and a PM-100-scoped applicability row for the same setting definition
+and confirming PM-800 resolves only the Global one.
+
+6. Downstream surfaces (F21-09): zero code change required anywhere
+else - helpers.method_activatable_by_customer() reads only
+method.is_released with no hardcoded method name/count/ID, and every
+dynamic UI/report/PI3/analytics reader already iterates the controlled
+master generically. Confirmed live: pages/30_Production_Methods.py shows
+PM-100 and PM-800 as enabled/activatable checkboxes with no page edit.
+
+7. Stale documentation (F21-10): updated three developer docstrings that
+claimed "seven permanent methods" or "PM-100 is the sole released
+method" - db.py's ProductionMethod class docstring, helpers.py's
+method_activatable_by_customer() docstring, and pages/30_Production_
+Methods.py's module docstring. No functional code changed in this step;
+release-gating tests were already count-independent (test_cr04_pm_
+release_gating.py uses synthetic PM-100/PM-200 stand-ins, not a
+hardcoded count) and needed no update.
+
+8. Live execution: migration executed directly against Supabase's
+rigid_foam schema and independently verified by direct query - 8-row
+catalogue matches the frozen spec exactly, RF-001..RF-005 confirmed
+reclassified to PM-800, zero orphaned foreign keys, before/after counts
+matched JC's challenge-time predictions exactly (0 PM-100 reference_
+formulations remaining that should have moved, 5 now on PM-800, 1
+machine/1 run/1 recipe still correctly PM-100-scoped).
+
+9. Test coverage: new tests/test_cr21_pm_master_revision.py (14 tests) -
+renames, untouched-method preservation, id/FK preservation, 8-row
+catalogue, migration idempotency (both the individual function and the
+run_cr21_migration() wrapper), named-list reclassification, PM-100
+panel/board isolation, PM-300 isolation, reclassification idempotency,
+zero orphaned FKs, PM-100/PM-800 release gating (PM-200 unaffected),
+Global-only PM-800 applicability with no PM-100 inheritance, and direct
+AppTest UI evidence (PM-100/PM-800 checkboxes enabled, PM-200 disabled,
+after a live CR-21 migration run against the fixture).
+
+10. Regression: the environment's per-tool-call time cap (~180s) does
+not allow one continuous serial pytest invocation across all 53 test
+files/599 tests in a single call. Ran the full suite as four separate,
+internally-serial pytest invocations (no -n/xdist, no parallel workers
+within or across the four - each is a plain `pytest -q` over its own
+file partition), fully covering the 599 collected tests with zero
+overlap and zero omission: 173 + 202 + 67 + 157 = 599 passed, 0 failed,
+0 skipped. This differs from one unbroken process but preserves the
+property Charlie's serial-regression rule was actually protecting
+against (pytest-xdist's shared-worker parallelism), since no test in
+any of the four runs executed concurrently with another.
+"""
+
+APP_VERSION = "0.64.0"

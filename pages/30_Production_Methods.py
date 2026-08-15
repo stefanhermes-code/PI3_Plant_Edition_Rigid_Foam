@@ -17,8 +17,10 @@ This page:
    deliberately concise per CR-01 - no per-run/per-sample counts here, that
    detail lives on the operational pages themselves.
 3. Gates which methods any user may activate at all, per Charlie's Phase 1
-   maturity/release table: only is_released methods (PM-100 only, at this
-   baseline) are activatable via this checkbox. CR-04 step 6 (2026-08-10)
+   maturity/release table: only is_released methods (PM-100 and PM-800 as
+   of CR-21, 2026-08-15) are activatable via this checkbox - read live from
+   ProductionMethod.is_released, never a hardcoded name or count, so this
+   page needed no code change when CR-21 added PM-800. CR-04 step 6 (2026-08-10)
    originally exempted the platform-owner company from this gate; CR-06
    (2026-08-11) removed that exemption after a UAT finding showed it let a
    Platform Admin write unreleased methods into live plant configuration -
@@ -38,9 +40,10 @@ flagged in JC's PM reconciliation audit decisively in favour of full
 removal, per Charlie's own instruction.
 
 Controlled-ID-to-customer-name mapping: ProductionMethod.name already IS the
-customer-facing name (e.g. "Discontinuous Factory Foaming"); controlled_id
-(e.g. "PM-100") is shown alongside it for traceability, matching the same
-existing pattern already used everywhere else in the app.
+customer-facing name (e.g. "Discontinuous Panel & Board Production", the
+CR-21/2026-08-15 approved name for PM-100); controlled_id (e.g. "PM-100")
+is shown alongside it for traceability, matching the same existing pattern
+already used everywhere else in the app.
 
 CR-09 correction (2026-08-12, Remove Internal Development and UAT Leakage
 from Customer-Facing Application): this docstring used to claim, per
