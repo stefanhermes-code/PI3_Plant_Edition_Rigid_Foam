@@ -6209,4 +6209,96 @@ ProductionPhase setting architecture, with the classification above
 recorded as the evidence trail.
 """
 
-APP_VERSION = "0.57.0"
+VERSION_0_58_0_NOTES = """
+WP7 Phase 4 Root Cause Assistant FINAL targeted completion (2026-08-15),
+per Charlie's "WP7 Phase 4 Corrected Closeout Review - Return to JC"
+document: the v0.57.0 corrected closeout package (commit cc253d7,
+targeted closure gate) was returned OPEN with one remaining material item
+against Root Cause Assistant (Item 2's original scope): (1) no dedicated
+current-run Process Setting Planned-vs-Actual context distinct from the
+existing run-vs-prior-run shift comparison, and (2) the "Use PI3"
+hypothesis prompt only ever received COUNTS of recorded facts (e.g. "3
+material metering reading(s) recorded"), never the actual recorded
+values, so PI3 could not reason about specifics.
+
+Both gaps closed:
+
+1. reports.py: added current_run_process_setting_rows(session, run_id) -
+reuses _process_parameter_report_rows(session, run_id)'s existing
+"Process Setting" bucket (Item 1's definition-driven, per-run reader,
+Parameter/Category/Planned/Actual/Delta/UOM/Limit/Conformance shape) -
+never re-derived. This is a CURRENT-RUN Planned-vs-Actual view, kept
+deliberately separate from the page's existing run-vs-prior-run shift
+comparison (analytics.production_run_parameter_dataframe's multi-run
+form, which only ever carries Actual - by design, Planned never
+substitutes for a missing Actual - so that comparison alone cannot show
+what THIS run's own Planned target was).
+
+pages/18_Root_Cause_Assistant.py: renders this as a new "Current run -
+Process Setting (Planned vs. Actual)" table immediately before the
+existing "What was different (vs. prior run)" section (renamed for
+clarity to distinguish the two views).
+
+2. reports.py: added _fmt_value(value) - a shared formatter preserving
+the NULL-vs-recorded-zero distinction (None -> "not recorded", never 0 or
+blank; a recorded zero prints as "0") everywhere a fact value is written
+into prose. Added format_root_cause_facts_for_pi3(investigation_facts,
+env_outcome_rows, current_setting_rows) - a pure, I/O-free function
+(independently unit-testable at the payload level without mocking OpenAI
+or driving the button click) that formats the page's own already-computed
+Investigation Facts / Environment-Outcome context / current-run Process
+Setting rows into a single text block, one bullet line per recorded fact
+with its REAL value (never just a count), covering: current-run Process
+Setting Planned/Actual/Delta, Environment context, Outcome context,
+material usage/metering, production events, QC results, QC issues. Each
+empty section emits an explicit "None recorded" line rather than being
+silently omitted.
+
+pages/18_Root_Cause_Assistant.py: the "Use PI3" prompt-building block now
+calls format_root_cause_facts_for_pi3() and appends its output to the
+prompt as a new "Recorded fact VALUES" block, alongside (not replacing)
+the existing short count-based summary, per Charlie's "counts may remain
+as summary metadata while the fact values carry the investigation
+context."
+
+reports.build_root_cause_report_data() gained an optional
+current_setting_rows=None parameter (defaults to [] - existing callers
+unaffected), threaded into a new "current_setting_rows" dict key and a
+new "Current run - Process Setting (Planned vs. Actual)" section in both
+render_root_cause_report_pdf() and render_root_cause_report_docx(),
+positioned before the existing "What was different" section.
+
+New/updated tests: tests/test_wp7_phase4_root_cause_cutover.py gained 6
+new tests (18 total in the file, all passing): (a)
+test_current_run_process_setting_rows_shows_planned_actual_delta - direct
+evidence that seeded Planned=100/Actual=90 surfaces as Delta=-10 with the
+correct UOM; (b)
+test_current_run_process_setting_rows_never_reads_production_phase -
+source-isolation re-proof: a deliberately conflicting legacy
+ProductionPhase.air_pressure_bar=999.0 value on the same run never leaks
+into the shared-reader-backed row; (c)
+test_current_run_setting_table_shown_on_page - AppTest confirms the new
+on-screen table renders; (d)
+test_format_root_cause_facts_for_pi3_carries_real_values_not_counts - the
+payload-level assertion Charlie's item 4 required: seeds one distinctive
+real value per fact category (metering flow/temperature/pressure,
+production event description, QC result property/actual, current-run
+Planned/Actual/Delta, Environment prior/current) and asserts each real
+value appears verbatim in format_root_cause_facts_for_pi3()'s output text
+- proving the fact values genuinely reach what would be sent to PI3,
+without mocking ai_assistant.ask_assistant(); (e)
+test_format_root_cause_facts_for_pi3_empty_sections_say_none_recorded -
+all-empty inputs yield exactly 7 "None recorded" lines (one per section),
+never a silent omission.
+
+Full regression: 565 passed, 0 skipped, 0 failed (pytest-xdist -n 4).
+
+WP7 Phase 4 status: with this final Root Cause Assistant item closed, all
+three of Charlie's original material items (Batch Release/report
+contract, Root Cause Assistant context, Trend Analysis method-aware path)
+plus the targeted closure gate plus this final Root Cause correction are
+now complete, pending Charlie's re-review of the updated closeout
+package.
+"""
+
+APP_VERSION = "0.58.0"

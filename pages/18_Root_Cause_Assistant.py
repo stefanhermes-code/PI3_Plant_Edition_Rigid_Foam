@@ -194,8 +194,26 @@ for field_key, meta in sorted(definitions_by_field.items(), key=lambda kv: kv[1]
     elif prev_val != cur_val:
         changes.append(f"{label} changed: {prev_val} → {cur_val}")
 
+# ---------------------------------------------------------------------------
+# WP7 Phase 4 Root Cause final targeted completion (2026-08-15, per
+# Charlie's Corrected Closeout Review Return to JC): a dedicated
+# current-run Process Setting Planned-vs-Actual context, separate from the
+# current-vs-prior-run shift comparison below. The shift comparison above
+# only ever carries Actual (Planned never substitutes for missing Actual),
+# so it cannot show what this run's own Planned target was - this section
+# fills that gap using analytics.production_run_process_parameters()'s
+# single-run form (via reports.current_run_process_setting_rows(), which
+# reuses Batch Release's own definition-driven reader rather than
+# re-deriving it).
+# ---------------------------------------------------------------------------
+current_setting_rows = reports.current_run_process_setting_rows(session, run.id)
+st.write(f"**Current run — Process Setting (Planned vs. Actual)** for run #{run.id}")
+render_data_table(pd.DataFrame(
+    current_setting_rows or [{"—": "No eligible Process Setting definitions for this run"}]
+))
+
 if changes:
-    st.write("**What was different:**")
+    st.write("**What was different (vs. prior run):**")
     for c in changes:
         st.write(f"- {c}")
 else:
@@ -271,6 +289,7 @@ st.caption(
 root_cause_report_data = reports.build_root_cause_report_data(
     session, obs, run, grade, prior, changes, setting_shifts,
     env_outcome_rows=env_outcome_rows, investigation_facts=investigation_facts,
+    current_setting_rows=current_setting_rows,
 )
 rca_rc1, rca_rc2 = st.columns(2)
 rca_rc1.metric("Differences found", len(changes))
@@ -339,6 +358,19 @@ if ai_assistant.is_enabled_for_plant(session, run.plant_id):
             if facts_lines
             else "No additional metering, event, or QC context recorded for this run."
         )
+        # WP7 Phase 4 Root Cause final targeted completion (2026-08-15, per
+        # Charlie's Corrected Closeout Review Return to JC): the count-only
+        # facts_summary above is retained as a short lead-in, but PI3 also
+        # needs the actual recorded fact VALUES (not just counts) so it can
+        # reason about specifics rather than being told "3 readings were
+        # recorded" with no way to know what those readings were. Built via
+        # reports.format_root_cause_facts_for_pi3() - a pure, testable
+        # function - reusing the same investigation_facts/env_outcome_rows
+        # already on screen, plus the new current-run Planned-vs-Actual
+        # Process Setting context, never re-derived.
+        detailed_facts = reports.format_root_cause_facts_for_pi3(
+            investigation_facts, env_outcome_rows, current_setting_rows
+        )
         prompt = (
             "You are helping a technical reviewer at a flexible slabstock foam manufacturer "
             "investigate a quality issue. Below is a deterministic comparison between the "
@@ -400,7 +432,10 @@ if ai_assistant.is_enabled_for_plant(session, run.plant_id):
             + f"Compared against prior run #{int(prior['run_id'])} ({prior['run_date']})\n\n"
             f"What was different:\n{change_summary}\n\n"
             f"Recorded investigation facts for run #{run.id} (facts, not hypotheses - do not "
-            f"present these counts themselves as a cause):\n{facts_summary}\n"
+            f"present these counts themselves as a cause):\n{facts_summary}\n\n"
+            f"Recorded fact VALUES for run #{run.id} (use these specific recorded values in "
+            f"your reasoning - do not treat 'not recorded' fields as zero or as evidence of "
+            f"absence):\n{detailed_facts}\n"
         )
         with st.spinner("Using PI3..."):
             answer, interaction_log_id = ai_assistant.ask_assistant(

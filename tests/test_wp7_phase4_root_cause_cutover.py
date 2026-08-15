@@ -509,3 +509,185 @@ def test_empty_investigation_facts_render_as_no_data_not_crash(seeded_grade_chai
     assert "Investigation facts" in body
     assert "No metering data recorded" in body
     assert "No events recorded" in body
+
+
+# ---------------------------------------------------------------------------
+# 8. WP7 Phase 4 Root Cause FINAL targeted completion (2026-08-15) - per
+# Charlie's Corrected Closeout Review Return to JC: (a) a dedicated
+# current-run Process Setting Planned-vs-Actual context, separate from the
+# run-vs-prior-run shift comparison above, and (b) real recorded fact
+# VALUES (not just counts) reaching the PI3 hypothesis prompt. Direct unit
+# tests hit reports.current_run_process_setting_rows() and
+# reports.format_root_cause_facts_for_pi3() at the payload level (Charlie's
+# item 4: "a payload-level assertion proving seeded ... fact values reach
+# the PI3 hypothesis input" without mocking OpenAI or driving the button
+# click); AppTest cases prove the page actually renders the new on-screen
+# table and that source isolation from legacy ProductionPhase still holds.
+# ---------------------------------------------------------------------------
+
+def test_current_run_process_setting_rows_shows_planned_actual_delta(seeded_grade_chain):
+    """Direct unit test: Planned=100, Actual=90 on the SAME run must
+    surface as a Planned/Actual/Delta=-10 row with the correct UOM, sourced
+    from analytics.production_run_process_parameters() via
+    _process_parameter_report_rows() - never re-derived."""
+    ids = seeded_grade_chain
+    run_id = _make_run(ids, dt.date(2026, 8, 5), batch_suffix="planned-actual")
+    definition_id = _seed_definition(
+        ids, "WP7P4RC Melt temperature", parameter_category="Process Setting", data_type="Float",
+    )
+    session = db.get_session()
+    session.add(db.ProcessParameterValue(
+        setting_definition_id=definition_id, production_run_id=run_id,
+        snapshot_type="Planned", numeric_value=100.0, source="Recipe",
+    ))
+    session.add(db.ProcessParameterValue(
+        setting_definition_id=definition_id, production_run_id=run_id,
+        snapshot_type="Actual", numeric_value=90.0, source="Machine capture",
+    ))
+    session.commit()
+    session.close()
+
+    session = db.get_session()
+    rows = reports.current_run_process_setting_rows(session, run_id)
+    session.close()
+
+    matches = [r for r in rows if r["Parameter"] == "WP7P4RC Melt temperature"]
+    assert len(matches) == 1
+    row = matches[0]
+    assert row["Planned"] == 100.0
+    assert row["Actual"] == 90.0
+    assert row["Delta"] == -10.0
+    assert row["UOM"] == "bar"
+
+
+def test_current_run_process_setting_rows_never_reads_production_phase(seeded_grade_chain):
+    """Source-isolation re-proof (Charlie's item 4): seed a deliberately
+    conflicting legacy ProductionPhase value on the same run/definition
+    field and confirm it never leaks into current_run_process_setting_rows()
+    - the shared reader remains the sole source of authority."""
+    ids = seeded_grade_chain
+    run_id = _make_run(ids, dt.date(2026, 8, 5), batch_suffix="isolation")
+    definition_id = _seed_definition(
+        ids, "WP7P4RC Isolation pressure", parameter_category="Process Setting", data_type="Float",
+    )
+    session = db.get_session()
+    session.add(db.ProcessParameterValue(
+        setting_definition_id=definition_id, production_run_id=run_id,
+        snapshot_type="Actual", numeric_value=42.0, source="Machine capture",
+    ))
+    # Deliberately conflicting legacy ProductionPhase row on the same run -
+    # a stale/legacy air_pressure_bar value that must never surface.
+    session.add(db.ProductionPhase(
+        production_run_id=run_id, phase_name="Finalized",
+        air_pressure_bar=999.0,
+    ))
+    session.commit()
+    session.close()
+
+    session = db.get_session()
+    rows = reports.current_run_process_setting_rows(session, run_id)
+    session.close()
+
+    matches = [r for r in rows if r["Parameter"] == "WP7P4RC Isolation pressure"]
+    assert len(matches) == 1
+    assert matches[0]["Actual"] == 42.0
+    assert all(r["Actual"] != 999.0 for r in rows), (
+        "The legacy ProductionPhase.fill_pressure_bar value must never leak "
+        "into the shared-reader-backed current-run Process Setting rows."
+    )
+
+
+def test_current_run_setting_table_shown_on_page(two_run_fixture):
+    at = _run_page()
+    assert not at.exception, f"Unhandled exception loading Root-Cause Assistant: {at.exception}"
+    body = _body_text(at)
+    assert "Current run — Process Setting (Planned vs. Actual)" in body
+    assert "What was different (vs. prior run)" in body
+
+
+def test_format_root_cause_facts_for_pi3_carries_real_values_not_counts(two_run_fixture):
+    """Payload-level assertion (Charlie's item 4): seed one fact in each
+    category with a distinctive real value, then assert
+    format_root_cause_facts_for_pi3()'s OUTPUT TEXT contains those actual
+    values - not merely a count - proving the fact values genuinely reach
+    what would be sent to PI3, without mocking ai_assistant.ask_assistant()
+    or driving the button click."""
+    ids = two_run_fixture
+    current_id = ids["current_id"]
+    prior_id = ids["prior_id"]
+
+    session = db.get_session()
+    session.add(db.ComponentStreamReading(
+        production_run_id=current_id, production_phase_id=None,
+        stream_name="WP7P4RC Polyol Stream", flow=12.34, flow_unit="kg/min",
+        flow_total_qty=567.8, temperature_c=45.6, pressure_bar=3.21,
+        calibration_status="Current",
+    ))
+    session.add(db.ProductionEvent(
+        production_run_id=current_id, event_ts=dt.datetime(2026, 8, 5, 11, 30),
+        event_type="WP7P4RC Nozzle clean", severity="Low",
+        description="WP7P4RC distinctive event description",
+    ))
+    session.add(db.PhysicalPropertyResult(
+        production_run_id=current_id, property_name="WP7P4RC Distinctive Property",
+        target_value=40.0, actual_value=38.5, unit="kg/m3",
+    ))
+    session.commit()
+    session.close()
+
+    session = db.get_session()
+    run = session.get(db.ProductionRun, current_id)
+    investigation_facts = reports.root_cause_investigation_facts(session, run)
+    values_by_run, definitions_by_field = analytics.production_run_parameter_dataframe(
+        session, [current_id, prior_id],
+    )
+    env_outcome_rows = reports.environment_outcome_context_rows(
+        definitions_by_field, values_by_run.get(current_id, {}), values_by_run.get(prior_id, {}),
+    )
+    current_setting_rows = reports.current_run_process_setting_rows(session, current_id)
+    session.close()
+
+    facts_text = reports.format_root_cause_facts_for_pi3(
+        investigation_facts, env_outcome_rows, current_setting_rows,
+    )
+
+    # Current-run Process Setting Planned/Actual/Delta values (from
+    # two_run_fixture's numeric_def, Actual=90.0 on the current run - no
+    # Planned recorded, so Planned reads "not recorded", never 0/blank).
+    assert "WP7P4RC Fill pressure" in facts_text
+    assert "Actual 90" in facts_text
+    assert "Planned not recorded" in facts_text
+
+    # Environment context real values (20.0 / 25.0), not just a count.
+    assert "WP7P4RC Ambient temperature" in facts_text
+    assert "prior 20" in facts_text
+    assert "current 25" in facts_text
+
+    # Material usage/metering real values.
+    assert "WP7P4RC Polyol Stream" in facts_text
+    assert "567.8" in facts_text
+    assert "45.6" in facts_text
+    assert "3.21" in facts_text
+
+    # Production event real description text.
+    assert "WP7P4RC Nozzle clean" in facts_text
+    assert "WP7P4RC distinctive event description" in facts_text
+
+    # QC result real property/values.
+    assert "WP7P4RC Distinctive Property" in facts_text
+    assert "38.5" in facts_text
+
+
+def test_format_root_cause_facts_for_pi3_empty_sections_say_none_recorded():
+    """All-empty inputs must yield explicit 'None recorded' lines per
+    section, never a silent omission or a crash on missing keys."""
+    empty_facts = {
+        "material_usage_rows": [], "production_event_rows": [],
+        "qc_result_rows": [], "qc_issue_rows": [],
+    }
+    empty_env_outcome = {"Environment": [], "Outcome": []}
+    text = reports.format_root_cause_facts_for_pi3(empty_facts, empty_env_outcome, [])
+    # 7 sections total: current-run Process Setting, Environment, Outcome,
+    # Material usage/metering, Production events, QC results, QC issues -
+    # every one must emit its own explicit "None recorded" line.
+    assert text.count("None recorded") == 7

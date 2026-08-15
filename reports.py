@@ -4068,6 +4068,164 @@ def environment_outcome_context_rows(definitions_by_field, current_values, prior
     return buckets
 
 
+def current_run_process_setting_rows(session, run_id):
+    """WP7 Phase 4 Root Cause final targeted completion (2026-08-15, per
+    Charlie's Corrected Closeout Review Return to JC): "Add a dedicated
+    current-run Process Setting Planned-versus-Actual context to Root
+    Cause... For each eligible Process Setting, provide Parameter,
+    Planned, Actual, numeric Delta where applicable, and canonical UOM."
+
+    Reuses _process_parameter_report_rows(session, run_id)'s "Process
+    Setting" bucket rather than re-deriving - the same definition-driven,
+    per-run reader Batch Release already uses (Item 1), so this gets the
+    same Parameter/Category/Planned/Actual/Delta/UOM/Limit/Conformance
+    shape for free (Limit/Conformance are additive - Charlie's minimum
+    required columns are all present; "an equivalent presentation is
+    acceptable").
+
+    This is a CURRENT-RUN view (this run's own Planned vs Actual, from
+    analytics.production_run_process_parameters), deliberately separate
+    from the page's existing current-vs-prior-run shift comparison (which
+    reads analytics.production_run_parameter_dataframe's multi-run form
+    and only ever carries Actual - Planned never substitutes for a
+    missing Actual, so that comparison alone cannot show what THIS run's
+    own Planned target was). Charlie's return requires both views kept:
+    this one for Planned/Actual/Delta context, the existing one for the
+    run-over-run shift."""
+    return _process_parameter_report_rows(session, run_id)["Process Setting"]
+
+
+def _fmt_value(value):
+    """Shared formatting for a recorded fact value in prose text (PI3
+    prompt lines): None reads as 'not recorded' - NEVER as 0 or blank -
+    preserving the NULL-vs-recorded-zero distinction Charlie's Phase 4
+    semantics require everywhere else in this app. A recorded zero prints
+    as '0', not as 'not recorded'."""
+    if value is None:
+        return "not recorded"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
+
+
+def format_root_cause_facts_for_pi3(
+    investigation_facts, env_outcome_rows, current_setting_rows,
+):
+    """WP7 Phase 4 Root Cause final targeted completion (2026-08-15, per
+    Charlie's Corrected Closeout Review Return to JC, Final Targeted
+    Completion item 3): "Pass the recorded Root Cause fact content into
+    the PI3 investigation payload. Include the actual Environment /
+    Outcome values, material metering or usage values, Production Event
+    details, relevant QC facts, and current-run Process Setting Planned /
+    Actual / Delta context. Counts may remain as summary metadata while
+    the fact values carry the investigation context."
+
+    Pure formatting function (no I/O) so it is independently unit-
+    testable at the payload level, per Charlie's item 4 ("Add a payload-
+    level assertion proving seeded ... fact values reach the PI3
+    hypothesis input"), without needing to mock the OpenAI call or drive
+    the page through AppTest. Takes the page's own already-computed
+    investigation_facts (root_cause_investigation_facts), env_outcome_rows
+    (environment_outcome_context_rows), and current_setting_rows
+    (current_run_process_setting_rows) dicts/lists - never re-queries.
+
+    Returns a single formatted text block, one bullet line per recorded
+    fact with its real value (never just a count), grouped under the same
+    section headings shown on screen. A section with no rows contributes
+    an explicit 'None recorded' line rather than being silently omitted,
+    so PI3 never has to guess whether an empty section means 'not
+    checked' versus 'checked, nothing there'."""
+    lines = []
+
+    lines.append("Current-run Process Setting (Planned / Actual / Delta):")
+    if current_setting_rows:
+        for row in current_setting_rows:
+            uom = row["UOM"] if row["UOM"] and row["UOM"] != "—" else ""
+            delta_text = _fmt_value(row["Delta"]) + (f" {uom}" if uom and row["Delta"] is not None else "")
+            lines.append(
+                f"- {row['Parameter']}: Planned {_fmt_value(row['Planned'])}{f' {uom}' if uom and row['Planned'] is not None else ''}, "
+                f"Actual {_fmt_value(row['Actual'])}{f' {uom}' if uom and row['Actual'] is not None else ''}, "
+                f"Delta {delta_text}"
+            )
+    else:
+        lines.append("- None recorded.")
+
+    env_rows = env_outcome_rows.get("Environment", []) if env_outcome_rows else []
+    out_rows = env_outcome_rows.get("Outcome", []) if env_outcome_rows else []
+    lines.append("Environment context (recorded values, both runs):")
+    if env_rows:
+        for row in env_rows:
+            uom = row["UOM"] if row["UOM"] and row["UOM"] != "—" else ""
+            lines.append(
+                f"- {row['Parameter']}: prior {_fmt_value(row['Prior (Actual)'])}, "
+                f"current {_fmt_value(row['Current (Actual)'])}{f' {uom}' if uom else ''}"
+            )
+    else:
+        lines.append("- None recorded.")
+    lines.append("Outcome context (recorded values, both runs):")
+    if out_rows:
+        for row in out_rows:
+            uom = row["UOM"] if row["UOM"] and row["UOM"] != "—" else ""
+            lines.append(
+                f"- {row['Parameter']}: prior {_fmt_value(row['Prior (Actual)'])}, "
+                f"current {_fmt_value(row['Current (Actual)'])}{f' {uom}' if uom else ''}"
+            )
+    else:
+        lines.append("- None recorded.")
+
+    lines.append("Material usage / metering:")
+    rows = investigation_facts.get("material_usage_rows", [])
+    if rows:
+        for r in rows:
+            lines.append(
+                f"- {r['Stream']}: total delivered {_fmt_value(r['Total delivered'])} {r['Unit']}, "
+                f"flow {_fmt_value(r['Flow'])}, pump speed {_fmt_value(r['Pump speed'])}, "
+                f"temperature {_fmt_value(r['Temperature (°C)'])}°C, pressure {_fmt_value(r['Pressure (bar)'])} bar, "
+                f"calibration {r['Calibration']}"
+            )
+    else:
+        lines.append("- None recorded.")
+
+    lines.append("Production events:")
+    rows = investigation_facts.get("production_event_rows", [])
+    if rows:
+        for r in rows:
+            lines.append(f"- {r['Time']} [{r['Type']}, severity {r['Severity']}]: {r['Description']}")
+    else:
+        lines.append("- None recorded.")
+
+    lines.append("QC context — other quality test results on this run:")
+    rows = investigation_facts.get("qc_result_rows", [])
+    if rows:
+        for r in rows:
+            # Rigid grades key results by "Property"/"Target"/"Actual"/"Unit"/"Pass/Fail";
+            # non-rigid grades use the same keys (root_cause_investigation_facts
+            # normalizes both shapes to this column set) - read defensively either way.
+            prop = r.get("Property", "—")
+            target = _fmt_value(r.get("Target"))
+            actual = _fmt_value(r.get("Actual"))
+            unit = r.get("Unit", "") or ""
+            verdict = r.get("Pass/Fail", "—")
+            lines.append(f"- {prop}: target {target} {unit}, actual {actual} {unit} ({verdict})")
+    else:
+        lines.append("- None recorded.")
+
+    lines.append("QC context — quality issues logged on this run (including the flagged one):")
+    rows = investigation_facts.get("qc_issue_rows", [])
+    if rows:
+        for r in rows:
+            lines.append(
+                f"- {r['Issue type']} (severity {r['Severity']}, frequency {r['Frequency']}, "
+                f"confidence {r['Confidence']})"
+            )
+    else:
+        lines.append("- None recorded.")
+
+    return "\n".join(lines)
+
+
 def root_cause_investigation_facts(session, run):
     """WP7 Phase 4 targeted completion, Item 2 (2026-08-14) - per Charlie's
     Closeout Review Return to JC: Root-Cause Assistant must include
@@ -4148,7 +4306,7 @@ def root_cause_investigation_facts(session, run):
 
 def build_root_cause_report_data(
     session, obs, run, grade, prior, changes, setting_shifts,
-    env_outcome_rows=None, investigation_facts=None,
+    env_outcome_rows=None, investigation_facts=None, current_setting_rows=None,
 ):
     """obs: QualityObservation. run: its ProductionRun. grade: run.foam_grade.
     prior: the prior-run settings row (a pandas Series from analytics.
@@ -4165,7 +4323,15 @@ def build_root_cause_report_data(
     (from root_cause_investigation_facts()) are the page's own already-
     computed dicts - never re-derived here. Both default to None/empty so
     existing callers/tests that don't pass them still get a valid report
-    (empty context/facts sections)."""
+    (empty context/facts sections).
+
+    WP7 Phase 4 Root Cause final targeted completion (2026-08-15, per
+    Charlie's Corrected Closeout Review Return to JC): current_setting_rows
+    (from current_run_process_setting_rows()) is this run's own dedicated
+    Planned-vs-Actual Process Setting context, kept as a separate report
+    section from the "What was different" run-vs-prior-run shift list
+    above - Charlie's explicit "keep... as a separate analytical view"
+    instruction. Defaults to [] so existing callers/tests unaffected."""
     shift_categories = [s["label"] for s in setting_shifts]
     shift_values = [round(s["pct_change"] * 100, 2) for s in setting_shifts]
     env_outcome_rows = env_outcome_rows or {"Environment": [], "Outcome": []}
@@ -4173,6 +4339,7 @@ def build_root_cause_report_data(
         "material_usage_rows": [], "production_event_rows": [],
         "qc_result_rows": [], "qc_issue_rows": [],
     }
+    current_setting_rows = current_setting_rows or []
 
     if changes:
         conclusion_lines = [f"{len(changes)} difference(s) found versus the prior run."]
@@ -4202,6 +4369,7 @@ def build_root_cause_report_data(
         "prior_run_id": int(prior["run_id"]),
         "prior_run_date": str(prior["run_date"]),
         "change_rows": [{"Change": c} for c in changes],
+        "current_setting_rows": current_setting_rows,
         "shift_categories": shift_categories,
         "shift_values": shift_values,
         "environment_rows": env_outcome_rows["Environment"],
@@ -4231,6 +4399,11 @@ def render_root_cause_report_pdf(data):
         ]))
 
         story.append(Paragraph("Analysis", STYLES["Heading2"]))
+        # WP7 Phase 4 Root Cause final targeted completion (2026-08-15):
+        # this run's own Planned-vs-Actual context, kept separate from the
+        # run-vs-prior-run shift list below (Charlie's explicit "keep as a
+        # separate analytical view" instruction).
+        _section(story, "Current run — Process Setting (Planned vs. Actual)", data["current_setting_rows"])
         _section(story, "What was different vs. the prior run", data["change_rows"])
         _bar_chart(
             story, "Process-setting shifts (%)",
@@ -4274,6 +4447,11 @@ def render_root_cause_report_docx(data):
     ])
 
     _docx_heading(doc, "Analysis", size=15)
+    # WP7 Phase 4 Root Cause final targeted completion (2026-08-15): this
+    # run's own Planned-vs-Actual context, kept separate from the
+    # run-vs-prior-run shift list below (Charlie's explicit "keep as a
+    # separate analytical view" instruction).
+    _docx_section(doc, "Current run — Process Setting (Planned vs. Actual)", data["current_setting_rows"])
     _docx_section(doc, "What was different vs. the prior run", data["change_rows"])
     _docx_bar_chart(
         doc, "Process-setting shifts (%)",
