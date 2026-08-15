@@ -776,7 +776,7 @@ if ai_assistant.is_enabled_for_plant(session, plant_id):
             )
         )
         prompt = (
-            "You are helping a technical reviewer at a flexible slabstock foam manufacturer interpret "
+            "You are helping a technical reviewer at a rigid PUR/PIR foam manufacturer interpret "
             f"a statistical process control analysis of {property_name} for {subject_desc} "
             f"across {len(series)} production runs. All of the following was computed deterministically "
             "(control chart with control limits and Western Electric/Nelson run rules, process capability, "

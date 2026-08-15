@@ -6620,4 +6620,86 @@ batch) all complete. Remaining sub-task: release hardening (final
 dependency scan re-run, full regression, release note, closeout package).
 """
 
-APP_VERSION = "0.62.0"
+VERSION_0_63_0_NOTES = """
+WP7 Phase 5, A5-08 correction (2026-08-15) - Charlie's Closeout Review
+Return to JC on the WP7 Phase 5 closeout package (v0.62.0/commit 134a9fc)
+held Phase 5 OPEN for exactly one targeted item: A5-08 ("zero active Fall
+Plate, Top-flat, trough/slabstock, or other retired Flexible Foam
+Production Run concepts, with customer-facing and code dependency scan
+evidence"). The delivered closeout recorded A5-08 as PASS while three
+live, customer-facing/LLM-facing paths still carried inherited Flexible
+Foam/slabstock content - these had been flagged in that closeout's own
+Section 8 as "out of scope" candidates for a future change request, which
+Charlie's review determined was the wrong call: being live and reachable,
+they fall inside A5-08 as written. A5-01 through A5-07, A5-09, and A5-10
+were not reopened and required no changes.
+
+Three corrections, all per Charlie's Section 3 instructions:
+
+3.1 AI prompt framing: ai_assistant.py's PLANT_QUERY_SYSTEM_PROMPT and one
+prompt each in pages/15 through pages/19 (Recipe Optimization, Trend
+Analysis, Process-Property Correlation, Root Cause Assistant, Machine
+Settings Optimization) told PI3 it was helping a reviewer "at a flexible
+slabstock foam manufacturer" - all 6 sites now read "at a rigid PUR/PIR
+foam manufacturer" (matching the WP6 release-scope document's own "Rigid
+PUR and PIR chemistry" wording). Technical advisory boundaries and
+source-of-truth rules were untouched - this was a framing-only edit.
+
+3.2 Quality Issues customer-facing copy: pages/6_Quality_Observation.py's
+"Add quality issue" caption told the person logging an issue that the
+controlled Issue type list was "drawn from Laader Berg's slabstock foaming
+troubleshooting guide" - now reads "a controlled list grouped by category"
+with no source attribution, keeping the substantive point (why it's a
+controlled list, not free text) intact.
+
+3.3 Quality issue taxonomy: quality_issue_taxonomy.py's
+QUALITY_ISSUE_TAXONOMY was originally transcribed wholesale from that same
+Flexible Foam continuous-slabstock guide (54 entries). 12 entries were
+removed because the fault itself only exists on a continuous
+trough/conveyor/fall-plate/Maxfoam line and has no discontinuous
+rigid-molding analog: Creeping cream line, Undercutting / under-running,
+Mechanical splits, Chimney splits (top skin), Footprints / build-up
+splits, Trough build-up splits, Clogged-flexible splits, Domed profile
+(Maxfoam), Concave profile (Maxfoam), Excess-flow grooves, Horizontal
+holes, Shoulder holes (Maxfoam) - 42 entries remain. On 6 further entries
+whose underlying fault IS still Rigid-relevant (a chemistry/cell-structure
+defect that can occur in any foam process), a trough/conveyor/lay-down-
+specific clause was stripped from typical_causes while the rest of the
+guidance was kept (Crazy balls, Moon craters, Striations, Voids/pinholes,
+Excess air bubbles, "Splits - normal cell structure, open cells"); one of
+those (Moon craters) had no generic guidance left once the retired-concept
+clauses were removed, so its typical_causes is now an empty string rather
+than invented Rigid-specific content, per Charlie's explicit instruction
+not to invent replacement guidance. Historical QualityObservation rows
+recorded under any of the 12 removed names remain fully readable
+(observation_type stays an unconstrained String(200) column) - this is a
+picker-content change, not a schema/data change. The module's own
+docstring (developer-facing, not reachable through any UI or LLM path) may
+still cite the Laader Berg source guide for engineering provenance -
+Charlie's return targeted live customer-facing and LLM-facing paths
+specifically, not internal code comments.
+
+3.4 Direct regression: new file
+tests/test_wp7_phase5_a5_08_flexible_inheritance.py (8 tests) - source-grep
+evidence that the retired phrase/attribution is completely absent from all
+6 AI prompt sites and the Quality Issues caption, that the taxonomy's
+active (post-docstring) content contains zero trough/fall-plate/
+conveyor/lay-down/slabstock/Maxfoam terms, that all 12 removed entries no
+longer resolve via lookup()/lookup_case_insensitive(), that a representative
+set of generic Rigid-relevant entries remain selectable, and a sanity check
+against dangling-fragment edit mistakes (stray leading semicolons/spaces
+left over from stripping a clause).
+
+Full regression: 583 passed, 1 failed, 0 skipped (pytest-xdist -n 4) - the
+1 failure is test_wp6s09_rigid_sample_dimension_fields.py::
+test_dimension_fields_render_and_persist_for_rigid_sample, the same
+pre-existing xdist worker-isolation flake disclosed in the v0.61.0 and
+v0.62.0 changelogs; re-run in isolation immediately afterward and passed
+cleanly (1 passed). 584 total tests (576 prior + 8 new A5-08 tests).
+
+WP7 Phase 5 status: A5-08 correction complete; the corrected evidence is
+being returned to Charlie for re-review. No other Phase 5 acceptance item
+is affected by this change.
+"""
+
+APP_VERSION = "0.63.0"

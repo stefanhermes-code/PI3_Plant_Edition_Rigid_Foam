@@ -1106,7 +1106,7 @@ else:
             achieved_summary = "No quality test results recorded yet under the current recipe."
 
         prompt = (
-            "You are helping a technical reviewer at a flexible slabstock foam manufacturer "
+            "You are helping a technical reviewer at a rigid PUR/PIR foam manufacturer "
             f"select a formulation direction for {grade.grade_name}. Below is this product grade's "
             "recipe version history: formulation composition, formulation cost, the most recent "
             "version-to-version change, whether the CURRENT recipe achieves each required property "

@@ -257,7 +257,7 @@ if ai_assistant.is_enabled_for_plant(session, plant_id):
             for _, r in ranked.iterrows()
         )
         prompt = (
-            "You are helping a technical reviewer at a flexible slabstock foam manufacturer "
+            "You are helping a technical reviewer at a rigid PUR/PIR foam manufacturer "
             f"understand which process settings are associated with {property_name} for "
             f"{subject_desc}. Below is a ranked list of every recorded process setting's "
             "correlation with this property across this production history.\n\n"

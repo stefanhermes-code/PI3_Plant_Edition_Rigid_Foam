@@ -320,7 +320,7 @@ if ai_assistant.is_enabled_for_plant(session, plant_id):
             for _, r in ranked.iterrows()
         )
         prompt = (
-            "You are helping a technical reviewer at a flexible slabstock foam manufacturer "
+            "You are helping a technical reviewer at a rigid PUR/PIR foam manufacturer "
             f"identify which process settings are worth adjusting for {property_name} on "
             f"{subject_desc}. Below is a ranking of every recorded process setting by "
             "how clearly its low/medium/high ranges separate good outcomes from bad ones "

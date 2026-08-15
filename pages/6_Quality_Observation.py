@@ -227,9 +227,9 @@ with tab_create:
             st.caption("View-only access - adding a quality issue is restricted for your role.")
         else:
             st.caption(
-                "Issue type is a controlled list drawn from Laader Berg's slabstock foaming "
-                "troubleshooting guide, grouped by category - not free text, so the same fault "
-                "always gets recorded the same way and can be counted/trended reliably."
+                "Issue type is a controlled list grouped by category - not free text, so the "
+                "same fault always gets recorded the same way and can be counted/trended "
+                "reliably."
             )
             observation_type, _typical_causes = _issue_type_picker("add_obs")
             if _typical_causes:

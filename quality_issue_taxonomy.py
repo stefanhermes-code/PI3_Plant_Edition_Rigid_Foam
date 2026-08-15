@@ -6,14 +6,44 @@ whatever the person typing happened to call it that day, with no way to
 later group/count/trend issues reliably since two people describing the
 same fault would use different words).
 
-QUALITY_ISSUE_TAXONOMY below is sourced from Laader Berg's "Troubleshooting
-Guide For Slabstock Foaming" (Revision 2010, Release 2014-01-01) - the
-FAULT column of that guide's fault/recommendation tables becomes the
-`name` here, and the RECOMMENDATION column (condensed to plain language)
-becomes `typical_causes`, shown to the person logging the issue as
-reference/guidance once they pick a type, not as instructions to follow
-blindly - it's the same "reference for human judgement, not a directive"
-posture the rest of this app uses for PI3 output.
+QUALITY_ISSUE_TAXONOMY below was originally sourced in full from Laader
+Berg's "Troubleshooting Guide For Slabstock Foaming" (Revision 2010,
+Release 2014-01-01) - the FAULT column of that guide's fault/recommendation
+tables became the `name` here, and the RECOMMENDATION column (condensed to
+plain language) became `typical_causes`, shown to the person logging the
+issue as reference/guidance once they pick a type, not as instructions to
+follow blindly - it's the same "reference for human judgement, not a
+directive" posture the rest of this app uses for PI3 output.
+
+WP7 Phase 5, A5-08 filtering (2026-08-15): the source guide is a Flexible
+Foam continuous-slabstock document, and per Charlie's Phase 5 closeout
+review this module - being a live, customer-facing/UI-reachable path - is
+in scope for "zero active Flexible Foam/slabstock inheritance" the same
+way the retired ProductionPhase fields and fall-plate/top-flat schema were.
+Two categories of change were applied to the set below:
+
+1. Entries removed entirely, because the fault itself only exists on a
+   continuous slabstock/Maxfoam line and has no discontinuous
+   rigid-molding analog: "Creeping cream line" and "Undercutting /
+   under-running" (both describe a moving cream line relative to a
+   conveyor pour point), "Mechanical splits" (continuously-running side
+   paper liner friction), "Chimney splits (top skin)", "Footprints /
+   build-up splits", "Trough build-up splits", "Clogged-flexible splits"
+   (all defined by trough dwell time/geometry), and "Domed profile
+   (Maxfoam)", "Concave profile (Maxfoam)", "Excess-flow grooves",
+   "Horizontal holes", "Shoulder holes (Maxfoam)" (all defined by
+   fall-plate/Maxfoam block-forming geometry). Removing an entry here does
+   not touch history - see the "Historical rows" note below.
+2. `typical_causes` text edited on entries whose underlying fault is
+   still Rigid-relevant (a chemistry/cell-structure defect that can occur
+   in any foam process) but whose guidance text named a
+   trough/conveyor/lay-down-specific check alongside otherwise-generic
+   guidance: the retired-concept clause was removed and the rest of the
+   guidance kept as-is. Per Charlie's instruction, no replacement
+   guidance was invented for the removed clauses - where stripping left
+   nothing generic behind, `typical_causes` is left as an empty string
+   (the picker's "Typical causes/checks" caption simply does not render
+   for that entry, rather than showing invented Rigid-specific content).
 
 Consolidation note: the source guide lists several splits/cracks faults
 that differ mainly by WHERE on the block they appear (bottom corner,
@@ -27,16 +57,19 @@ in "Location in block" and "Notes" as before.
 Structure: an ordered dict of category -> list of issue-type dicts, each
 with `name` (the controlled value actually stored in
 QualityObservation.observation_type - unchanged column, still a plain
-string, just no longer free-typed) and `typical_causes` (guidance text).
-The last category, "Routine / No Issue", also carries the escape hatch
-for a genuine one-off that doesn't match anything here yet ("Other").
+string, just no longer free-typed) and `typical_causes` (guidance text,
+may be "" - see A5-08 note above). The last category, "Routine / No
+Issue", also carries the escape hatch for a genuine one-off that doesn't
+match anything here yet ("Other").
 
 No schema/migration needed: QualityObservation.observation_type stays a
 String(200) column exactly as before - this module only changes what the
 UI lets a person choose to put into it. Historical rows already in the
 database (demo data, UAT data, or anything imported before this taxonomy
-existed) that don't match any `name` below still display and edit fine -
-see pages/6_Quality_Observation.py's handling of a legacy/unmatched value.
+existed, or anything recorded under a name later removed here in the
+A5-08 filtering pass) that don't match any `name` below still display and
+edit fine - see pages/6_Quality_Observation.py's handling of a
+legacy/unmatched value.
 """
 
 OTHER_ISSUE_NAME = "Other (not yet in this list)"
@@ -56,8 +89,7 @@ QUALITY_ISSUE_TAXONOMY = {
         },
         {
             "name": "Crazy balls",
-            "typical_causes": "Small bubbles moving rapidly under the foam surface. Increase mixer speed; "
-            "minimise splashing at lay-down.",
+            "typical_causes": "Small bubbles moving rapidly under the foam surface. Increase mixer speed.",
         },
         {
             "name": "Flashing / sparklers",
@@ -75,16 +107,6 @@ QUALITY_ISSUE_TAXONOMY = {
             "typical_causes": "Local areas of wet, imperfectly mixed ingredients. Check for lead/lag "
             "conditions; increase mixing efficiency; check component tank level; look for system "
             "contaminants.",
-        },
-        {
-            "name": "Creeping cream line",
-            "typical_causes": "Cream line tends to move back toward the pour point. Speed up the conveyor; "
-            "increase conveyor angle; lower amine catalyst level.",
-        },
-        {
-            "name": "Undercutting / under-running",
-            "typical_causes": "Liquid reactants flow under the already-rising foam mass. Speed up the "
-            "conveyor; decrease conveyor angle; increase catalyst levels.",
         },
         {
             "name": "Relaxation",
@@ -124,8 +146,7 @@ QUALITY_ISSUE_TAXONOMY = {
     "Cell structure & surface texture": [
         {
             "name": "Moon craters",
-            "typical_causes": "Small pits or pockmarks on the block surface. Reduce trapped air at "
-            "lay-down; minimize splashing at lay-down.",
+            "typical_causes": "",
         },
         {
             "name": "Coarse foam",
@@ -152,7 +173,7 @@ QUALITY_ISSUE_TAXONOMY = {
             "name": "Striations",
             "typical_causes": "A distinct line of unusual cell structure. Increase mixing; check the "
             "injection needle and pigment distribution; check for foam build-up/contamination; clean the "
-            "mixing head; minimize splashing at lay-down.",
+            "mixing head.",
         },
         {
             "name": "Closed cells / low air penetration",
@@ -165,7 +186,7 @@ QUALITY_ISSUE_TAXONOMY = {
             "name": "Voids / pinholes",
             "typical_causes": "Small voids randomly distributed throughout the foam. Increase tin catalyst "
             "and cell size; reduce air injection/mixer speed; check silicone activity; check for "
-            "contamination and clean pump filters, mixer chamber, manifold, tube, and trough.",
+            "contamination and clean pump filters, mixer chamber, manifold, and tube.",
         },
         {
             "name": "Air holes",
@@ -176,9 +197,9 @@ QUALITY_ISSUE_TAXONOMY = {
         {
             "name": "Excess air bubbles",
             "typical_causes": "Too much air in the mix. Increase mixer pressure; check the air injection "
-            "needle/nozzle; reduce air injection flow; remove build-up material from the mixing head/hoses/"
-            "trough; check for blocked filters causing under-pressure; check polyol pipe sizing/routing for "
-            "trapped air.",
+            "needle/nozzle; reduce air injection flow; remove build-up material from the mixing "
+            "head/hoses; check for blocked filters causing under-pressure; check polyol pipe sizing/routing "
+            "for trapped air.",
         },
         {
             "name": "Ruptured foam",
@@ -196,9 +217,9 @@ QUALITY_ISSUE_TAXONOMY = {
         {
             "name": "Splits - normal cell structure, open cells",
             "typical_causes": "Splits associated with a normal cell size and open cells. Tin catalyst too "
-            "low or deactivated - check output; conveyor speed too slow - increase speed or reduce output; "
-            "polyol/TDI temperature too low - check and adjust; silicone level too low - lab-test and "
-            "adjust; incorrect amine catalyst blend ratio - compare against standard in the lab.",
+            "low or deactivated - check output; polyol/TDI temperature too low - check and adjust; "
+            "silicone level too low - lab-test and adjust; incorrect amine catalyst blend ratio - compare "
+            "against standard in the lab.",
         },
         {
             "name": "Splits - abnormal fine/broken cell structure",
@@ -217,36 +238,6 @@ QUALITY_ISSUE_TAXONOMY = {
             "typical_causes": "Crumbly zigzag splits throughout the block or on the sides. Increase tin "
             "catalyst concentration; check for reduced tin reactivity/output; check TDI and water output; "
             "increase silicone level.",
-        },
-        {
-            "name": "Mechanical splits",
-            "typical_causes": "Vertical splits in the side skin with a coarse appearance and rolled material "
-            "visible - caused by side-paper speed/friction, not chemistry. Check the paper running speed, "
-            "brake tension, and friction between paper and side wall.",
-        },
-        {
-            "name": "Chimney splits (top skin)",
-            "typical_causes": "1-2 inch wide splits over the trough inlets, about 4 inches deep. Increase "
-            "silicone and tin level; check for excess air.",
-        },
-        {
-            "name": "Footprints / build-up splits",
-            "typical_causes": "Deep splits appearing progressively at ~80% of block height after 15-20 "
-            "minutes; associated with higher densities, no blowing agent, high-molecular-weight polyol, or "
-            "long trough dwell time. Increase total output or use a smaller trough; aim for a ~19-29 second "
-            "dwell time; consider a lower molecular-weight polyol.",
-        },
-        {
-            "name": "Trough build-up splits",
-            "typical_causes": "Side splits caused by too much material build-up in the trough. Reduce "
-            "formulation reactivity/amine level or change amine type; increase total output; reduce trough "
-            "volume.",
-        },
-        {
-            "name": "Clogged-flexible splits",
-            "typical_causes": "Vertical splits in the cross-section, caused by build-up on the trough lip, a "
-            "clogged flexible hose, dirty trough inlets, or PE film trapping gassing foam. Clear build-up/"
-            "clogs; check PE film length is ~10mm longer than the trough lip.",
         },
     ],
     "Density, shape & dimensional": [
@@ -281,35 +272,6 @@ QUALITY_ISSUE_TAXONOMY = {
             "name": "Heavy skin",
             "typical_causes": "Thick skin of high density. Increase total system catalysis and TDI content; "
             "heat the block surface.",
-        },
-        {
-            "name": "Domed profile (Maxfoam)",
-            "typical_causes": "Block profile is domed rather than rectangular. Check the full-rise position "
-            "relative to the conveyor and correct the flow pattern.",
-        },
-        {
-            "name": "Concave profile (Maxfoam)",
-            "typical_causes": "Block profile is concave, often with a bottom corner split; full rise on or "
-            "too close to the fall-plate. Reduce amine or fall-plate length; increase conveyor speed or "
-            "total output.",
-        },
-        {
-            "name": "Excess-flow grooves",
-            "typical_causes": "Two deep grooves on top of the block from excess flow on the fall-plate. "
-            "Raise the amine level; reduce the angle of the first fall-plate section; increase air "
-            "injection.",
-        },
-        {
-            "name": "Horizontal holes",
-            "typical_causes": "A waving surface pattern with horizontal holes (~1 inch) just under the top "
-            "skin, from too much flow on the fall-plate. Increase amine level; use a larger trough; lower "
-            "the angle of the first fall-plate section.",
-        },
-        {
-            "name": "Shoulder holes (Maxfoam)",
-            "typical_causes": "Tiny (~5mm) holes on the shoulders of a Maxfoam block where the foam blows "
-            "off - indicates very open cells. Informational: confirms open-cell structure; correct only if "
-            "paired with another fault.",
         },
         {
             "name": "Low catalyst tolerance",
@@ -385,7 +347,8 @@ _NAME_TO_ENTRY_LOWER = {name.lower(): entry for name, entry in _NAME_TO_ENTRY.it
 def lookup(name):
     """Exact-name lookup -> {"category", "name", "typical_causes"}, or None
     if `name` isn't a taxonomy entry (e.g. a legacy free-text value entered
-    before this taxonomy existed)."""
+    before this taxonomy existed, or a name retired from the active list -
+    see the A5-08 note in the module docstring)."""
     return _NAME_TO_ENTRY.get(name)
 
 

@@ -372,7 +372,7 @@ if ai_assistant.is_enabled_for_plant(session, run.plant_id):
             investigation_facts, env_outcome_rows, current_setting_rows
         )
         prompt = (
-            "You are helping a technical reviewer at a flexible slabstock foam manufacturer "
+            "You are helping a technical reviewer at a rigid PUR/PIR foam manufacturer "
             "investigate a quality issue. Below is a deterministic comparison between the "
             "flagged production run and the most recent prior run of the same product grade. "
             "Using this comparison plus any relevant expert notes or historical cases in the "
