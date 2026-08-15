@@ -69,6 +69,12 @@ def _run_page4(session_state=None):
     return at
 
 
+def _submit_key(at, form_key, label):
+    """Matches test_wp7_phase2_closeout_correction.py's own helper exactly
+    - form_submit_button's derived widget key."""
+    return next(b for b in at.button if b.key == f"FormSubmitter:{form_key}-{label}")
+
+
 @pytest.fixture()
 def seeded_run():
     """Company -> Plant -> ProductionMethod -> Machine -> ProductFamily ->
@@ -472,3 +478,71 @@ def test_method_settings_tab_excludes_environment_outcome_but_shows_process_sett
     actual_key = f"pps_{process_setting_id}_Actual_{ids['run_id']}"
     assert any(w.key == planned_key for w in at.number_input), "true Process Setting definition must still render (Planned)"
     assert any(w.key == actual_key for w in at.number_input), "true Process Setting definition must still render (Actual)"
+
+
+def test_runtime_tab_observations_section_renders_environment_outcome_but_not_process_setting(seeded_env_outcome_and_process_setting):
+    """WP7 Phase 5 gap-fix direct UI proof: the new 'Observations
+    (Environment & Outcome)' block on the Runtime Data tab must render one
+    Actual-value widget for each eligible Environment/Outcome definition
+    (PS-008 ambient temperature, PS-078 foam height - both Float, both
+    eligible via the Global applicability seeded by
+    ensure_environment_outcome_definitions()), keyed
+    obs_{definition_id}_Actual_{run_id} - and must NOT render the ordinary
+    Process Setting definition there (that one belongs on the Method-Aware
+    tab only, per the sibling test above). This is the closure of the gap
+    left by v0.59.0's legacy ProductionPhase widget removal combined with
+    the pre-existing WP7 Phase 3 correction's Environment/Outcome exclusion
+    from the Method-Aware tab - see pages/4's own comment above this
+    block and Decision Ledger D5-06 in the Phase 5 contract."""
+    ids = seeded_env_outcome_and_process_setting
+    at = _run_page4({"pr_selected_run_id": ids["run_id"]})
+    assert not at.exception
+
+    for env_id in (ids["ps008_id"], ids["ps078_id"]):
+        widget_key = f"obs_{env_id}_Actual_{ids['run_id']}"
+        assert any(w.key == widget_key for w in at.number_input), (
+            f"Environment/Outcome definition {env_id} must render as an Observations input"
+        )
+
+    process_setting_id = ids["process_setting_definition_id"]
+    assert not any(
+        w.key and w.key.startswith(f"obs_{process_setting_id}_") for w in at.number_input
+    ), "true Process Setting definition must not render in the Observations section"
+
+
+def test_runtime_tab_observations_form_saves_actual_value(seeded_env_outcome_and_process_setting):
+    """Direct evidence the new capture path actually persists: filling and
+    submitting the Observations form for PS-078 (Foam height, Outcome)
+    creates a ProcessParameterValue row with snapshot_type='Actual' and
+    source='Manual entry' - the only live way, post-WP7-Phase-5, to record a
+    new measured Environment/Outcome value for a production run (the legacy
+    ProductionPhase ambient/outcome widgets were retired in the same batch
+    that created this gap; Decision Ledger D5-06 requires this class to
+    remain ACTIVE / canonical Actual observations)."""
+    ids = seeded_env_outcome_and_process_setting
+    session = db.get_session()
+    before = session.query(db.ProcessParameterValue).filter_by(
+        production_run_id=ids["run_id"], setting_definition_id=ids["ps078_id"]
+    ).count()
+    assert before == 0
+    session.close()
+
+    at = _run_page4({"pr_selected_run_id": ids["run_id"]})
+    assert not at.exception
+
+    form_key = f"observations_form_{ids['run_id']}"
+    widget_key = f"obs_{ids['ps078_id']}_Actual_{ids['run_id']}"
+    at.checkbox(key=f"{widget_key}_recorded").set_value(True)
+    at.number_input(key=widget_key).set_value(42.5)
+    submit = _submit_key(at, form_key, "Save observations")
+    submit.click().run()
+    assert not at.exception
+
+    session = db.get_session()
+    saved = session.query(db.ProcessParameterValue).filter_by(
+        production_run_id=ids["run_id"], setting_definition_id=ids["ps078_id"], snapshot_type="Actual"
+    ).one()
+    assert saved.numeric_value == 42.5
+    assert saved.source == "Manual entry"
+    assert saved.unit == "mm"
+    session.close()

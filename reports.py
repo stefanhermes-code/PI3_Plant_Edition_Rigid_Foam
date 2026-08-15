@@ -73,14 +73,17 @@ to where that selection naturally happens.
   and any quality issues recorded. If - and only if - a flag is raised
   (a failed result or a recorded quality issue), the report widens to
   pull supporting context from every other tab on the Production Run
-  page: Setup-vs-Finalized process-setting deviations (including
-  fall-plate position changes), the Finalized phase's actual component
-  stream readings (with any non-"Valid" calibration status called out),
-  and any Production Events logged during the run - "does this batch
-  look wrong, and if so what else was going on at the time" in one
-  document, not five separate tab exports. A clean run stays a short
-  document; a flagged one pulls in exactly what's relevant, not
-  everything that exists.
+  page: the Finalized phase's actual component stream readings (with
+  any non-"Valid" calibration status called out), and any Production
+  Events logged during the run - "does this batch look wrong, and if so
+  what else was going on at the time" in one document, not five
+  separate tab exports. A clean run stays a short document; a flagged
+  one pulls in exactly what's relevant, not everything that exists.
+  (Setup-vs-Finalized fall-plate position deviations were part of this
+  widened context before WP7 Phase 0, 2026-08-13, removed the active
+  fall-plate section-position sub-workflow; this report has not claimed
+  that context since - see the "Batch Release / Conformance Record"
+  section comment below for the corresponding dead-code cleanup.)
 
 A fifth report, added 2026-08-04, lives on its own page rather than the
 Report page - per the same placement principle stated above, this report's
@@ -1279,18 +1282,17 @@ def render_where_used_report_docx(data):
 # every stored field on the run. A clean run gets a short document,
 # header + recipe + verdict. A FLAGGED run (a failed quality result, or
 # any recorded quality issue) widens to pull relevant context from every
-# other tab on the Production Run page - Setup-vs-Finalized process
-# settings, actual component stream readings, and Production Events -
-# because a flag's explanation often isn't on the same tab as the flag
-# itself.
+# other tab on the Production Run page - actual component stream
+# readings and Production Events - because a flag's explanation often
+# isn't on the same tab as the flag itself. (Setup-vs-Finalized
+# process-setting/fall-plate-position deviations were part of this
+# widened context before WP7 Phase 0, 2026-08-13, removed the active
+# fall-plate section-position sub-workflow and WP7 Phase 5, 2026-08-15,
+# retired ProductionPhase's active machine-setting authority; the two
+# comparison-tolerance constants that backed that removed section
+# (_SETTING_DEVIATION_EPSILON, _FALLPLATE_POSITION_DEVIATION_MM) were
+# removed alongside it as dead code, per Decision Ledger D5-02/D5-03.)
 # ---------------------------------------------------------------------------
-
-# Tolerance for treating two ProductionPhase float settings as "the same"
-# rather than flagging a deviation - avoids surfacing meaningless float
-# noise (25.000001 vs 25.0) as if it were a real setpoint change.
-_SETTING_DEVIATION_EPSILON = 0.01
-_FALLPLATE_POSITION_DEVIATION_MM = 2.0  # per db.py: fall-plate position materially affects density profile
-
 
 _PARAMETER_CATEGORIES_FOR_REPORT = ("Process Setting", "Environment", "Outcome")
 

@@ -2407,7 +2407,9 @@ with tab_runtime:
     st.caption(
         "The Finalized window for this run (start/end time and notes), entered at shutdown. "
         "Component stream readings and production events both attach to this snapshot, never to "
-        "Setup. Actual process settings are captured on the Method-Aware Process Settings tab."
+        "Setup. Actual process settings are captured on the Method-Aware Process Settings tab; "
+        "measured Environment/Outcome observations (ambient conditions, foam height, rise time, "
+        "etc.) are captured below."
     )
 
     if not runs:
@@ -2595,4 +2597,137 @@ with tab_runtime:
                             if dup:
                                 msg += f" Skipped {len(dup)} row(s) whose run already has Runtime Data (likely a repeat click)."
                             set_pending_banner("runtime_import_msg", msg)
+                            st.rerun()
+
+        # ---------------------------------------------------------------------
+        # Observations (Environment & Outcome) - WP7 Phase 5 gap fix (2026-08-15).
+        #
+        # The WP7 Phase 3 correction (2026-08-14, Charlie's closeout review)
+        # rightly excludes Environment/Outcome definitions from the Method-Aware
+        # Process Settings tab above - they are measured actual-only
+        # observations, never Planned/controllable settings (see that tab's own
+        # comment and ensure_environment_outcome_definitions()'s
+        # applicable_to_planned=False in legacy_migration.py). But the ONLY way
+        # to capture a NEW ambient temperature/humidity/foam height/rise time
+        # value was the legacy ProductionPhase widgets retired earlier in this
+        # same WP7 Phase 5 batch (v0.59.0) - leaving zero live capture path for
+        # a class the contract's Decision Ledger D5-06 requires to "remain
+        # canonical Actual observations through method-aware architecture,"
+        # ACTIVE. This block is that capture path: the same
+        # ProcessSettingDefinition/ProcessParameterValue EAV mechanism the
+        # Method-Aware tab uses, filtered to ONLY Environment/Outcome
+        # categories (the exact inverse of that tab's filter). Actual-value
+        # entry only, since every Environment/Outcome applicability row has
+        # applicable_to_planned=False - there is never a Planned column here.
+        st.markdown("##### Observations (Environment & Outcome)")
+        st.caption(
+            "Measured conditions and outcomes for this run - ambient temperature/humidity and "
+            "outcome readings such as foam height or rise time, when configured as applicable to "
+            "this run's Production Method/Unit. These are recorded facts, not planned settings, "
+            "so only an Actual value is captured."
+        )
+        if not runs:
+            pass  # already messaged above
+        else:
+            if not run.production_method_id:
+                st.caption("No Production Method resolved for this run yet - set it on the Production Runs tab first.")
+            else:
+                env_outcome_eligible = [
+                    (definition, applicability)
+                    for definition, applicability in analytics.eligible_process_settings(
+                        session, run.production_method_id, machine_id=run.machine_id
+                    )
+                    if definition.parameter_category in ("Environment", "Outcome")
+                ]
+                if not env_outcome_eligible:
+                    st.caption(
+                        "No Environment/Outcome definitions are configured as applicable to this "
+                        "run's Production Method/Unit yet."
+                    )
+                else:
+                    existing_env_by_key = {
+                        (pv.setting_definition_id, pv.snapshot_type): pv
+                        for pv in session.query(ProcessParameterValue)
+                        .filter(ProcessParameterValue.production_run_id == run.id)
+                        .all()
+                    }
+                    with st.form(f"observations_form_{run.id}"):
+                        obs_plan = []  # (definition, value, existing, record_flag)
+                        for definition, applicability in env_outcome_eligible:
+                            widget_key = f"obs_{definition.id}_Actual_{run.id}"
+                            existing = existing_env_by_key.get((definition.id, "Actual"))
+                            label = (
+                                f"{definition.name}"
+                                + (f" ({definition.unit.symbol})" if definition.unit else "")
+                                + f" — {definition.parameter_category}"
+                            )
+                            if definition.data_type == "Boolean":
+                                options = ["", "Yes", "No"]
+                                current = (
+                                    "Yes" if existing and existing.boolean_value is True
+                                    else "No" if existing and existing.boolean_value is False
+                                    else ""
+                                )
+                                value = st.selectbox(label, options, index=options.index(current), key=widget_key)
+                                record_flag = True
+                            elif definition.data_type == "String":
+                                value = st.text_input(
+                                    label, value=(existing.text_value if existing else "") or "", key=widget_key
+                                )
+                                record_flag = True
+                            else:
+                                step = 1.0 if definition.data_type == "Integer" else 0.01
+                                has_existing_value = existing is not None and existing.numeric_value is not None
+                                cols = st.columns([3, 1])
+                                record_flag = cols[1].checkbox(
+                                    "Record", value=has_existing_value, key=f"{widget_key}_recorded",
+                                    help=(
+                                        "Check to save the number entered, including zero - zero is a "
+                                        "distinct, valid recorded value, never treated as blank."
+                                    ),
+                                )
+                                value = cols[0].number_input(
+                                    label, step=step,
+                                    value=float(existing.numeric_value) if has_existing_value else 0.0,
+                                    key=widget_key,
+                                )
+                            obs_plan.append((definition, value, existing, record_flag))
+
+                        obs_submitted = st.form_submit_button("Save observations", disabled=not page_usable)
+                        if obs_submitted and page_usable:
+                            now = dt.datetime.utcnow()
+                            for definition, value, existing, record_flag in obs_plan:
+                                is_blank = (
+                                    (definition.data_type == "Boolean" and value == "")
+                                    or (definition.data_type == "String" and not value.strip())
+                                    or (definition.data_type not in ("Boolean", "String") and not record_flag)
+                                )
+                                if is_blank:
+                                    if existing:
+                                        session.delete(existing)
+                                    continue
+                                row = existing or ProcessParameterValue(
+                                    setting_definition_id=definition.id,
+                                    production_run_id=run.id,
+                                    snapshot_type="Actual",
+                                )
+                                if definition.data_type == "Boolean":
+                                    row.boolean_value = value == "Yes"
+                                    row.numeric_value = None
+                                    row.text_value = None
+                                elif definition.data_type == "String":
+                                    row.text_value = value.strip()
+                                    row.numeric_value = None
+                                    row.boolean_value = None
+                                else:
+                                    row.numeric_value = value
+                                    row.text_value = None
+                                    row.boolean_value = None
+                                row.unit = definition.unit.symbol if definition.unit else None
+                                row.source = "Manual entry"
+                                row.captured_at = now
+                                if not existing:
+                                    session.add(row)
+                            session.commit()
+                            st.success("Observations saved.")
                             st.rerun()

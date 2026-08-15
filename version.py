@@ -6465,4 +6465,70 @@ release hardening/closeout) continue under the same accepted disposition
 plan.
 """
 
-APP_VERSION = "0.60.0"
+VERSION_0_61_0_NOTES = """
+WP7 Phase 5 (2026-08-15): Production Run UI confirmation - closes a real
+capture-path gap left by the v0.59.0 active-code-retirement batch, plus a
+reports.py dead-code cleanup found during the same review pass.
+
+Gap found and fixed: the WP7 Phase 3 correction (2026-08-14) rightly
+excludes Environment/Outcome ProcessSettingDefinitions (PS-008 ambient
+temperature, PS-009 relative humidity, PS-078 foam height, PS-079 rise
+time) from the Method-Aware Process Settings tab, since those are
+actual-only measured facts, never Planned/controllable settings. But
+v0.59.0's retirement of the legacy ProductionPhase ambient/outcome widgets
+on the Setup and Runtime Data tabs removed the ONLY other place those
+values could be entered - leaving zero live UI path to record a NEW
+Environment/Outcome Actual value for any production run created after that
+release. This directly conflicts with Decision Ledger D5-06 in the WP7
+Phase 5 contract, which requires Environment and Outcome to remain ACTIVE,
+"canonical Actual observations through method-aware architecture."
+
+Fix: added a new "Observations (Environment & Outcome)" capture block to
+pages/4_Production_Run_Trial_Record.py's Runtime Data tab, using the same
+analytics.eligible_process_settings() + ProcessParameterValue EAV upsert
+pattern the Method-Aware tab already uses, filtered to the exact inverse
+category set (Environment/Outcome only, never Process Setting). Actual-
+value entry only, matching applicable_to_planned=False on every
+Environment/Outcome applicability row. Widgets keyed
+obs_{definition_id}_Actual_{run_id}; numeric fields use the same "Record"
+checkbox convention as the Method-Aware tab so a genuine zero is never
+silently dropped as blank. Also updated the Runtime Data tab's intro
+caption to mention the new section.
+
+reports.py dead-code cleanup (found during this review, unrelated defect
+carried since WP7 Phase 0): a stale docstring near
+build_batch_release_record_data() and the "5. Batch Release / Conformance
+Record" section-header comment both still claimed the report includes
+"Setup-vs-Finalized process-setting deviations (including fall-plate
+position changes)" - that comparison was removed under WP7 Phase 0, but
+the docstring was never updated. Corrected both, and removed the two fully
+dead constants that had backed the removed section
+(_SETTING_DEVIATION_EPSILON, _FALLPLATE_POSITION_DEVIATION_MM) - confirmed
+zero live consumers (grep showed only a prose comment reference in a test
+file, not an import) before removal.
+
+New direct-evidence tests, added to tests/test_wp7_phase3_reconciliation.py
+(reusing its existing seeded_env_outcome_and_process_setting fixture):
+test_runtime_tab_observations_section_renders_environment_outcome_but_not_process_setting
+proves the new block renders PS-008/PS-078-style definitions as
+obs_{id}_Actual_{run_id} widgets while excluding the true Process Setting
+definition seeded by the same fixture;
+test_runtime_tab_observations_form_saves_actual_value proves a submitted
+value persists as a ProcessParameterValue row with snapshot_type="Actual",
+source="Manual entry", and the correct controlled unit symbol.
+
+Full regression: 571 passed, 0 skipped, 0 failed, 16 warnings (pytest-xdist
+-n 4; one run showed a single unrelated xdist-ordering flake in
+test_wp6s09_rigid_sample_dimension_fields.py that passed cleanly both in
+isolation and on immediate rerun of the full suite - a pre-existing
+test-isolation characteristic of this suite under -n 4, not a regression
+introduced by this batch). Warnings are the same pre-existing SQLAlchemy
+Query.get() legacy-API deprecation notices as prior releases.
+
+WP7 Phase 5 status: active code retirement, migration cleanup, and
+Production Run UI confirmation (this batch) complete. Remaining sub-tasks
+(end-to-end UAT/downstream consumer verification, release hardening/
+closeout) continue under the same accepted disposition plan.
+"""
+
+APP_VERSION = "0.61.0"
