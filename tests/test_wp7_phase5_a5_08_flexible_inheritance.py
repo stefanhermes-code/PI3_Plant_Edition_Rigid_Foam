@@ -1,12 +1,13 @@
-"""WP7 Phase 5, A5-08 correction (2026-08-15) - direct regression evidence.
+"""WP7 Phase 5, A5-08 correction (2026-08-15, two review passes) - direct
+regression evidence.
 
-Charlie's Closeout Review Return to JC on the WP7 Phase 5 closeout package
-(WP7_Phase5_Closeout_Package.docx, v0.62.0/commit 134a9fc) held A5-08
-("zero active Fall Plate, Top-flat, trough/slabstock, or other retired
-Flexible Foam Production Run concepts, with customer-facing and code
-dependency scan evidence") OPEN: the delivered closeout recorded A5-08 as
-PASS while three live, customer-facing/LLM-facing paths still carried
-inherited Flexible Foam/slabstock content -
+PASS 1 - Charlie's Closeout Review Return to JC on the WP7 Phase 5
+closeout package (WP7_Phase5_Closeout_Package.docx, v0.62.0/commit
+134a9fc) held A5-08 ("zero active Fall Plate, Top-flat, trough/slabstock,
+or other retired Flexible Foam Production Run concepts, with
+customer-facing and code dependency scan evidence") OPEN: the delivered
+closeout recorded A5-08 as PASS while three live, customer-facing/
+LLM-facing paths still carried inherited Flexible Foam/slabstock content -
 
   1. Six PI3 system/user prompt strings (ai_assistant.py's
      PLANT_QUERY_SYSTEM_PROMPT, plus one prompt each in pages 15-19) that
@@ -21,19 +22,41 @@ inherited Flexible Foam/slabstock content -
      fall-plate/lay-down/Maxfoam-specific fault names and troubleshooting
      guidance in the live Quality Issue picker.
 
+PASS 2 - Charlie's second Closeout Review Return (responding to
+v0.63.0/commit 47d4005) accepted the pass-1 corrections but held A5-08
+open again on two further grounds: (a) the pass-1 scan's term list
+(trough/fall-plate/conveyor/lay-down/slabstock/Maxfoam) was too narrow -
+it missed "leaving the tunnel" in Slow curing, "air injection" in six
+other entries (air_injection_rate/air_pressure_bar is D5-05 QUARANTINED,
+not just an inherited Flexible term), and "methylene chloride" as a named
+blowing-agent example in Low block density; (b) the closure gate requires
+one authoritative full SERIAL regression with zero failures and zero
+skipped after the correction, not the pytest-xdist parallel run reported
+in the v0.63.0 return. This file's scan was expanded accordingly (see
+part 3 below); the serial regression requirement is satisfied by the run
+recorded in this correction's release notes/return package, not by a test
+in this file (a test file cannot assert about its own invocation mode).
+
 This file is the "direct A5-08 regression that scans the live
 customer-facing and LLM-facing paths and proves zero active Flexible
-Foam/slabstock inheritance" Charlie's return required (item 3.4). It does
-NOT reopen A5-01 through A5-07, A5-09, or A5-10 - those remain accepted
-per the return's Section 5.
+Foam/slabstock inheritance" both returns required. It does NOT reopen
+A5-01 through A5-07, A5-09, or A5-10 - those remain accepted per both
+returns' scope-discipline sections.
 
-Scan technique: same source-grep-with-allowlist pattern as
-test_wp7_phase0_containment.py / test_cr18_product_family_terminology.py -
-walk the file's raw text and assert the retired term is entirely absent
-from the live surface (not just reworded around), while confirming the
-harmless internal-provenance mentions that were deliberately kept (OEM
-name lists, module docstrings, changelog history) are exactly what the
-scan tolerates and nothing more.
+Scan technique: for AI prompts and the Quality Issues caption, the same
+source-grep-with-allowlist pattern as test_wp7_phase0_containment.py /
+test_cr18_product_family_terminology.py - walk the file's raw text and
+assert the retired term is entirely absent from the live surface. For the
+taxonomy module, part 3 below scans the LOADED QUALITY_ISSUE_TAXONOMY
+dict values (not raw file text) - the module's typical_causes strings are
+built from adjacent Python string-literal concatenation split across
+physical lines (e.g. "...air " + "injection..."), so a raw-text substring
+search across single lines would silently miss real matches; scanning the
+post-concatenation dict content is both more robust and matches Charlie's
+instruction to "target active dictionary content" directly. A separate
+raw-text check confirms the module's docstring (developer-facing, never
+reachable through the UI or an LLM prompt) is where the only remaining
+mentions of retired terms live.
 
 Usage: python -m pytest tests/test_wp7_phase5_a5_08_flexible_inheritance.py -v
 """
@@ -135,27 +158,63 @@ def test_quality_issue_page_caption_has_no_slabstock_guide_attribution():
 # 3. Quality issue taxonomy content (quality_issue_taxonomy.py) - item 3.3
 # ---------------------------------------------------------------------------
 
+# Full retired/quarantined-term list per both of Charlie's returns: pass 1
+# (Flexible-line/slabstock geometry terms) + pass 2 (tunnel, air injection,
+# air pressure, methylene chloride - D5-05 QUARANTINED and other
+# already-retired WP7 concepts the pass-1 scan didn't cover).
+_ALL_RETIRED_TERMS = [
+    "trough", "fall-plate", "fall plate", "conveyor", "lay-down",
+    "laydown", "slabstock", "maxfoam",
+    "tunnel", "air injection", "air pressure", "methylene chloride",
+]
+
+
 def test_taxonomy_module_docstring_may_cite_source_but_active_data_may_not():
     """The module docstring (developer-facing, not reachable through any
     UI or LLM-facing path) is allowed to keep citing the Laader Berg source
-    guide for engineering provenance/traceability - Charlie's return
-    targeted live customer-facing and LLM-facing paths specifically (see
-    this file's module docstring). Everything BELOW the docstring - the
-    actual QUALITY_ISSUE_TAXONOMY dict and helper functions that the
+    guide and naming the retired terms it removed, for engineering
+    provenance/traceability - both of Charlie's returns targeted live
+    customer-facing and LLM-facing paths specifically (see this file's
+    module docstring). Everything BELOW the docstring - the actual
+    QUALITY_ISSUE_TAXONOMY dict literal and helper functions that the
     Quality Issue page and its CSV import actually read from - must be
-    completely clean of trough/fall-plate/conveyor/lay-down/slabstock/
-    Maxfoam content."""
+    completely clean of every retired/quarantined term from both passes.
+
+    Raw-text scan (not the loaded dict) so this also catches a term
+    reintroduced outside the dict literal itself (a stray comment, a
+    default value, anything else below the docstring)."""
     text = open(TAXONOMY_PY, encoding="utf-8").read()
     quote_positions = [i for i in range(len(text)) if text.startswith('"""', i)]
     assert len(quote_positions) >= 2, "quality_issue_taxonomy.py has no closed module docstring"
     active_text = text[quote_positions[1] + 3:]
+    # Adjacent Python string literals split across physical lines (the
+    # taxonomy's own formatting style) must be joined before scanning, or a
+    # term straddling a line break (e.g. "...air " + "injection...") would
+    # be silently missed by a single-line substring search.
+    import re as _re
+    active_joined = _re.sub(r'"\s*\n\s*"', "", active_text)
 
-    retired_terms = [
-        "trough", "fall-plate", "fall plate", "conveyor", "lay-down",
-        "laydown", "slabstock", "maxfoam",
-    ]
-    hits = [t for t in retired_terms if t in active_text.lower()]
-    assert not hits, f"Retired Flexible-line terms still present in active taxonomy content: {hits}"
+    hits = [t for t in _ALL_RETIRED_TERMS if t in active_joined.lower()]
+    assert not hits, f"Retired/quarantined terms still present in active taxonomy content: {hits}"
+
+
+def test_taxonomy_dict_values_contain_zero_retired_or_quarantined_terms():
+    """Charlie's second return: 'the scan should target active dictionary
+    content'. This scans the LOADED, already-concatenated
+    QUALITY_ISSUE_TAXONOMY dict values directly - the most direct possible
+    proof that nothing a user or CSV import can actually read out of this
+    module (every `name` and `typical_causes` string) contains a retired
+    Flexible-line term or a D5-05-quarantined process concept (air
+    injection/air pressure), a retired continuous-line reference (tunnel),
+    or an unvalidated blowing-agent example (methylene chloride)."""
+    hits = []
+    for category, entries in qit.QUALITY_ISSUE_TAXONOMY.items():
+        for entry in entries:
+            haystack = f"{entry['name']} {entry['typical_causes']}".lower()
+            for term in _ALL_RETIRED_TERMS:
+                if term in haystack:
+                    hits.append((category, entry["name"], term))
+    assert not hits, f"Active taxonomy dict entries still contain retired/quarantined terms: {hits}"
 
 
 def test_twelve_flexible_only_taxonomy_entries_are_removed():

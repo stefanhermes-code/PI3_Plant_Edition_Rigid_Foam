@@ -6702,4 +6702,52 @@ being returned to Charlie for re-review. No other Phase 5 acceptance item
 is affected by this change.
 """
 
-APP_VERSION = "0.63.0"
+VERSION_0_63_1_NOTES = """
+WP7 Phase 5, A5-08 correction v2 (2026-08-15) - Charlie's second Closeout
+Review Return to JC accepted all four v0.63.0 corrections but held A5-08
+open again on two further grounds, both now closed:
+
+1. Active taxonomy still contained retired/quarantined guidance the v0.63.0
+scan's narrower term list (trough/fall-plate/conveyor/lay-down/slabstock/
+Maxfoam) didn't cover:
+- Slow curing: removed "leaving the tunnel" (continuous-line curing-tunnel
+  reference).
+- Relaxation, Sink back, Coarse foam, Voids/pinholes, Excess air bubbles,
+  Shrinkage: removed "air injection" clauses. air_injection_rate/air_
+  pressure_bar is D5-05 QUARANTINED per the Phase 5 decision ledger, not
+  merely an inherited Flexible Foam term, so referencing it in active
+  troubleshooting guidance was a real gap independent of the slabstock
+  scan.
+- Low block density: removed "(methylene chloride)" as a named
+  blowing-agent example - an unvalidated Rigid-specific detail, not
+  replaced with an invented alternative.
+No entries were removed in this pass (unlike v0.63.0's 12-entry removal) -
+every affected entry retained other valid, generic guidance after the
+clause-level strip. Taxonomy entry count stays at 42.
+
+2. The direct A5-08 regression's scan was too narrow. tests/test_wp7_
+phase5_a5_08_flexible_inheritance.py gained a 9th test,
+test_taxonomy_dict_values_contain_zero_retired_or_quarantined_terms,
+which scans the LOADED QUALITY_ISSUE_TAXONOMY dict values (not raw file
+text, which can silently miss a term split across adjacent string-literal
+lines) for the full retired/quarantined term list: trough, fall-plate,
+conveyor, lay-down, slabstock, Maxfoam, tunnel, air injection, air
+pressure, methylene chloride. The existing docstring-boundary scan was
+also expanded to the same full term list and fixed to join adjacent
+string literals before scanning, so it can no longer miss a
+line-straddling term either. 9/9 A5-08 regression tests pass.
+
+3. Authoritative full regression: Charlie's return required one serial
+(not pytest-xdist parallel) full-suite run with zero failures and zero
+skipped, since the v0.63.0 return's -n 4 result (583 passed, 1 failed) did
+not satisfy that gate even though the 1 failure was a disclosed pre-
+existing isolation flake. Ran DATABASE_URL=sqlite:// python3 -m pytest -q
+-p no:warnings (serial): 585 passed, 0 failed, 0 skipped, 142.68s. 585 =
+584 (v0.63.0 total) + 1 new test this pass.
+
+WP7 Phase 5 status: both of Charlie's remaining A5-08 gates are met with
+direct, executed evidence. Corrected evidence being returned to Charlie
+for re-review.
+"""
+
+APP_VERSION = "0.63.1"

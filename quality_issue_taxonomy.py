@@ -45,6 +45,23 @@ Two categories of change were applied to the set below:
    (the picker's "Typical causes/checks" caption simply does not render
    for that entry, rather than showing invented Rigid-specific content).
 
+WP7 Phase 5, A5-08 correction v2 (2026-08-15, Charlie's second closeout
+review return): the first A5-08 pass above scanned for
+trough/fall-plate/conveyor/lay-down/slabstock/Maxfoam terms only, which
+missed guidance content tied to OTHER already-retired-or-quarantined WP7
+concepts still present in a handful of entries: "leaving the tunnel" in
+Slow curing (a continuous-line curing-tunnel reference), "air injection"
+in Relaxation/Sink back/Coarse foam/Voids-pinholes/Excess air
+bubbles/Shrinkage (air_injection_rate/air_pressure_bar is D5-05
+QUARANTINED per the Phase 5 decision ledger, not just an inherited
+Flexible Foam term), and "methylene chloride" as a named blowing-agent
+example in Low block density. All of these clauses were removed the same
+way as pass one - clause-level strip, no invented replacement guidance,
+empty typical_causes only where nothing generic was left (not needed
+here; every affected entry retained other valid guidance). No entries
+were removed in this pass, only clauses edited - the 42-entry count from
+pass one is unchanged.
+
 Consolidation note: the source guide lists several splits/cracks faults
 that differ mainly by WHERE on the block they appear (bottom corner,
 shoulder, centre, small side, inclined, chimney over the trough inlets,
@@ -111,18 +128,18 @@ QUALITY_ISSUE_TAXONOMY = {
         {
             "name": "Relaxation",
             "typical_causes": "Block rises to maximum height, then settles back. Increase silicone and tin "
-            "catalyst (check output); reduce amine catalyst; reduce stirrer speed and/or air injection.",
+            "catalyst (check output); reduce amine catalyst; reduce stirrer speed.",
         },
         {
             "name": "Sink back",
             "typical_causes": "Excessive sink-back of the foam after cell opening. Check tin catalyst pump "
-            "output and activity; if the structure is abnormally fine/open, check stirrer speed/air "
-            "injection; check the tertiary amine catalyst blend.",
+            "output and activity; if the structure is abnormally fine/open, check stirrer speed; check the "
+            "tertiary amine catalyst blend.",
         },
         {
             "name": "Slow curing",
             "typical_causes": "Polymer strength builds too slowly; foam too weak/sticky to cut; block "
-            "dimensionally unstable leaving the tunnel. Increase amine and/or tin catalyst; check metering "
+            "dimensionally unstable. Increase amine and/or tin catalyst; check metering "
             "of water/TDI/polyol/tin; check for catalyst deactivation; raise component temperatures; "
             "improve mixer efficiency.",
         },
@@ -151,7 +168,7 @@ QUALITY_ISSUE_TAXONOMY = {
         {
             "name": "Coarse foam",
             "typical_causes": "Foam is composed of large cells. Check silicone level/activity; increase "
-            "mixing speed and/or air injection.",
+            "mixing speed.",
         },
         {
             "name": "Dead foam",
@@ -185,7 +202,7 @@ QUALITY_ISSUE_TAXONOMY = {
         {
             "name": "Voids / pinholes",
             "typical_causes": "Small voids randomly distributed throughout the foam. Increase tin catalyst "
-            "and cell size; reduce air injection/mixer speed; check silicone activity; check for "
+            "and cell size; reduce mixer speed; check silicone activity; check for "
             "contamination and clean pump filters, mixer chamber, manifold, and tube.",
         },
         {
@@ -196,9 +213,8 @@ QUALITY_ISSUE_TAXONOMY = {
         },
         {
             "name": "Excess air bubbles",
-            "typical_causes": "Too much air in the mix. Increase mixer pressure; check the air injection "
-            "needle/nozzle; reduce air injection flow; remove build-up material from the mixing "
-            "head/hoses; check for blocked filters causing under-pressure; check polyol pipe sizing/routing "
+            "typical_causes": "Too much air in the mix. Increase mixer pressure; remove build-up material "
+            "from the mixing head/hoses; check for blocked filters causing under-pressure; check polyol pipe sizing/routing "
             "for trapped air.",
         },
         {
@@ -244,13 +260,13 @@ QUALITY_ISSUE_TAXONOMY = {
         {
             "name": "Shrinkage",
             "typical_causes": "Block shrinks during curing. Decrease tin catalyst and silicone level; "
-            "increase mixer speed/air injection; check for contaminants; decrease TDI index; increase amine "
+            "increase mixer speed; check for contaminants; decrease TDI index; increase amine "
             "catalyst; lower component temperatures; enlarge the mixer outlet nozzle.",
         },
         {
             "name": "Low block density",
             "typical_causes": "Reduced block height, associated with high curing temperature/scorching or "
-            "increased TDI vapour at cut-off. Check for a shortage of blowing agent (methylene chloride) or "
+            "increased TDI vapour at cut-off. Check for a shortage of blowing agent or "
             "water for primary blowing; check output, temperature, and feed tank/filter/valve condition.",
         },
         {
