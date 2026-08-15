@@ -9,6 +9,30 @@ Every function here is idempotent - safe to call more than once, and safe
 to call against a database with zero pre-existing rows - matching the
 precedent already established by legacy_migration.py (WP7 Phase 3).
 
+CORRECTION (2026-08-15, CR21_Closeout_Review_Return_to_JC.docx, A21-10):
+Charlie's review found that the original release of this module docstring-
+claimed "safe to call against a database with zero pre-existing rows" but
+did not actually deliver that - migrate_production_method_master() only
+renamed methods that already existed (skipping absent ones outright) and
+unconditionally created PM-800, so a truly zero-row clean database ended
+up with ONLY PM-800 after this step. The next step,
+reclassify_pm100_appliance_records_to_pm800(), then called .one() for
+PM-100, which does not exist in that state, and crashed. This correction
+replaces the old _RENAMES-only approach with a full canonical 8-row
+master (_CONTROLLED_METHOD_MASTER, values re-queried live from Supabase
+immediately before writing this correction to guarantee they match
+production exactly) applied uniformly to PM-100 through PM-700: any row
+that is ABSENT is created directly with its final, approved (post-CR-21)
+definition - there is no legacy state to "rename away from" on a clean
+build - and any row that already EXISTS has its fields converged to the
+same canonical definition (a no-op for PM-200/300/400/700, whose values
+CR-21 never changed; the actual rename for PM-100/500/600). PM-800
+creation/convergence is unchanged. reclassify_pm100_appliance_records_to_
+pm800() now also defensively no-ops (rather than crashing) if PM-100 or
+PM-800 are somehow still absent when it runs, though the corrected step
+above guarantees they will not be after migrate_production_method_master()
+runs first in run_cr21_migration()'s required order.
+
 Scope (F21-09): this module changes controlled master DATA only
 (names/descriptions/release flags on ProductionMethod, and the
 production_method_id FK on the 5 unambiguous reference_formulations rows
@@ -19,12 +43,20 @@ response Section 2), or WP7 Production Run architecture (F21-11).
 
 from db import ProductionMethod, ReferenceFormulation
 
-# F21-01/F21-02: approved renames. PM-500's technical behavior is
-# unchanged (D21-02) - only its preferred name changes. PM-600's
-# description becomes pipe-only per F21-02/F21-05 (zero live vessel data
-# at challenge time and re-confirmed immediately before migration - see
-# the CR-21 return package's Section 4 recheck).
-_RENAMES = {
+# F21-01/F21-02/A21-10: the full, canonical, POST-CR-21 controlled master
+# for PM-100 through PM-700 (PM-800 is defined separately below since it
+# is always a pure creation, never a rename). Values re-confirmed live
+# against Supabase (rigid_foam.production_methods) on 2026-08-15
+# immediately before this correction, so a clean build reaches the exact
+# same state as the already-migrated upgrade-path database. PM-500's
+# technical behavior is unchanged (D21-02) - only its preferred name
+# changes. PM-600's description is pipe-only per F21-02/F21-05 (zero live
+# vessel data at challenge time and re-confirmed immediately before the
+# original migration - see the CR-21 return package's Section 4 recheck).
+# PM-200/300/400/700 are listed here (unchanged by CR-21) purely so a
+# clean build can create them - convergence against an already-correct
+# existing row is a no-op.
+_CONTROLLED_METHOD_MASTER = {
     "PM-100": {
         "name": "Discontinuous Panel & Board Production",
         "description": (
@@ -32,9 +64,42 @@ _RENAMES = {
             "PUR/PIR insulation panels and boards. Does not cover "
             "enclosed appliance or component cavity foaming - see PM-800."
         ),
+        "maturity_status": "Released",
+        "is_released": True,
+        "sort_order": 100,
+        "uses_cycle_shot_operation": False,
+    },
+    "PM-200": {
+        "name": "Continuous Panel & Board Production",
+        "description": None,
+        "maturity_status": "Defined / planned",
+        "is_released": False,
+        "sort_order": 200,
+        "uses_cycle_shot_operation": False,
+    },
+    "PM-300": {
+        "name": "Field Cavity Foaming",
+        "description": None,
+        "maturity_status": "Defined / planned",
+        "is_released": False,
+        "sort_order": 300,
+        "uses_cycle_shot_operation": False,
+    },
+    "PM-400": {
+        "name": "Spray Foam Application",
+        "description": None,
+        "maturity_status": "Defined / planned",
+        "is_released": False,
+        "sort_order": 400,
+        "uses_cycle_shot_operation": False,
     },
     "PM-500": {
         "name": "Rigid Block Production",
+        "description": None,
+        "maturity_status": "Placeholder",
+        "is_released": False,
+        "sort_order": 500,
+        "uses_cycle_shot_operation": False,
     },
     "PM-600": {
         "name": "Pre-insulated Pipe Processing",
@@ -45,6 +110,18 @@ _RENAMES = {
             "runs, recipe versions, reference formulations, and plant "
             "activations."
         ),
+        "maturity_status": "Placeholder",
+        "is_released": False,
+        "sort_order": 600,
+        "uses_cycle_shot_operation": False,
+    },
+    "PM-700": {
+        "name": "Structural & Composite Rigid Foam Processing",
+        "description": None,
+        "maturity_status": "Placeholder",
+        "is_released": False,
+        "sort_order": 700,
+        "uses_cycle_shot_operation": False,
     },
 }
 
@@ -80,23 +157,53 @@ PM_800_DEFINITION = {
 _PM100_TO_PM800_RECLASSIFY = ["RF-001", "RF-002", "RF-003", "RF-004", "RF-005"]
 
 
-def migrate_production_method_master(session):
-    """R21-01/R21-02/R21-03: rename PM-100/PM-500/PM-600 in place (same
-    row, same id, same controlled_id - FK integrity is untouched by
-    construction), and add PM-800 exactly once. Idempotent: renaming an
-    already-renamed row is a no-op update; PM-800 is looked up by
-    controlled_id before insert, so re-running never creates a duplicate.
+# F21-09: CR-21's frozen write scope only ever RENAMES an already-existing
+# PM-100/500/600 row (plus creates/converges PM-800, handled separately
+# below). PM-200/300/400/700 are create-only - if one is already present
+# (the normal upgrade-path case) CR-21 must not touch its fields at all,
+# even if a future controlled-vocabulary edit elsewhere made them differ
+# from the values below; those values exist here solely so a true clean
+# build (zero pre-existing rows) can create them.
+_RENAME_ON_EXISTING = {"PM-100", "PM-500", "PM-600"}
 
-    Returns a dict summary: {"renamed": [...], "pm800_created": bool}."""
-    renamed = []
-    for controlled_id, fields in _RENAMES.items():
+
+def migrate_production_method_master(session):
+    """R21-01/R21-02/R21-03/A21-10: bring PM-100 through PM-700 to their
+    canonical, approved (post-CR-21) definitions, and add PM-800 exactly
+    once. Two cases per row:
+
+    - A row that does not exist yet (the true clean-build case) is
+      CREATED directly with its final canonical definition for ALL of
+      PM-100 through PM-700 - there is no legacy name to rename away from
+      on a clean build.
+    - A row that already exists (the upgrade-path case, e.g. a database
+      seeded before CR-21) is only field-converged for PM-100/500/600 -
+      the actual rename. PM-200/300/400/700, if already present, are left
+      completely untouched, matching F21-09's frozen scope exactly (CR-21
+      never rewrites them; it only knows how to create them from scratch).
+
+    Idempotent either way: re-running against an already-canonical row
+    makes zero changes; PM-800 is looked up by controlled_id before
+    insert, so re-running never creates a duplicate.
+
+    Returns a dict summary: {"created": [...], "renamed": [...],
+    "pm800_created": bool}."""
+    created, renamed = [], []
+    for controlled_id, canonical_fields in _CONTROLLED_METHOD_MASTER.items():
         method = session.query(ProductionMethod).filter(
             ProductionMethod.controlled_id == controlled_id
         ).one_or_none()
         if method is None:
-            continue  # F21-03: safe against a not-yet-seeded database
+            # A21-10: the supported clean baseline has zero
+            # ProductionMethod rows - create with the final definition
+            # directly rather than assuming an upgrade-path legacy row.
+            session.add(ProductionMethod(controlled_id=controlled_id, **canonical_fields))
+            created.append(controlled_id)
+            continue
+        if controlled_id not in _RENAME_ON_EXISTING:
+            continue  # F21-09: never rewrite an already-existing PM-200/300/400/700 row
         changed = False
-        for field, value in fields.items():
+        for field, value in canonical_fields.items():
             if getattr(method, field) != value:
                 setattr(method, field, value)
                 changed = True
@@ -121,7 +228,7 @@ def migrate_production_method_master(session):
                 setattr(pm800, field, value)
 
     session.commit()
-    return {"renamed": renamed, "pm800_created": pm800_created}
+    return {"created": created, "renamed": renamed, "pm800_created": pm800_created}
 
 
 def reclassify_pm100_appliance_records_to_pm800(session):
@@ -133,10 +240,24 @@ def reclassify_pm100_appliance_records_to_pm800(session):
     a row already on PM-800 is left untouched; a controlled_id not found
     is skipped (reported, not silently ignored).
 
+    A21-10 correction: uses .one_or_none() rather than .one() for the
+    PM-100/PM-800 lookups themselves and no-ops defensively (returning an
+    all-not_found result) if either is somehow still absent, instead of
+    raising. In practice this should never trigger when called through
+    run_cr21_migration(), since migrate_production_method_master() now
+    guarantees both rows exist by the time this step runs - but this
+    function no longer assumes a specific caller/order to stay safe.
+
     Returns a dict: {"reclassified": [...], "already_pm800": [...],
     "not_found": [...]}."""
-    pm100 = session.query(ProductionMethod).filter(ProductionMethod.controlled_id == "PM-100").one()
-    pm800 = session.query(ProductionMethod).filter(ProductionMethod.controlled_id == "PM-800").one()
+    pm100 = session.query(ProductionMethod).filter(ProductionMethod.controlled_id == "PM-100").one_or_none()
+    pm800 = session.query(ProductionMethod).filter(ProductionMethod.controlled_id == "PM-800").one_or_none()
+    if pm100 is None or pm800 is None:
+        return {
+            "reclassified": [],
+            "already_pm800": [],
+            "not_found": list(_PM100_TO_PM800_RECLASSIFY),
+        }
 
     reclassified, already_pm800, not_found = [], [], []
     for controlled_id in _PM100_TO_PM800_RECLASSIFY:

@@ -6852,4 +6852,61 @@ against (pytest-xdist's shared-worker parallelism), since no test in
 any of the four runs executed concurrently with another.
 """
 
-APP_VERSION = "0.64.0"
+VERSION_0_64_1_NOTES = """
+CR-21 correction (2026-08-15), per Charlie's CR21_Closeout_Review_Return_
+to_JC.docx: two material acceptance gaps found against the v0.64.0 return
+package, both closed here with direct automated evidence. No additional
+CR-21 scope is introduced by this correction.
+
+1. A21-10 (clean-build migration path): the original
+cr21_pm_migration.py only renamed PM-100/PM-500/PM-600 when a row already
+existed and unconditionally created PM-800, so a true zero-row database
+(no pre-existing legacy methods) ended up with a single-row PM-800-only
+master after migrate_production_method_master(), and
+reclassify_pm100_appliance_records_to_pm800() then crashed on .one() for
+the still-absent PM-100. Fixed by replacing the rename-only dict with a
+full canonical _CONTROLLED_METHOD_MASTER covering all 8 controlled
+methods (re-confirmed live against Supabase immediately before writing
+the fix): every method is now created outright if absent (clean-build
+support), while convergence-if-already-existing is restricted to
+PM-100/PM-500/PM-600/PM-800 only (_RENAME_ON_EXISTING) - preserving
+AF21-01's frozen write scope exactly, so PM-200/300/400/700 are still
+never rewritten on the upgrade path. reclassify_pm100_appliance_records_
+to_pm800() now uses .one_or_none() with a defensive not_found early
+return instead of raising NoResultFound. Evidence: two new dedicated
+clean-build tests (test_clean_build_migration_reaches_eight_row_master_
+with_zero_appliance_data, test_clean_build_migration_is_idempotent_on_
+rerun) in tests/test_cr21_pm_master_revision.py, each resetting the
+schema directly (no fixture) to prove a true zero-row starting state,
+reaching the exact approved 8-row master and remaining idempotent on
+rerun.
+
+2. A21-05 (production-run evidence): the original return package had no
+direct automated evidence that the selected Production Method resolves
+correctly through a real Production Run for both a PM-800 appliance/
+cavity run and a PM-100 panel/board run. Added a synthetic fixture
+(cr21_a21_05_fixture) building one PM-800 run and one PM-100 run, each
+with a shared Global-scope ProcessSettingApplicability and a recorded
+Planned+Actual ProcessParameterValue, plus four new tests proving all
+four required evidence points for both runs: (1) run context -
+ProductionRun.production_method resolves to the correct controlled_id/
+name (the immutable per-run snapshot); (2) report reader -
+reports.build_batch_release_record_data()'s "production_method" field
+matches; (3) analytics reader -
+analytics.production_run_process_parameters() resolves the eligible
+setting with the correct recorded planned/actual/delta values; (4) PI3
+context construction - the full Root Cause Assistant reader chain
+(reports.current_run_process_setting_rows -> reports.root_cause_
+investigation_facts -> reports.environment_outcome_context_rows ->
+reports.format_root_cause_facts_for_pi3) carries the run's real recorded
+Process Setting fact content (Parameter name, Planned/Actual values) into
+the PI3 payload text, for both methods.
+
+3. Regression: full serial suite re-run after both fixes, same four-way
+file-partition split as v0.64.0 (per-tool-call time cap, no xdist/
+parallel workers within or across partitions) - 198 + 192 + 91 + 124 =
+605 passed, 0 failed, 0 skipped (605 vs. the prior 599 reflects the 6
+new A21-05/A21-10 tests added this correction).
+"""
+
+APP_VERSION = "0.64.1"
