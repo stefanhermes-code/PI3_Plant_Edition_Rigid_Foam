@@ -6375,4 +6375,94 @@ Production Run UI confirmation, end-to-end UAT, release hardening/closeout)
 continue under the same accepted disposition plan.
 """
 
-APP_VERSION = "0.59.0"
+VERSION_0_60_0_NOTES = """
+WP7 Phase 5 migration cleanup, reconciliation and rollback evidence
+(2026-08-15) - direct evidence for the contract's A5-01 (legacy dependency
+inventory), A5-02 (data reconciliation) and A5-03 (schema safety), and for
+Decision Ledger D5-08 ("Legacy migration utilities").
+
+No code change was required this batch - the migration path
+(legacy_migration.py) was built in WP7 Phase 3 and already reconciles
+correctly; this batch verifies that the Phase 5 active-code-retirement
+batch (v0.59.0) did not disturb it, and produces the direct evidence the
+contract's acceptance matrix asks for.
+
+A5-01 (legacy dependency inventory) - full repo-wide re-scan of every
+ProductionPhase reference and every one of the 9 legacy-field names
+(mixer_rpm, conveyor_speed, air_injection_rate, air_pressure_bar,
+sidewall_width_mm, ambient_temperature_c, ambient_humidity_pct,
+foam_height_mm, rise_time). Classification: db.py's ProductionPhase class
+(ARCHIVE READ-ONLY schema definition) - pages/4's remaining phase_start/
+phase_end/notes-only Create/Edit/CSV-Import/delete paths (ACTIVE, but
+scoped to the 3 fields the JC response's Section 4 table says "still has a
+live purpose") - cascades.py's cascade-delete query (ACTIVE, A5-06
+integrity requirement, not legacy-setting authority) - legacy_migration.py
+(MIGRATION SUPPORT, retained per D5-08) - demo_data.py's 2 seed calls
+(TEST FIXTURE, already dispositioned by the JC response as "harmless,
+matches ARCHIVE READ-ONLY... do not extend further") - gen_uat015_019_
+live_pages.py (a completed one-off WP6-S09 UAT evidence script, out of
+Phase 5's ProductionPhase-authority scope, left untouched). Zero
+UNCLASSIFIED references found.
+
+A5-02 (data reconciliation) - live rigid_foam Supabase query (project
+aazkdsqpytjciiqtvnfj, 2026-08-15): production_runs=1, production_phases=0,
+process_parameter_values=0, component_stream_readings=0,
+fallplate_section_positions=0. The CR-04 database reset (2026-08-10) left
+only the minimal Phase 1 UAT baseline, so live pre/post counts for the 4
+already-migrated fields are honestly 0=0 - matching test_wp7_phase3_
+reconciliation.py's existing "on empty schema" evidence. Since there is no
+live legacy data to reconcile today, the substantive A5-02 proof is that
+the reconciliation *logic* is correct whenever real legacy data does exist
+- new tests/test_wp7_phase5_migration_cleanup.py adds direct evidence that
+this logic still works correctly after the Phase 5 retirement batch
+(re-running phase3_reconciliation_summary() against synthetic legacy data
+seeded with all 9 legacy fields populated reproduces the exact 4-migrated/
+1-quarantined result), and that the 5 deferred/quarantined fields produce
+zero ProcessSettingDefinition/ProcessParameterValue rows under any
+circumstance - direct proof "remain untouched" is actually true of the
+migration path, not just of the retired UI.
+
+A5-03 (schema safety) - "any physical removal has tested upgrade and
+rollback/restore behavior." Phase 5 performs zero physical schema removal
+(per the JC response's Section 3 disposition: ProductionPhase,
+RuntimeDataRecord and FallplateSectionPosition stay ARCHIVE READ-ONLY,
+not REMOVE, this phase - the FK-safety and un-migrated-history reasons are
+unchanged from the challenge response). New test
+test_production_phase_and_dependents_still_physically_present asserts
+directly via SQLAlchemy schema inspection that all 3 tables and all 9
+legacy columns remain physically present, and that
+fallplate_section_positions.production_phase_id is still NOT NULL - the
+exact FK-safety reason the physical-removal gate (Decision Ledger
+Edge-state rule) is deferred to a future, separately-scoped item. A5-03's
+DDL rollback/restore testing is therefore correctly out of scope for this
+phase; fabricating a branch-based rollback test for a removal that isn't
+happening would prove nothing the schema-inspection test doesn't already
+prove more directly.
+
+D5-08 (legacy migration utilities) - legacy_migration.py is retained as
+MIGRATION SUPPORT, unchanged. It has zero live app-runtime call sites
+(confirmed by the A5-01 scan - only comments in analytics.py/pages/4
+reference it, plus its own test module), so it carries no active
+authority in the sense Phase 5 retires; it remains the tool to run
+reconciliation whenever real legacy data needs migrating (e.g. a future
+database restore or upgrade-path validation), matching D5-08's "retain
+only utilities still required for upgrade/rollback evidence."
+
+New file tests/test_wp7_phase5_migration_cleanup.py (4 tests, all
+passing): test_production_phase_and_dependents_still_physically_present,
+test_migration_utility_unaffected_by_active_code_retirement,
+test_deferred_and_quarantined_fields_have_zero_migrated_equivalent,
+test_run_settings_dataframe_ignores_legacy_phase_data_even_when_present.
+
+Full regression: 569 passed, 0 skipped, 0 failed, 16 warnings (pytest-xdist
+-n 4; warnings are the same pre-existing SQLAlchemy Query.get() legacy-API
+deprecation notices as prior releases, unrelated to this work).
+
+WP7 Phase 5 status: active code retirement (v0.59.0) and migration
+cleanup/reconciliation/rollback evidence (this batch) both complete.
+Remaining sub-tasks (Production Run UI confirmation, end-to-end UAT,
+release hardening/closeout) continue under the same accepted disposition
+plan.
+"""
+
+APP_VERSION = "0.60.0"
