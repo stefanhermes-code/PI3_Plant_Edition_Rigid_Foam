@@ -490,20 +490,22 @@ def test_production_run_csv_import_via_ui(seeded_grade_chain):
 # ---------------------------------------------------------------------------
 
 def test_setup_data_create_via_form(seeded_run):
-    """Drives the real Setup ("Planned Settings") tab's Create sub-tab:
-    fills the real Mixer rpm / Conveyor speed number_inputs and clicks the
-    real "Save Setup data" submit button. seeded_run has a ProductionRun
-    but no ProductionPhase rows yet, so the run selector defaults straight
-    to it (only one run exists) and no Setup row exists yet for the Create
-    tab to defer to an Edit link instead."""
+    """Drives the real Setup Data tab's Create sub-tab. seeded_run has a
+    ProductionRun but no ProductionPhase rows yet, so the run selector
+    defaults straight to it (only one run exists) and no Setup row exists
+    yet for the Create tab to defer to an Edit link instead.
+
+    WP7 Phase 5 (Legacy Retirement, 2026-08-15) removed the Mixer rpm /
+    Conveyor speed number_inputs this test used to drive (see the JC
+    Pre-Coding Engineering Challenge Response, Section 4) - the Create
+    form now only has start/end time and Notes, so this test fills Notes
+    instead and confirms the retired fields stay None."""
     ids = seeded_run
     at = _run()
     assert not at.exception, f"Unhandled exception loading Production Run: {at.exception}"
 
-    mixer = next(n for n in at.number_input if n.key == f"new_setup_mixer_{ids['run_id']}")
-    mixer.set_value(1200.0)
-    conveyor = next(n for n in at.number_input if n.key == f"new_setup_conveyor_{ids['run_id']}")
-    conveyor.set_value(2.2)
+    notes = next(t for t in at.text_area if t.key == f"new_setup_notes_{ids['run_id']}")
+    notes.set_value("Created via UI test")
 
     save_btn = next(b for b in at.button if b.label == "Save Setup data")
     save_btn.click()
@@ -517,8 +519,9 @@ def test_setup_data_create_via_form(seeded_run):
         .first()
     )
     assert created is not None, "New Setup data row was not persisted"
-    assert created.mixer_rpm == 1200.0
-    assert created.conveyor_speed == 2.2
+    assert created.notes == "Created via UI test"
+    assert created.mixer_rpm is None, "Create form should no longer set mixer_rpm (WP7 Phase 5)"
+    assert created.conveyor_speed is None, "Create form should no longer set conveyor_speed (WP7 Phase 5)"
     session.close()
 
 
@@ -535,8 +538,11 @@ def test_setup_data_selection_edit_and_delete_via_ui(seeded_setup_phase):
     at = _run()
     assert not at.exception, f"Unhandled exception loading Production Run: {at.exception}"
 
-    conveyor = next(n for n in at.number_input if n.key == f"edit_setup_conveyor_{ids['setup_phase_id']}")
-    conveyor.set_value(3.75)
+    # WP7 Phase 5 (Legacy Retirement) removed the Conveyor speed
+    # number_input this test used to drive - the Edit form now only has
+    # start/end time and Notes, so this edits Notes instead.
+    notes = next(t for t in at.text_area if t.key == f"edit_setup_notes_{ids['setup_phase_id']}")
+    notes.set_value("Edited via UI test")
     # Filtered by key, not label - see the same note in the Production Run
     # edit/delete test above (every group's Edit form shares the identical
     # unkeyed "Save changes" label).
@@ -549,7 +555,7 @@ def test_setup_data_selection_edit_and_delete_via_ui(seeded_setup_phase):
 
     session = db.get_session()
     edited = session.get(db.ProductionPhase, ids["setup_phase_id"])
-    assert edited.conveyor_speed == 3.75, "Edit did not persist to the database"
+    assert edited.notes == "Edited via UI test", "Edit did not persist to the database"
     session.close()
 
     confirm_box = next(c for c in at.checkbox if c.key == f"setup_{ids['setup_phase_id']}_confirm")
@@ -575,7 +581,9 @@ def test_setup_data_csv_import_via_ui(seeded_run):
     at = _run()
     assert not at.exception
 
-    csv_bytes = f"production_run_id,mixer_rpm,conveyor_speed\n{ids['run_id']},1400,2.9\n".encode()
+    # WP7 Phase 5 (Legacy Retirement) removed mixer_rpm/conveyor_speed from
+    # SETUP_OPTIONAL_COLUMNS - this now imports on the notes column instead.
+    csv_bytes = f"production_run_id,notes\n{ids['run_id']},Imported via CSV\n".encode()
     uploader = next(u for u in at.file_uploader if u.key == "setup_upload")
     uploader.set_value(("setup.csv", csv_bytes, "text/csv"))
     at.run()
@@ -593,7 +601,7 @@ def test_setup_data_csv_import_via_ui(seeded_run):
         .first()
     )
     assert imported is not None, "Imported Setup data row was not persisted"
-    assert imported.mixer_rpm == 1400
+    assert imported.notes == "Imported via CSV"
     session.close()
 
 
@@ -865,20 +873,23 @@ def test_production_event_csv_import_via_ui(seeded_run):
 # ---------------------------------------------------------------------------
 
 def test_runtime_data_create_via_form(seeded_run):
-    """Drives the real Runtime Data ("Actual Run and Cycle Data") tab's
-    Create sub-tab: fills the real Mixer rpm / Conveyor speed
-    number_inputs and clicks the real "Save Runtime Data" submit button.
-    seeded_run has a ProductionRun but no Finalized-phase row yet, so this
-    is a genuine first-time create, not a redundant pass over
-    seeded_finalized_phase's already-seeded row."""
+    """Drives the real Runtime Data tab's Create sub-tab. seeded_run has a
+    ProductionRun but no Finalized-phase row yet, so this is a genuine
+    first-time create, not a redundant pass over seeded_finalized_phase's
+    already-seeded row.
+
+    WP7 Phase 5 (Legacy Retirement, 2026-08-15) removed the Mixer rpm /
+    Conveyor speed number_inputs this test used to drive, along with the
+    rest of the machine-setting/ambient/outcome widgets and the
+    "Calculated output" block (see the JC Pre-Coding Engineering
+    Challenge Response, Section 4) - the Create form now only has
+    start/end time and Notes, so this test fills Notes instead."""
     ids = seeded_run
     at = _run()
     assert not at.exception, f"Unhandled exception loading Production Run: {at.exception}"
 
-    mixer = next(n for n in at.number_input if n.key == f"new_runtime_mixer_{ids['run_id']}")
-    mixer.set_value(1300.0)
-    conveyor = next(n for n in at.number_input if n.key == f"new_runtime_conveyor_{ids['run_id']}")
-    conveyor.set_value(2.6)
+    notes = next(t for t in at.text_area if t.key == f"new_runtime_notes_{ids['run_id']}")
+    notes.set_value("Created via UI test")
 
     save_btn = next(b for b in at.button if b.label == "Save Runtime Data")
     save_btn.click()
@@ -892,8 +903,9 @@ def test_runtime_data_create_via_form(seeded_run):
         .first()
     )
     assert created is not None, "New Runtime Data row was not persisted"
-    assert created.mixer_rpm == 1300.0
-    assert created.conveyor_speed == 2.6
+    assert created.notes == "Created via UI test"
+    assert created.mixer_rpm is None, "Create form should no longer set mixer_rpm (WP7 Phase 5)"
+    assert created.conveyor_speed is None, "Create form should no longer set conveyor_speed (WP7 Phase 5)"
     session.close()
 
 
@@ -913,8 +925,11 @@ def test_runtime_data_selection_edit_and_delete_via_ui(seeded_finalized_phase):
     at = _run()
     assert not at.exception, f"Unhandled exception loading Production Run: {at.exception}"
 
-    conveyor = next(n for n in at.number_input if n.key == f"edit_runtime_conveyor_{ids['finalized_phase_id']}")
-    conveyor.set_value(4.1)
+    # WP7 Phase 5 (Legacy Retirement) removed the Conveyor speed
+    # number_input this test used to drive - the Edit form now only has
+    # start/end time and Notes, so this edits Notes instead.
+    notes = next(t for t in at.text_area if t.key == f"edit_runtime_notes_{ids['finalized_phase_id']}")
+    notes.set_value("Edited via UI test")
     # Filtered by key, not label - see the same note in the Production Run
     # edit/delete test above.
     save_btn = next(
@@ -927,7 +942,7 @@ def test_runtime_data_selection_edit_and_delete_via_ui(seeded_finalized_phase):
 
     session = db.get_session()
     edited = session.get(db.ProductionPhase, ids["finalized_phase_id"])
-    assert edited.conveyor_speed == 4.1, "Edit did not persist to the database"
+    assert edited.notes == "Edited via UI test", "Edit did not persist to the database"
     session.close()
 
     confirm_box = next(c for c in at.checkbox if c.key == f"runtime_{ids['finalized_phase_id']}_confirm")
@@ -955,7 +970,9 @@ def test_runtime_data_csv_import_via_ui(seeded_run):
     at = _run()
     assert not at.exception
 
-    csv_bytes = f"production_run_id,mixer_rpm,foam_height_mm\n{ids['run_id']},1600,55\n".encode()
+    # WP7 Phase 5 (Legacy Retirement) removed mixer_rpm/foam_height_mm from
+    # RUNTIME_OPTIONAL_COLUMNS - this now imports on the notes column instead.
+    csv_bytes = f"production_run_id,notes\n{ids['run_id']},Imported via CSV\n".encode()
     uploader = next(u for u in at.file_uploader if u.key == "runtime_upload")
     uploader.set_value(("runtime.csv", csv_bytes, "text/csv"))
     at.run()
@@ -973,8 +990,7 @@ def test_runtime_data_csv_import_via_ui(seeded_run):
         .first()
     )
     assert imported is not None, "Imported Runtime Data row was not persisted"
-    assert imported.mixer_rpm == 1600
-    assert imported.foam_height_mm == 55
+    assert imported.notes == "Imported via CSV"
     session.close()
 
 

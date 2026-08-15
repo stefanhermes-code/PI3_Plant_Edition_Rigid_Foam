@@ -35,7 +35,6 @@ from auth import current_user, logout_button, require_login
 from db import (
     ZONE_LABELS,
     PhysicalPropertyResult,
-    ProductionPhase,
     ProductionRun,
     Sample,
     get_session,
@@ -130,13 +129,13 @@ with tab_create:
             dimension_fields = rigid_sample_dimension_fields(session, "add_sample", run_is_rigid)
             submitted = st.form_submit_button("Save sample")
             if submitted:
-                phases_for_run = (
-                    session.query(ProductionPhase)
-                    .filter(ProductionPhase.production_run_id == run.id).all()
-                )
-                earliest_start = min(
-                    (p.phase_start for p in phases_for_run if p.phase_start), default=None
-                )
+                # WP7 Phase 5 (Legacy Retirement, 2026-08-15): rebased off
+                # ProductionPhase.phase_start onto ProductionRun.run_start -
+                # the canonical run-level start field added WP7 Phase 2
+                # Closeout Correction, now that ProductionPhase is ARCHIVE
+                # READ-ONLY (see the JC Pre-Coding Engineering Challenge
+                # Response, Section 4).
+                earliest_start = run.run_start
                 if earliest_start and sample_ts < earliest_start:
                     st.error(
                         f"Sample creation time ({sample_ts:%Y-%m-%d %H:%M}) is before this run started "
@@ -258,12 +257,10 @@ with tab_edit_delete:
                     session, f"edit_sample_{selected_sample.id}", edit_run_is_rigid, defaults=selected_sample
                 )
                 if st.form_submit_button("Save changes", disabled=not page_usable) and page_usable:
-                    phases_for_edit_run = (
-                        session.query(ProductionPhase)
-                        .filter(ProductionPhase.production_run_id == selected_sample.production_run_id).all()
-                    )
-                    earliest_start = min(
-                        (p.phase_start for p in phases_for_edit_run if p.phase_start), default=None
+                    # WP7 Phase 5 (Legacy Retirement): see the matching
+                    # comment on the add-sample form above.
+                    earliest_start = (
+                        selected_sample.production_run.run_start if selected_sample.production_run else None
                     )
                     if earliest_start and e_sample_ts < earliest_start:
                         st.error(

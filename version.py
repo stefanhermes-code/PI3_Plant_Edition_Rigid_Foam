@@ -6301,4 +6301,78 @@ now complete, pending Charlie's re-review of the updated closeout
 package.
 """
 
-APP_VERSION = "0.58.0"
+VERSION_0_59_0_NOTES = """
+WP7 Phase 5 active code retirement (2026-08-15), per the accepted JC
+Pre-Coding Engineering Challenge Response disposition plan: ProductionPhase
+loses all active reader/writer/UI authority for machine-setting, ambient,
+and outcome fields. The table/columns remain physically in the schema
+(ARCHIVE READ-ONLY - historical integrity, FK safety with
+FallplateSectionPosition.production_phase_id NOT NULL), but every live code
+path that read or wrote those fields is retired in this batch.
+
+analytics.py: run_settings_dataframe(_session, foam_grade_id=None,
+production_method_id=None) simplified - dropped the ProductionPhase query,
+the phases_by_run dict, and the "for field in PHASE_SETTING_FIELDS" loop
+(PHASE_SETTING_FIELDS no longer exists as of the prior Phase 4/5 work). The
+function now returns identity columns only per run: run_id, run_date,
+foam_grade_id, foam_grade, recipe_version_id, recipe_version, machine_id,
+machine, production_method_id, production_method. Docstring updated to
+point callers at production_run_process_parameters()/
+production_run_parameter_dataframe() as the real source of process-setting
+values.
+
+pages/4_Production_Run_Trial_Record.py: SETUP_OPTIONAL_COLUMNS reduced to
+[phase_start, phase_end, notes]; RUNTIME_OPTIONAL_COLUMNS now equals
+SETUP_OPTIONAL_COLUMNS (previously carried 4 extra legacy fields). Removed
+the mixer_rpm/conveyor_speed/air_injection_rate/air_pressure_bar/
+sidewall_width_mm widgets and assignments from the Setup tab's Create,
+Edit, and CSV Import paths. Removed the same fields plus
+ambient_temperature_c/ambient_humidity_pct/foam_height_mm/rise_time/
+meters_produced, and the entire "Calculated output" block (the
+analytics.compute_runtime_output() call site and its st.metric/st.caption
+rendering - compute_runtime_output no longer exists), from the Runtime
+Data tab's Create, Edit, and CSV Import paths. ProductionPhase row
+creation continues for phase_start/phase_end/notes only. On-screen captions
+on tab_setup, tab_runtime, and tab_method_settings corrected to describe
+the retired state accurately (previously claimed legacy fields remained
+authoritative "until WP7 Phase 4" and were "additive to" the fixed-field
+tabs - both now false).
+
+pages/9_Samples_Conditioning.py: removed ProductionPhase from imports.
+Add-sample and edit-sample forms' earliest-start-time validation rebased
+from min(phase.phase_start for phase in run's phases) onto the canonical
+ProductionRun.run_start (added WP7 Phase 2 Closeout Correction),
+consistent with the disposition plan's guidance to use Run Context fields
+for validation, not the retiring ProductionPhase timing fields.
+
+Test suite updated for the removed fields/widgets (13 tests fixed, all now
+passing): tests/test_cr11_functional_evidence_group_d.py (6 tests -
+Setup/Runtime Create, Edit, and CSV Import evidence rewritten to drive/
+assert on Notes instead of mixer_rpm/conveyor_speed, with explicit
+assert X.mixer_rpm is None / assert X.conveyor_speed is None checks added);
+tests/test_wp7_phase0_containment.py (5 tests - rewritten to assert
+not hasattr(analytics, ...) for the removed attributes, drive the Notes
+widget instead of the removed foaming-mode widget, and assert
+run_settings_dataframe()'s exact 10-column identity-only shape);
+tests/test_wp7_phase4_shared_reader.py (1 test - replaced the
+PHASE_SETTING_FIELDS membership assertion, which raised AttributeError
+since the constant no longer exists, with a hardcoded legacy-field-name
+set check plus assert not hasattr(analytics, "PHASE_SETTING_FIELDS"));
+tests/test_cr18_product_family_terminology.py (1 test - ALLOWED_FOAM_FAMILY_HITS
+allowlist updated for the analytics.py line-number shift caused by this
+batch's net line-count change, from {15, 173, 307, 321, 652, 904, 1172,
+1310, 1831, 2006} to {15, 138, 233, 541, 792, 1043, 1181, 1702, 1877} -
+9 entries instead of 10, since one comment inside the now-fully-deleted
+PHASE_SETTING_FIELDS docstring block no longer exists).
+
+Full regression: 565 passed, 0 skipped, 0 failed, 16 warnings (pytest-xdist
+-n 4; warnings are pre-existing SQLAlchemy Query.get() legacy-API
+deprecation notices, unrelated to this work).
+
+WP7 Phase 5 status: active code retirement (this batch) complete. Remaining
+Phase 5 sub-tasks (migration cleanup/reconciliation/rollback evidence,
+Production Run UI confirmation, end-to-end UAT, release hardening/closeout)
+continue under the same accepted disposition plan.
+"""
+
+APP_VERSION = "0.59.0"

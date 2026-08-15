@@ -309,10 +309,17 @@ def test_page4_setup_and_runtime_tabs_have_no_fallplate_subtab():
 
 
 def test_analytics_top_flat_system_used_removed_from_all_four_collections():
-    assert "top_flat_system_used" not in analytics.PHASE_SETTING_FIELDS
-    assert "top_flat_system_used" not in analytics.PHASE_SETTING_LABELS
-    assert "top_flat_system_used" not in analytics.BOOLEAN_SETTING_FIELDS
-    assert "top_flat_system_used" not in analytics.PHASE1_RIGID_INELIGIBLE_SETTINGS
+    # WP7 Phase 5 (Legacy Retirement, 2026-08-15) removed PHASE_SETTING_
+    # FIELDS/LABELS/BOOLEAN_SETTING_FIELDS/PHASE1_RIGID_INELIGIBLE_SETTINGS
+    # from analytics.py entirely (see the JC Pre-Coding Engineering
+    # Challenge Response, Section 4) - the strongest possible form of "top_
+    # flat_system_used excluded from all four collections" is that none of
+    # the four collections exist any more at all.
+    for attr in (
+        "PHASE_SETTING_FIELDS", "PHASE_SETTING_LABELS",
+        "BOOLEAN_SETTING_FIELDS", "PHASE1_RIGID_INELIGIBLE_SETTINGS",
+    ):
+        assert not hasattr(analytics, attr), f"analytics.{attr} should have been fully removed under WP7 Phase 5"
     # Confirm via source scan too, not just the loaded objects, in case a
     # stray second definition exists elsewhere in the file.
     hits = _active_code_hits(ANALYTICS_PY)
@@ -394,13 +401,19 @@ def test_setup_data_create_via_form_no_longer_accepts_foaming_mode(seeded_run):
     foaming_mode/top_flat_system_used - saves a Setup row through the
     real form and confirms those two columns are None on the persisted
     row (the columns still exist on the model; nothing in the active
-    Create path populates them anymore)."""
+    Create path populates them anymore).
+
+    WP7 Phase 5 (Legacy Retirement, 2026-08-15) went further and removed
+    the mixer_rpm/conveyor_speed/etc. machine-setting widgets from this
+    form entirely (see the JC Pre-Coding Engineering Challenge Response,
+    Section 4) - the form now only has start/end time and Notes, so this
+    test saves via Notes rather than a since-removed mixer_rpm widget."""
     ids = seeded_run
     at = _run(PAGE4)
     assert not at.exception
 
-    mixer = next(n for n in at.number_input if n.key == f"new_setup_mixer_{ids['run_id']}")
-    mixer.set_value(1300.0)
+    notes = next(t for t in at.text_area if t.key == f"new_setup_notes_{ids['run_id']}")
+    notes.set_value("WP7 Phase 5 containment check")
     save_btn = next(b for b in at.button if b.label == "Save Setup data")
     save_btn.click()
     at.run()
@@ -413,25 +426,31 @@ def test_setup_data_create_via_form_no_longer_accepts_foaming_mode(seeded_run):
         .first()
     )
     assert created is not None, "New Setup data row was not persisted"
-    assert created.mixer_rpm == 1300.0
+    assert created.notes == "WP7 Phase 5 containment check"
+    assert created.mixer_rpm is None, "Create form should no longer set mixer_rpm (WP7 Phase 5)"
     assert created.foaming_mode is None, "Create form should no longer set foaming_mode"
     assert created.top_flat_system_used is None, "Create form should no longer set top_flat_system_used"
     session.close()
 
 
 def test_setup_data_csv_import_ignores_foaming_mode_and_top_flat_columns(seeded_run):
-    """A CSV that still includes the two retired columns (simulating an
-    old import template someone re-uses) must import cleanly on the
-    columns that ARE still recognized, and must NOT populate the retired
-    columns - proving the CSV parser no longer reads them, without
-    requiring the uploader to reject the extra columns outright."""
+    """A CSV that still includes the retired columns (simulating an old
+    import template someone re-uses) must import cleanly on the columns
+    that ARE still recognized, and must NOT populate the retired columns -
+    proving the CSV parser no longer reads them, without requiring the
+    uploader to reject the extra columns outright.
+
+    WP7 Phase 5 (Legacy Retirement) removed mixer_rpm from
+    SETUP_OPTIONAL_COLUMNS along with foaming_mode/top_flat_system_used -
+    this CSV includes all three retired columns to prove none of them are
+    read any more."""
     ids = seeded_run
     at = _run(PAGE4)
     assert not at.exception
 
     csv_bytes = (
-        b"production_run_id,mixer_rpm,foaming_mode,top_flat_system_used\n"
-        + f"{ids['run_id']},1450,Trough,Yes\n".encode()
+        b"production_run_id,mixer_rpm,foaming_mode,top_flat_system_used,notes\n"
+        + f"{ids['run_id']},1450,Trough,Yes,imported row\n".encode()
     )
     uploader = next(u for u in at.file_uploader if u.key == "setup_upload")
     uploader.set_value(("setup.csv", csv_bytes, "text/csv"))
@@ -450,7 +469,8 @@ def test_setup_data_csv_import_ignores_foaming_mode_and_top_flat_columns(seeded_
         .first()
     )
     assert imported is not None, "Imported Setup data row was not persisted"
-    assert imported.mixer_rpm == 1450
+    assert imported.notes == "imported row"
+    assert imported.mixer_rpm is None, "CSV import should no longer read the mixer_rpm column (WP7 Phase 5)"
     assert imported.foaming_mode is None, "CSV import should no longer read the foaming_mode column"
     assert imported.top_flat_system_used is None, "CSV import should no longer read the top_flat_system_used column"
     session.close()
@@ -505,30 +525,40 @@ def test_historical_run_with_fallplate_and_foaming_mode_data_still_loads_and_is_
 # ---------------------------------------------------------------------------
 
 def test_phase_setting_fields_and_labels_exclude_top_flat_system_used():
-    assert "top_flat_system_used" not in analytics.PHASE_SETTING_FIELDS
-    assert "top_flat_system_used" not in analytics.PHASE_SETTING_LABELS
-    assert analytics.BOOLEAN_SETTING_FIELDS == set(), (
-        "BOOLEAN_SETTING_FIELDS should be empty now that top_flat_system_used "
-        "(its only member) is fully removed"
-    )
-    assert "top_flat_system_used" not in analytics.PHASE1_RIGID_INELIGIBLE_SETTINGS
+    # WP7 Phase 5 (Legacy Retirement, 2026-08-15) removed all four
+    # collections entirely (see test_analytics_top_flat_system_used_
+    # removed_from_all_four_collections above and the JC Pre-Coding
+    # Engineering Challenge Response, Section 4) - the strongest possible
+    # exclusion of top_flat_system_used is that none of these collections
+    # exist to contain it any more.
+    for attr in (
+        "PHASE_SETTING_FIELDS", "PHASE_SETTING_LABELS",
+        "BOOLEAN_SETTING_FIELDS", "PHASE1_RIGID_INELIGIBLE_SETTINGS",
+    ):
+        assert not hasattr(analytics, attr)
 
 
 def test_run_settings_dataframe_omits_top_flat_system_used_even_with_historical_data(
     seeded_run_with_historical_fallplate_data,
 ):
-    """Runs analytics' own settings-table builder against a phase that
-    DOES have top_flat_system_used populated (historical data) and
-    confirms the resulting table has no such column/row - the ranking
-    pipeline ignores it even when the underlying data exists."""
+    """Runs analytics' own live run_settings_dataframe() against a run whose
+    Setup phase DOES have top_flat_system_used populated (historical data)
+    and confirms the resulting table has no such column - WP7 Phase 5
+    simplified run_settings_dataframe() to identity columns only (run_id,
+    run_date, foam_grade, recipe_version, machine, production_method), so
+    it never reads any ProductionPhase column, top_flat_system_used
+    included, even when the underlying historical data exists."""
     ids = seeded_run_with_historical_fallplate_data
     session = db.get_session()
-    setup_phase = session.get(db.ProductionPhase, ids["setup_phase_id"])
-    row = {
-        field: getattr(setup_phase, field, None) for field in analytics.PHASE_SETTING_FIELDS
-    }
+    df = analytics.run_settings_dataframe(session)
     session.close()
-    assert "top_flat_system_used" not in row
+    assert "top_flat_system_used" not in df.columns
+    assert "mixer_rpm" not in df.columns
+    assert set(df.columns) == {
+        "run_id", "run_date", "foam_grade_id", "foam_grade",
+        "recipe_version_id", "recipe_version", "machine_id", "machine",
+        "production_method_id", "production_method",
+    }
 
 
 # ---------------------------------------------------------------------------

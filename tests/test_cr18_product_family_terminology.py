@@ -180,10 +180,18 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # replaced), pushing only the one hit below it (previously
     # analytics.py:1996) down to analytics.py:2006. Every hit above this
     # function's docstring is unaffected.
-    ("analytics.py", 15), ("analytics.py", 173), ("analytics.py", 307),
-    ("analytics.py", 321), ("analytics.py", 652), ("analytics.py", 904),
-    ("analytics.py", 1172), ("analytics.py", 1310), ("analytics.py", 1831),
-    ("analytics.py", 2006),
+    # analytics.py shifted again by WP7 Phase 5 (Legacy Retirement,
+    # 2026-08-15): compute_runtime_output(), the PHASE_SETTING_FIELDS/
+    # LABELS/BOOLEAN_SETTING_FIELDS/PHASE1_RIGID_INELIGIBLE_SETTINGS block,
+    # and eligible_phase_setting_fields() were all removed (replaced with
+    # shorter retirement comments), and run_settings_dataframe() was
+    # simplified to drop its ProductionPhase query and field loop - net
+    # fewer lines, so every "foam family" hit below moved up; one former
+    # hit (in the removed PHASE_SETTING_FIELDS block's own docstring) no
+    # longer exists at all, so the count dropped from 10 to 9.
+    ("analytics.py", 15), ("analytics.py", 138), ("analytics.py", 233),
+    ("analytics.py", 541), ("analytics.py", 792), ("analytics.py", 1043),
+    ("analytics.py", 1181), ("analytics.py", 1702), ("analytics.py", 1877),
     ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("pages/16_Trend_Analysis.py", 228), ("pages/16_Trend_Analysis.py", 411),

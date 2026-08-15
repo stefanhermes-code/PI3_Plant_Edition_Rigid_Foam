@@ -194,18 +194,22 @@ RUN_OPTIONAL_COLUMNS = [
 # slabstock controls, not universal Rigid settings (see the module
 # docstring). The columns still exist on ProductionPhase for historical
 # rows; a file that still includes them simply has those columns ignored.
+#
+# WP7 Phase 5 (2026-08-15, Legacy Retirement): the machine-setting,
+# ambient-condition, and runtime-outcome columns (mixer_rpm, conveyor_speed,
+# air_injection_rate, air_pressure_bar, sidewall_width_mm,
+# ambient_temperature_c, ambient_humidity_pct, rise_time, foam_height_mm,
+# meters_produced) were removed from this import contract for the same
+# reason - ProductionPhase is now ARCHIVE READ-ONLY for those fields (see
+# the WP7 Phase 5 JC Pre-Coding Engineering Challenge Response, Section 4).
+# Planned/Actual process settings import through the Method-Aware Process
+# Settings tab's own data path instead; a file that still includes these
+# columns simply has them ignored.
 SETUP_REQUIRED_COLUMNS = ["production_run_id"]
-SETUP_OPTIONAL_COLUMNS = [
-    "phase_start", "phase_end",
-    "mixer_rpm", "conveyor_speed", "air_injection_rate", "air_pressure_bar",
-    "sidewall_width_mm", "notes",
-]
+SETUP_OPTIONAL_COLUMNS = ["phase_start", "phase_end", "notes"]
 
 RUNTIME_REQUIRED_COLUMNS = ["production_run_id"]
-RUNTIME_OPTIONAL_COLUMNS = SETUP_OPTIONAL_COLUMNS + [
-    "foam_height_mm", "ambient_temperature_c", "ambient_humidity_pct",
-    "rise_time", "meters_produced",
-]
+RUNTIME_OPTIONAL_COLUMNS = SETUP_OPTIONAL_COLUMNS
 
 # Component stream readings are actual measurements taken once production is
 # running, so they only ever attach to a run's Finalized phase — never to
@@ -923,9 +927,9 @@ with tab_runs:
 # ---------------------------------------------------------------------------
 with tab_setup:
     st.caption(
-        "The planned/configured settings for this run, entered before it starts. Compare this to "
-        "the Runtime Data tab (the Finalized/actual snapshot) for the plan-vs-actual read — no "
-        "separate setpoint column needed."
+        "The Setup window for this run (start/end time and notes), entered before it starts. "
+        "Planned and Actual process settings themselves are captured on the Method-Aware Process "
+        "Settings tab."
     )
 
     if not runs:
@@ -965,30 +969,15 @@ with tab_setup:
                         default_time=setup_phase.phase_end.time() if setup_phase.phase_end else None,
                     )
 
-                    st.markdown("**Machine settings**")
-                    c1, c2, c3, c4 = st.columns(4)
-                    mixer_rpm = c1.number_input(
-                        "Mixer rpm", min_value=0.0, step=1.0, value=float(setup_phase.mixer_rpm or 0.0),
-                        key=f"edit_setup_mixer_{setup_phase.id}",
-                    )
-                    conveyor_speed = c2.number_input(
-                        "Conveyor speed (m/min)", min_value=0.0, step=0.01,
-                        value=float(setup_phase.conveyor_speed or 0.0), key=f"edit_setup_conveyor_{setup_phase.id}",
-                    )
-                    air_injection_rate = c3.number_input(
-                        "Air injection rate", min_value=0.0, step=0.1,
-                        value=float(setup_phase.air_injection_rate or 0.0), key=f"edit_setup_air_inj_{setup_phase.id}",
-                    )
-                    air_pressure_bar = c4.number_input(
-                        "Air pressure (bar)", min_value=0.0, step=0.05,
-                        value=float(setup_phase.air_pressure_bar or 0.0), key=f"edit_setup_air_pres_{setup_phase.id}",
-                    )
-
-                    sidewall_width_mm = st.number_input(
-                        "Tunnel width (mm)", min_value=0.0, step=1.0,
-                        value=float(setup_phase.sidewall_width_mm or 0.0), key=f"edit_setup_sidewall_{setup_phase.id}",
-                    )
-
+                    # WP7 Phase 5 (Legacy Retirement): the machine-setting
+                    # widgets formerly here (mixer rpm, conveyor speed, air
+                    # injection rate, air pressure, tunnel width) are
+                    # retired from active capture - ProductionPhase is now
+                    # ARCHIVE READ-ONLY for those fields (see the WP7 Phase
+                    # 5 JC Pre-Coding Engineering Challenge Response,
+                    # Section 4). Planned/Actual process settings are
+                    # captured on the Method-Aware Process Settings tab
+                    # instead, which reads/writes the EAV schema.
                     notes = st.text_area(
                         "Notes", value=setup_phase.notes or "", key=f"edit_setup_notes_{setup_phase.id}"
                     )
@@ -1000,11 +989,6 @@ with tab_setup:
                         else:
                             setup_phase.phase_start = phase_start
                             setup_phase.phase_end = phase_end
-                            setup_phase.mixer_rpm = mixer_rpm or None
-                            setup_phase.conveyor_speed = conveyor_speed or None
-                            setup_phase.air_injection_rate = air_injection_rate or None
-                            setup_phase.air_pressure_bar = air_pressure_bar or None
-                            setup_phase.sidewall_width_mm = sidewall_width_mm or None
                             setup_phase.notes = notes
                             session.commit()
                             st.success("Setup data updated.")
@@ -1042,23 +1026,9 @@ with tab_setup:
                         "Setup end", f"new_setup_end_{run.id}", default_date=run.run_date
                     )
 
-                    st.markdown("**Machine settings**")
-                    c1, c2, c3, c4 = st.columns(4)
-                    mixer_rpm = c1.number_input("Mixer rpm", min_value=0.0, step=1.0, key=f"new_setup_mixer_{run.id}")
-                    conveyor_speed = c2.number_input(
-                        "Conveyor speed (m/min)", min_value=0.0, step=0.01, key=f"new_setup_conveyor_{run.id}"
-                    )
-                    air_injection_rate = c3.number_input(
-                        "Air injection rate", min_value=0.0, step=0.1, key=f"new_setup_air_inj_{run.id}"
-                    )
-                    air_pressure_bar = c4.number_input(
-                        "Air pressure (bar)", min_value=0.0, step=0.05, key=f"new_setup_air_pres_{run.id}"
-                    )
-
-                    sidewall_width_mm = st.number_input(
-                        "Tunnel width (mm)", min_value=0.0, step=1.0, key=f"new_setup_sidewall_{run.id}"
-                    )
-
+                    # WP7 Phase 5 (Legacy Retirement): see the matching
+                    # comment in the Edit form above - machine-setting
+                    # fields are no longer captured here.
                     notes = st.text_area("Notes", key=f"new_setup_notes_{run.id}")
 
                     submitted = st.form_submit_button("Save Setup data", disabled=not page_usable)
@@ -1072,11 +1042,6 @@ with tab_setup:
                                     phase_name="Setup",
                                     phase_start=phase_start,
                                     phase_end=phase_end,
-                                    mixer_rpm=mixer_rpm or None,
-                                    conveyor_speed=conveyor_speed or None,
-                                    air_injection_rate=air_injection_rate or None,
-                                    air_pressure_bar=air_pressure_bar or None,
-                                    sidewall_width_mm=sidewall_width_mm or None,
                                     notes=notes,
                                     source_file_reference="manual entry",
                                 )
@@ -1128,17 +1093,16 @@ with tab_setup:
                                 key_func=lambda row: int(row["production_run_id"]),
                             )
                             for row in accept:
+                                # WP7 Phase 5 (Legacy Retirement): legacy
+                                # machine-setting columns are no longer
+                                # accepted on import - see the matching
+                                # comment on the Edit form above.
                                 session.add(
                                     ProductionPhase(
                                         production_run_id=int(row["production_run_id"]),
                                         phase_name="Setup",
                                         phase_start=parse_dt(row.get("phase_start")),
                                         phase_end=parse_dt(row.get("phase_end")),
-                                        mixer_rpm=row.get("mixer_rpm"),
-                                        conveyor_speed=row.get("conveyor_speed"),
-                                        air_injection_rate=row.get("air_injection_rate"),
-                                        air_pressure_bar=row.get("air_pressure_bar"),
-                                        sidewall_width_mm=row.get("sidewall_width_mm"),
                                         notes=str(row.get("notes", "") or ""),
                                         source_file_reference=uploaded.name,
                                     )
@@ -1157,11 +1121,12 @@ with tab_setup:
 # which resolves the WP7 Phase 1 ProcessSettingDefinition/
 # ProcessSettingApplicability schema with Machine>Method>Global precedence
 # (see Charlie's WP7 Phase 1 Design Review and Architecture Decision,
-# section 3.1/4). This tab is additive alongside the legacy Setup/Runtime
-# Data tabs above/below - it does not remove or replace the fixed
-# mixer_rpm/conveyor_speed/etc. fields on ProductionPhase (those remain
-# authoritative "temporary compatibility adapters" per decision doc
-# section 7 until WP7 Phase 4 retires them).
+# section 3.1/4). Originally additive alongside the legacy Setup/Runtime
+# Data tabs' fixed mixer_rpm/conveyor_speed/etc. fields ("temporary
+# compatibility adapters" per decision doc section 7); those fields were
+# retired from active capture under WP7 Phase 5 (Legacy Retirement,
+# 2026-08-15 - see the JC Pre-Coding Engineering Challenge Response) once
+# this tab became the sole active capture point for process settings.
 #
 # Note: as of Phase 2, there is no approved, evidence-based
 # ProcessSettingDefinition/ProcessSettingApplicability catalogue seeded in
@@ -1177,8 +1142,7 @@ with tab_method_settings:
     st.caption(
         "Only the process settings applicable to this run's Production Method and "
         "Production Unit or Cell are shown here (Machine-specific overrides Method-specific "
-        "overrides Global). This is additive to the Planned Settings / Actual Run and Cycle "
-        "Data tabs above, which still carry the fixed machine-setting fields."
+        "overrides Global)."
     )
 
     if not runs:
@@ -2441,9 +2405,9 @@ with tab_events:
 # ---------------------------------------------------------------------------
 with tab_runtime:
     st.caption(
-        "What actually happened, entered at shutdown - the same settings as Setup, plus rise time and "
-        "curing notes. Compare this to the Setup tab for the plan-vs-actual read. Component stream "
-        "readings and production events both attach to this snapshot, never to Setup."
+        "The Finalized window for this run (start/end time and notes), entered at shutdown. "
+        "Component stream readings and production events both attach to this snapshot, never to "
+        "Setup. Actual process settings are captured on the Method-Aware Process Settings tab."
     )
 
     if not runs:
@@ -2483,64 +2447,18 @@ with tab_runtime:
                         default_time=finalized_phase.phase_end.time() if finalized_phase.phase_end else None,
                     )
 
-                    st.markdown("**Machine settings**")
-                    c1, c2, c3, c4 = st.columns(4)
-                    mixer_rpm = c1.number_input(
-                        "Mixer rpm", min_value=0.0, step=1.0, value=float(finalized_phase.mixer_rpm or 0.0),
-                        key=f"edit_runtime_mixer_{finalized_phase.id}",
-                    )
-                    conveyor_speed = c2.number_input(
-                        "Conveyor speed (m/min)", min_value=0.0, step=0.01,
-                        value=float(finalized_phase.conveyor_speed or 0.0), key=f"edit_runtime_conveyor_{finalized_phase.id}",
-                        help="Also serves as the line speed - no separate field, since the two are the same reading.",
-                    )
-                    air_injection_rate = c3.number_input(
-                        "Air injection rate", min_value=0.0, step=0.1,
-                        value=float(finalized_phase.air_injection_rate or 0.0), key=f"edit_runtime_air_inj_{finalized_phase.id}",
-                    )
-                    air_pressure_bar = c4.number_input(
-                        "Air pressure (bar)", min_value=0.0, step=0.05,
-                        value=float(finalized_phase.air_pressure_bar or 0.0), key=f"edit_runtime_air_pres_{finalized_phase.id}",
-                    )
-
-                    sidewall_width_mm = st.number_input(
-                        "Tunnel width (mm)", min_value=0.0, step=1.0,
-                        value=float(finalized_phase.sidewall_width_mm or 0.0), key=f"edit_runtime_sidewall_{finalized_phase.id}",
-                    )
-
-                    st.markdown("**Ambient conditions**")
-                    c8, c9 = st.columns(2)
-                    ambient_temperature_c = c8.number_input(
-                        "Ambient temperature (°C)", step=0.1,
-                        value=float(finalized_phase.ambient_temperature_c or 0.0),
-                        key=f"edit_runtime_ambient_temp_{finalized_phase.id}",
-                    )
-                    ambient_humidity_pct = c9.number_input(
-                        "Ambient humidity (%)", min_value=0.0, max_value=100.0, step=0.5,
-                        value=float(finalized_phase.ambient_humidity_pct or 0.0),
-                        key=f"edit_runtime_ambient_hum_{finalized_phase.id}",
-                    )
-
-                    st.markdown("**Runtime outcomes**")
-                    foam_height_mm = st.number_input(
-                        "Foam height (mm)", min_value=0.0, step=1.0,
-                        value=float(finalized_phase.foam_height_mm or 0.0), key=f"edit_runtime_height_{finalized_phase.id}",
-                        help="A result of the foaming process, measured here — not a Setup-tab setting.",
-                    )
-                    rise_time = st.number_input(
-                        "Rise time (s)", min_value=0.0, step=1.0, value=float(finalized_phase.rise_time or 0.0),
-                        key=f"edit_runtime_rise_{finalized_phase.id}",
-                    )
-                    meters_produced = st.number_input(
-                        "Output Quantity and Unit (m)", min_value=0.0, step=1.0,
-                        value=float(finalized_phase.meters_produced or 0.0), key=f"edit_runtime_meters_{finalized_phase.id}",
-                        help=(
-                            "Leave at 0 to have it calculated instead from conveyor speed x run start/end time. "
-                            "Combined with tunnel width and foam height, this drives the calculated volume/weight "
-                            "shown below once saved."
-                        ),
-                    )
-
+                    # WP7 Phase 5 (Legacy Retirement): the machine-setting,
+                    # ambient-condition, and runtime-outcome widgets formerly
+                    # here, plus the "Calculated output" block below (which
+                    # called the now-retired analytics.compute_runtime_output,
+                    # a continuous-conveyor-line formula architecturally
+                    # inapplicable to Rigid Foam's discontinuous production),
+                    # are retired from active capture - ProductionPhase is
+                    # now ARCHIVE READ-ONLY for those fields (see the WP7
+                    # Phase 5 JC Pre-Coding Engineering Challenge Response,
+                    # Section 4). Planned/Actual process settings live on the
+                    # Method-Aware Process Settings tab; output quantity and
+                    # disposition live on the Production Output tab.
                     notes = st.text_area(
                         "Notes", value=finalized_phase.notes or "", key=f"edit_runtime_notes_{finalized_phase.id}"
                     )
@@ -2552,61 +2470,10 @@ with tab_runtime:
                         else:
                             finalized_phase.phase_start = phase_start
                             finalized_phase.phase_end = phase_end
-                            finalized_phase.mixer_rpm = mixer_rpm or None
-                            finalized_phase.conveyor_speed = conveyor_speed or None
-                            finalized_phase.air_injection_rate = air_injection_rate or None
-                            finalized_phase.air_pressure_bar = air_pressure_bar or None
-                            finalized_phase.ambient_temperature_c = ambient_temperature_c or None
-                            finalized_phase.ambient_humidity_pct = ambient_humidity_pct or None
-                            finalized_phase.rise_time = rise_time or None
-                            finalized_phase.sidewall_width_mm = sidewall_width_mm or None
-                            finalized_phase.foam_height_mm = foam_height_mm or None
-                            finalized_phase.meters_produced = meters_produced or None
                             finalized_phase.notes = notes
                             session.commit()
                             st.success("Runtime Data updated.")
                             st.rerun()
-
-                st.markdown("**Calculated output**")
-                _output = analytics.compute_runtime_output(finalized_phase, run.foam_grade)
-                if _output["length_m"] is None and _output["volume_m3"] is None:
-                    st.caption(
-                        "Not enough data yet to calculate output - needs conveyor speed plus either meters "
-                        "produced or a run start/end time, and tunnel width + foam height for volume/weight."
-                    )
-                else:
-                    oc1, oc2, oc3 = st.columns(3)
-                    length_label = "Output Quantity and Unit"
-                    if _output["length_source"] == "calculated":
-                        length_label += " (calculated)"
-                    oc1.metric(length_label, f"{_output['length_m']:.1f} m" if _output["length_m"] is not None else "—")
-                    oc2.metric(
-                        "Calculated volume",
-                        f"{_output['volume_m3']:.2f} m³" if _output["volume_m3"] is not None else "—",
-                    )
-                    oc3.metric(
-                        "Calculated weight",
-                        f"{_output['weight_kg']:.0f} kg" if _output["weight_kg"] is not None else "—",
-                    )
-                    if _output["length_source"] == "entered" and _output["implied_duration_min"] is not None:
-                        note = (
-                            f"At this conveyor speed, {_output['length_m']:.1f} m implies a runtime of "
-                            f"{_output['implied_duration_min']:.1f} min"
-                        )
-                        if _output["actual_duration_min"] is not None:
-                            note += f" (recorded run start/end gives {_output['actual_duration_min']:.1f} min)."
-                        else:
-                            note += "."
-                        st.caption(note)
-                    elif _output["length_source"] == "calculated" and _output["actual_duration_min"] is not None:
-                        st.caption(
-                            "Output Quantity and Unit wasn't entered - calculated from conveyor speed x the recorded run "
-                            f"duration ({_output['actual_duration_min']:.1f} min)."
-                        )
-                    if _output["volume_m3"] is None and _output["length_m"] is not None:
-                        st.caption("Tunnel width and/or foam height not recorded - can't calculate volume/weight yet.")
-                    elif _output["weight_kg"] is None and _output["volume_m3"] is not None:
-                        st.caption("This product grade has no target density set - can't calculate weight yet.")
 
                 def _do_delete_runtime(_session=session, _phase=finalized_phase):
                     _delete_phase_cascade(_session, _phase)
@@ -2638,49 +2505,10 @@ with tab_runtime:
                         "Run end", f"new_runtime_end_{run.id}", default_date=run.run_date
                     )
 
-                    st.markdown("**Machine settings**")
-                    c1, c2, c3, c4 = st.columns(4)
-                    mixer_rpm = c1.number_input("Mixer rpm", min_value=0.0, step=1.0, key=f"new_runtime_mixer_{run.id}")
-                    conveyor_speed = c2.number_input(
-                        "Conveyor speed (m/min)", min_value=0.0, step=0.01, key=f"new_runtime_conveyor_{run.id}",
-                        help="Also serves as the line speed - no separate field, since the two are the same reading.",
-                    )
-                    air_injection_rate = c3.number_input(
-                        "Air injection rate", min_value=0.0, step=0.1, key=f"new_runtime_air_inj_{run.id}"
-                    )
-                    air_pressure_bar = c4.number_input(
-                        "Air pressure (bar)", min_value=0.0, step=0.05, key=f"new_runtime_air_pres_{run.id}"
-                    )
-
-                    sidewall_width_mm = st.number_input(
-                        "Tunnel width (mm)", min_value=0.0, step=1.0, key=f"new_runtime_sidewall_{run.id}"
-                    )
-
-                    st.markdown("**Ambient conditions**")
-                    c8, c9 = st.columns(2)
-                    ambient_temperature_c = c8.number_input(
-                        "Ambient temperature (°C)", step=0.1, key=f"new_runtime_ambient_temp_{run.id}",
-                    )
-                    ambient_humidity_pct = c9.number_input(
-                        "Ambient humidity (%)", min_value=0.0, max_value=100.0, step=0.5,
-                        key=f"new_runtime_ambient_hum_{run.id}",
-                    )
-
-                    st.markdown("**Runtime outcomes**")
-                    foam_height_mm = st.number_input(
-                        "Foam height (mm)", min_value=0.0, step=1.0, key=f"new_runtime_height_{run.id}",
-                        help="A result of the foaming process, measured here — not a Setup-tab setting.",
-                    )
-                    rise_time = st.number_input("Rise time (s)", min_value=0.0, step=1.0, key=f"new_runtime_rise_{run.id}")
-                    meters_produced = st.number_input(
-                        "Output Quantity and Unit (m)", min_value=0.0, step=1.0, key=f"new_runtime_meters_{run.id}",
-                        help=(
-                            "Leave at 0 to have it calculated instead from conveyor speed x run start/end time. "
-                            "Combined with tunnel width and foam height, this drives the calculated volume/weight "
-                            "shown after saving."
-                        ),
-                    )
-
+                    # WP7 Phase 5 (Legacy Retirement): see the matching
+                    # comment in the Edit form above - machine-setting,
+                    # ambient-condition, and runtime-outcome fields are no
+                    # longer captured here.
                     notes = st.text_area("Notes", key=f"new_runtime_notes_{run.id}")
 
                     submitted = st.form_submit_button("Save Runtime Data", disabled=not page_usable)
@@ -2694,16 +2522,6 @@ with tab_runtime:
                                     phase_name="Finalized",
                                     phase_start=phase_start,
                                     phase_end=phase_end,
-                                    mixer_rpm=mixer_rpm or None,
-                                    conveyor_speed=conveyor_speed or None,
-                                    air_injection_rate=air_injection_rate or None,
-                                    air_pressure_bar=air_pressure_bar or None,
-                                    ambient_temperature_c=ambient_temperature_c or None,
-                                    ambient_humidity_pct=ambient_humidity_pct or None,
-                                    rise_time=rise_time or None,
-                                    sidewall_width_mm=sidewall_width_mm or None,
-                                    foam_height_mm=foam_height_mm or None,
-                                    meters_produced=meters_produced or None,
                                     notes=notes,
                                     source_file_reference="manual entry",
                                 )
@@ -2758,22 +2576,16 @@ with tab_runtime:
                                 key_func=lambda row: int(row["production_run_id"]),
                             )
                             for row in accept:
+                                # WP7 Phase 5 (Legacy Retirement): legacy
+                                # machine-setting/ambient/outcome columns are
+                                # no longer accepted on import - see the
+                                # matching comment on the Edit form above.
                                 session.add(
                                     ProductionPhase(
                                         production_run_id=int(row["production_run_id"]),
                                         phase_name="Finalized",
                                         phase_start=parse_dt(row.get("phase_start")),
                                         phase_end=parse_dt(row.get("phase_end")),
-                                        mixer_rpm=row.get("mixer_rpm"),
-                                        conveyor_speed=row.get("conveyor_speed"),
-                                        air_injection_rate=row.get("air_injection_rate"),
-                                        air_pressure_bar=row.get("air_pressure_bar"),
-                                        ambient_temperature_c=row.get("ambient_temperature_c"),
-                                        ambient_humidity_pct=row.get("ambient_humidity_pct"),
-                                        rise_time=row.get("rise_time"),
-                                        sidewall_width_mm=row.get("sidewall_width_mm"),
-                                        foam_height_mm=row.get("foam_height_mm"),
-                                        meters_produced=row.get("meters_produced"),
                                         notes=str(row.get("notes", "") or ""),
                                         source_file_reference=uploaded.name,
                                     )

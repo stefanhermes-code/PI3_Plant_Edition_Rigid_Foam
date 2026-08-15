@@ -540,4 +540,14 @@ def test_dynamic_process_setting_field_key_is_id_based_and_namespaced(seeded_run
     key = analytics.dynamic_process_setting_field_key(definition_id)
     assert key == f"ps_{definition_id}"
     assert key.startswith("ps_")
-    assert key not in analytics.PHASE_SETTING_FIELDS
+    # WP7 Phase 5 (Legacy Retirement, 2026-08-15): PHASE_SETTING_FIELDS was
+    # removed from analytics.py entirely (see the JC Pre-Coding Engineering
+    # Challenge Response, Section 4) - the module no longer has that
+    # attribute at all, which is itself the strongest form of "never a
+    # legacy field name". Assert directly against the 5 names it used to
+    # hold, to keep proving the id-based key can never collide with them.
+    assert key not in {
+        "mixer_rpm", "conveyor_speed", "air_injection_rate",
+        "air_pressure_bar", "sidewall_width_mm",
+    }
+    assert not hasattr(analytics, "PHASE_SETTING_FIELDS")

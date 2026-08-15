@@ -61,58 +61,23 @@ from db import (
 from quality_standards import compute_pass_fail
 
 
-def compute_runtime_output(phase, foam_grade):
-    """Derives the physical output of a production run (added 2026-08-05
-    per user request; moved here from pages/4_Production_Run_Trial_Record.py
-    on 2026-08-05 so the Overview page's meters/kg-produced KPIs can share
-    the exact same math as the Runtime Data tab's own calculated-output
-    display, instead of drifting apart as two copies) from whichever of
-    meters-produced / conveyor-speed / recorded start-end time is actually
-    known. Length and runtime are two ways of knowing the same thing
-    (length = speed x time), so this fills in whichever one is missing
-    rather than requiring both:
-    - meters_produced entered on the phase -> that IS the length; runtime is
-      only shown (by the caller) as an implied cross-check against the
-      recorded start/end times, never written back over them.
-    - meters_produced left blank -> length is calculated instead from
-      conveyor speed x the recorded start/end duration.
-    Tunnel width (phase.sidewall_width_mm - renamed "Tunnel width" in the UI
-    2026-08-05, since "sidewall width" wasn't a term anyone recognized;
-    the column itself is unchanged) x foam height x length gives the
-    produced volume (m3); volume x the product grade's target density gives
-    the produced weight (kg). Returns a dict of None-safe display values;
-    never raises."""
-    result = {
-        "length_m": None, "length_source": None,
-        "actual_duration_min": None, "implied_duration_min": None,
-        "volume_m3": None, "weight_kg": None,
-    }
-    if phase is None:
-        return result
-
-    if phase.phase_start and phase.phase_end and phase.phase_end > phase.phase_start:
-        result["actual_duration_min"] = (phase.phase_end - phase.phase_start).total_seconds() / 60.0
-
-    speed = phase.conveyor_speed or None  # m/min
-
-    if phase.meters_produced:
-        result["length_m"] = phase.meters_produced
-        result["length_source"] = "entered"
-        if speed:
-            result["implied_duration_min"] = phase.meters_produced / speed
-    elif speed and result["actual_duration_min"] is not None:
-        result["length_m"] = speed * result["actual_duration_min"]
-        result["length_source"] = "calculated"
-
-    if result["length_m"] and phase.sidewall_width_mm and phase.foam_height_mm:
-        width_m = phase.sidewall_width_mm / 1000.0
-        height_m = phase.foam_height_mm / 1000.0
-        result["volume_m3"] = width_m * height_m * result["length_m"]
-        density = foam_grade.target_density if foam_grade else None
-        if density and result["volume_m3"] is not None:
-            result["weight_kg"] = result["volume_m3"] * density
-
-    return result
+# compute_runtime_output(phase, foam_grade) - the continuous-conveyor-line
+# length/volume/weight calculation (conveyor speed x recorded duration,
+# tunnel width x foam height x length x target density) - was retired
+# under WP7 Phase 5 (2026-08-15, per the Phase 5 Legacy Retirement and
+# Final UAT Execution Contract, Scope Item 4: "Remove universal
+# compute_runtime_output authority and any obsolete geometry-based output
+# logic from active code"). Its sole remaining active call site was
+# pages/4_Production_Run_Trial_Record.py's Runtime Data "Calculated
+# output" display, reading ProductionPhase.conveyor_speed/sidewall_width_
+# mm/foam_height_mm/meters_produced - a formula architecturally
+# inapplicable to Rigid Foam's discontinuous (press-foamed/molded)
+# production and already superseded by the WP7 Phase 1/2 method-aware
+# Production Output & Disposition tab (ProductionOutputSummary, the sole
+# active production output/disposition fact per the Phase 5 contract's
+# Decision Ledger D5-07). See WP7_Phase5_JC_PreCoding_Engineering_
+# Challenge_Response.docx for the full dependency scan this retirement was
+# based on.
 
 
 def _log_performance(_session, function_name, foam_grade_id, property_name, duration_ms, row_count):
@@ -231,68 +196,29 @@ def _grade_id_list(foam_grade_id):
 # Maxfoam-specific list), but that's separate, larger work - see
 # version.py for the baseline note.
 #
-# WP7 Phase 0 (2026-08-13): top_flat_system_used was removed from this list
-# entirely (not just Phase-1-rigid-excluded, see PHASE1_RIGID_INELIGIBLE_
-# SETTINGS below) - it was a universal Flexible Foam/slabstock boolean, not
-# a Rigid-relevant setting for this Rigid-only app. It no longer appears in
-# any correlation/optimization ranking, for any grade. See the module
-# docstring on pages/4_Production_Run_Trial_Record.py for the full WP7
-# Phase 0 rationale; the column itself remains on ProductionPhase and
-# historical values are still readable directly off that model.
-PHASE_SETTING_FIELDS = [
-    "mixer_rpm",
-    "conveyor_speed",
-    "air_injection_rate",
-    "air_pressure_bar",
-    "sidewall_width_mm",
-]
-
-PHASE_SETTING_LABELS = {
-    "mixer_rpm": "Mixer rpm",
-    "conveyor_speed": "Conveyor speed (m/min)",
-    "air_injection_rate": "Air injection rate",
-    "air_pressure_bar": "Air pressure (bar)",
-    "sidewall_width_mm": "Tunnel width (mm)",
-}
-
-# Yes/No fields in the list above - none as of WP7 Phase 0 (2026-08-13),
-# which removed the one boolean member, top_flat_system_used - see the
-# PHASE_SETTING_FIELDS comment above. Left as an empty set rather than
-# removed outright since every consumer of PHASE_SETTING_FIELDS still
-# checks membership in this set (0.0/1.0/NaN handling in
-# run_settings_dataframe below) and a future method-specific boolean
-# setting (WP7 Phase 1+) would be added back here the same way.
-BOOLEAN_SETTING_FIELDS = set()
-
-# Phase 1 rigid process-setting eligibility ---------------------------------
-#
-# PHASE_SETTING_FIELDS above was inherited wholesale from the flexible/
-# continuous-line foam app's fork baseline (see the ratio_index comment
-# above) and lists settings that only exist on a continuous foaming line:
-# conveyor speed, air injection rate, air pressure, and tunnel width are all
-# specific to a moving-slab/conveyor process (top_flat_system_used was the
-# fifth such setting - removed from PHASE_SETTING_FIELDS entirely under WP7
-# Phase 0, see above, rather than left here as a rigid-ineligible one).
-# Phase 1 rigid production (per Charlie's WP6-S09 closure instructions,
-# section 3.7 / UAT-017) is discontinuous - factory-molded / press-foamed -
-# so none of those four settings are physically applicable there; only
-# mixer rpm carries over as a real, eligible setting for Phase 1 rigid
-# grades. Showing the other four in a rigid grade's correlation/
-# optimization ranking or Root-Cause Assistant diff would present settings
-# that were never actually varied/variable on that process as if they were
-# real levers - exactly what Charlie flagged as needing to be Phase-1-scoped
-# before it reaches a reviewer (UAT-017/018/019).
-#
-# Legacy flexible grades (FoamGrade.chemistry_id is None - see reports.py's
-# _is_rigid_grade for the same convention, duplicated here rather than
-# imported to avoid a circular import since reports.py already imports from
-# this module) are continuous-line and keep the full field list unchanged.
-PHASE1_RIGID_INELIGIBLE_SETTINGS = {
-    "conveyor_speed",
-    "air_injection_rate",
-    "air_pressure_bar",
-    "sidewall_width_mm",
-}
+# PHASE_SETTING_FIELDS / PHASE_SETTING_LABELS / BOOLEAN_SETTING_FIELDS /
+# PHASE1_RIGID_INELIGIBLE_SETTINGS / eligible_phase_setting_fields() - the
+# five-field fixed ProductionPhase compatibility layer (mixer_rpm,
+# conveyor_speed, air_injection_rate, air_pressure_bar, sidewall_width_mm)
+# inherited from the flexible/continuous-line foam app's fork baseline -
+# were removed under WP7 Phase 5 (2026-08-15, per the Phase 5 Legacy
+# Retirement and Final UAT Execution Contract, Scope Item 4: "Remove fixed
+# PHASE_SETTING_FIELDS, PHASE_SETTING_LABELS and related compatibility
+# authority when no remaining active consumer requires them"). Their last
+# remaining live consumer, run_settings_dataframe() below, was simplified
+# in the same change to return identity/candidate-selection columns only
+# (its only two live callers never read a legacy field value by name - see
+# the Phase 5 challenge-response document's dependency scan). These five
+# fields' data is not lost: the four with a completed migration (ambient_
+# temperature_c, ambient_humidity_pct, foam_height_mm, rise_time) already
+# live in ProcessParameterValue (see legacy_migration.py); the remaining
+# five (mixer_rpm, conveyor_speed, sidewall_width_mm, air_injection_rate,
+# air_pressure_bar) have no migrated equivalent and remain deferred/
+# quarantined per the Phase 5 contract's Decision Ledger (D5-04, D5-05) -
+# ProductionPhase itself is retained as an ARCHIVE READ-ONLY structure
+# (ratio_index removal from correlation and the rest of the shared-reader
+# cutover, WP7 Phase 4, already left it as zero-active-reader-authority
+# for every other consumer).
 
 
 def production_methods_used(session, foam_grade_id):
@@ -313,43 +239,6 @@ def production_methods_used(session, foam_grade_id):
     if grade_ids:
         q = q.filter(ProductionRun.foam_grade_id.in_(grade_ids))
     return sorted(set(q.all()), key=lambda m: (m.sort_order or 0, m.name))
-
-
-def eligible_phase_setting_fields(session, foam_grade_id, production_method_id=None):
-    """PHASE_SETTING_FIELDS, scoped down to what's actually eligible for
-    the given grade(s) - see PHASE1_RIGID_INELIGIBLE_SETTINGS above.
-    `foam_grade_id` accepts a single id or a list (a pooled foam family,
-    see _grade_id_list) - the restriction applies only when every resolved
-    grade is rigid, so a mixed or all-flexible pool is left unrestricted
-    rather than guessed at. No grade resolved (None/empty) also leaves the
-    list unrestricted.
-
-    WP7 Phase 4 CORRECTION (2026-08-14, Charlie's Architecture
-    Clarification and Direction to JC, responding to
-    WP7_Phase4_Flag_for_Charlie.docx): v0.46.0 briefly made this function
-    additively append live, evidence-based Process Setting fields
-    alongside the 5 legacy PHASE_SETTING_FIELDS. Charlie rejected that
-    hybrid: "The v0.46.0 hybrid reader keeps the five fixed
-    ProductionPhase fields as an active source ... That structure
-    conflicts with the frozen Phase 4 source-of-truth rule and cannot be
-    the Phase 4 end state." PHASE_SETTING_FIELDS/PHASE_SETTING_LABELS/
-    PHASE1_RIGID_INELIGIBLE_SETTINGS retain zero active-reader authority
-    under the Phase 4 architecture; the `production_method_id` parameter
-    is kept (harmless, unused below) only so existing call sites don't
-    need a signature change while Phase 4's consumer-by-consumer cutover
-    to the new shared reader (production_run_process_parameters /
-    production_run_parameter_dataframe below) is still in progress. This
-    function itself is scheduled for removal once every consumer listed
-    in Charlie's Phase 4 execution instruction (Overview, Batch Release,
-    reports, PI3 context, Root Cause, Trend, Correlation, Optimization,
-    shared exports) has been cut over."""
-    grade_ids = _grade_id_list(foam_grade_id)
-    if not grade_ids:
-        return list(PHASE_SETTING_FIELDS)
-    grades = session.query(FoamGrade).filter(FoamGrade.id.in_(grade_ids)).all()
-    if grades and all(g.chemistry_id is not None for g in grades):
-        return [f for f in PHASE_SETTING_FIELDS if f not in PHASE1_RIGID_INELIGIBLE_SETTINGS]
-    return list(PHASE_SETTING_FIELDS)
 
 
 def eligible_process_settings(session, production_method_id, machine_id=None):
@@ -898,11 +787,10 @@ def format_setting_range(is_boolean, series):
 
 @st.cache_data(ttl=_DATA_CACHE_TTL, show_spinner=False)
 def run_settings_dataframe(_session, foam_grade_id=None, production_method_id=None):
-    """One row per production run: identifying info (grade, recipe version,
-    machine) plus its Finalized-phase process settings (falls back to the
-    Setup phase if no Finalized phase has been recorded yet for that run).
-    `foam_grade_id` accepts a single id or a list of ids (a foam family's
-    grades pooled together) - see _grade_id_list above.
+    """One row per production run: identifying info only (grade, recipe
+    version, machine, production method). `foam_grade_id` accepts a single
+    id or a list of ids (a foam family's grades pooled together) - see
+    _grade_id_list above.
 
     `production_method_id` (added 2026-08-10, per Charlie's flat-PM
     technical completion instruction) narrows to runs whose own immutable
@@ -913,16 +801,24 @@ def run_settings_dataframe(_session, foam_grade_id=None, production_method_id=No
     no method filter, matching every caller's behavior before this
     parameter existed.
 
+    Simplified under WP7 Phase 5 (Legacy Retirement, per the JC Pre-Coding
+    Engineering Challenge Response) - previously eager-loaded every run's
+    ProductionPhase rows and populated a PHASE_SETTING_FIELDS column on
+    every row, but both live callers (this module's own
+    merged_run_property_dataframe, and pages/18 Root Cause Assistant) only
+    ever consumed the identity columns below; the actual method-aware
+    process-setting values come from the ProcessSettingDefinition/
+    ProcessParameterValue EAV schema via production_run_process_parameters()
+    / production_run_parameter_dataframe() instead - never re-derived from
+    ProductionPhase, which is now ARCHIVE READ-ONLY (no active reader).
+
     Cached (see _DATA_CACHE_TTL) and eager-loads foam_grade/recipe_version/
-    machine plus all of this batch of runs' ProductionPhase rows in one
-    query each - fixed 2026-08-02, previously issued one query per run just
-    for its phases (N+1), which got slower as more production runs were
-    recorded. The `_session` parameter name (leading underscore) tells
-    Streamlit's cache not to try to hash the SQLAlchemy Session object -
-    the cache key is just foam_grade_id. Logs its own duration to
-    PerformanceLog on every call (see _log_performance) - this function
-    only runs at all on a cache miss, so every logged row here is real
-    database work, not a cache hit.
+    machine in one query. The `_session` parameter name (leading
+    underscore) tells Streamlit's cache not to try to hash the SQLAlchemy
+    Session object - the cache key is just foam_grade_id. Logs its own
+    duration to PerformanceLog on every call (see _log_performance) - this
+    function only runs at all on a cache miss, so every logged row here is
+    real database work, not a cache hit.
     """
     _t0 = time.perf_counter()
     q = _session.query(ProductionRun).options(
@@ -938,22 +834,8 @@ def run_settings_dataframe(_session, foam_grade_id=None, production_method_id=No
         q = q.filter(ProductionRun.production_method_id == production_method_id)
     runs = q.order_by(ProductionRun.run_date).all()
 
-    run_ids = [run.id for run in runs]
-    phases_by_run = {}
-    if run_ids:
-        all_phases = (
-            _session.query(ProductionPhase)
-            .filter(ProductionPhase.production_run_id.in_(run_ids))
-            .all()
-        )
-        for p in all_phases:
-            phases_by_run.setdefault(p.production_run_id, {})[p.phase_name] = p
-
     rows = []
     for run in runs:
-        by_name = phases_by_run.get(run.id, {})
-        phase = by_name.get("Finalized") or by_name.get("Setup")
-
         row = {
             "run_id": run.id,
             "run_date": run.run_date,
@@ -966,17 +848,6 @@ def run_settings_dataframe(_session, foam_grade_id=None, production_method_id=No
             "production_method_id": run.production_method_id,
             "production_method": run.production_method.name if run.production_method else None,
         }
-        for field in PHASE_SETTING_FIELDS:
-            if field in BOOLEAN_SETTING_FIELDS:
-                # Coerced to 0.0/1.0/NaN (not left as True/False/None) right
-                # here - the single point every downstream consumer (.corr(),
-                # pd.qcut, reports.py's getattr loop, Root-Cause Assistant's
-                # pct-change comparison) reads from, so none of them need
-                # their own True/False handling.
-                raw = getattr(phase, field) if phase else None
-                row[field] = (1.0 if raw else 0.0) if raw is not None else None
-            else:
-                row[field] = getattr(phase, field) if phase else None
         rows.append(row)
 
     df = pd.DataFrame(rows)
