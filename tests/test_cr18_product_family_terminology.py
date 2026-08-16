@@ -200,9 +200,16 @@ ALLOWED_FOAM_FAMILY_HITS = {
     ("pages/20_Expert_Notes.py", 6), ("pages/20_Expert_Notes.py", 38),
     ("pages/20_Expert_Notes.py", 146),
     # Line numbers shifted again by the CR-22 / F22-01, F22-02 Product
-    # scope rename + reorder edits.
-    ("pages/5_Physical_Property_Result.py", 635),
-    ("pages/6_Quality_Observation.py", 545),
+    # scope rename + reorder edits, and again by the CR-22 focused closeout
+    # correction (2026-08-16) which added an explanatory comment above
+    # render_function_action_intro() on this page.
+    ("pages/5_Physical_Property_Result.py", 641),
+    # Line number shifted by the CR-22 correction (2026-08-16, Charlie's
+    # focused closeout return on F22-06): "Record against" was reordered
+    # before the issue-type picker and a production_method_controlled_id
+    # resolution block was added, both above this comment; shifted again
+    # by an added explanatory comment above render_function_action_intro().
+    ("pages/6_Quality_Observation.py", 623),
 }
 
 # A hit whose line contains any of these is a live customer-facing string

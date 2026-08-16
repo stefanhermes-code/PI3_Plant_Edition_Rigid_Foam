@@ -136,18 +136,24 @@ require_login()
 logout_button()
 
 st.title("Test Results")
+# CR-22 correction (2026-08-16, Charlie's focused closeout return, Section 3
+# semantic inventory rerun): the Function/Action intro text below used
+# "where in the block"/"block location" - a PM-500-only concept exposed on
+# a page that serves every Production Method - even though the field
+# labels themselves were already reworded to method-neutral phrasing under
+# F22-03. Reworded to "where the sample was drawn from"/"sample location".
 render_function_action_intro(
     function_text=(
         "Records the lab results that prove out (or flag) a batch against the property/method/"
         "unit master list - density, 40% IFD/hardness, tensile strength, elongation, compression "
         "set, resilience, and so on - each compared to a target value and marked pass or fail. "
         "Link a result to a sample (recorded on its source's own page under Samples & Trials) for "
-        "full traceability back to where in the block it was cut."
+        "full traceability back to where the sample was drawn from."
     ),
     action_text=(
         "Add the sample(s) first, on the relevant Samples & Trials page (Production Samples / "
         "Customer Trials & Samples / Optimization Trials & Samples), if you want results traceable "
-        "back to block location. Then pick which of the three you're recording against (Production "
+        "back to sample location. Then pick which of the three you're recording against (Production "
         "Run / Customer Trial / Optimization Trial), the property, "
         "test method, and unit from the master list here, and link the result back to its sample "
         "if one applies. Use the CSV/Excel import tab to bulk-load a batch of results at once "

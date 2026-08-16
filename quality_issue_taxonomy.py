@@ -524,15 +524,31 @@ def lookup_case_insensitive(name):
     return _NAME_TO_ENTRY_LOWER.get(name.strip().lower())
 
 
-def lookup_active_case_insensitive(name):
+def lookup_active_case_insensitive(name, production_method_controlled_id=None):
     """Same as lookup_case_insensitive(), but returns None for a
     STATE_QUARANTINED entry - CR-22 / F22-06 (AF22-01): "Trial behavior"
     and every other new-selection surface must never expose a quarantined
     issue type, and CSV/Excel import is a new-selection surface the same
     as the manual entry form. Used by pages/6_Quality_Observation.py's
-    import tab in place of lookup_case_insensitive()."""
+    import tab in place of lookup_case_insensitive().
+
+    CR-22 correction (2026-08-16, Charlie's focused closeout return):
+    also returns None for a method-specific entry (`production_methods`
+    is a non-None list) whose list doesn't contain
+    `production_method_controlled_id` - the same rule
+    active_issue_types_for_category() applies for the manual-entry
+    picker. Leaving `production_method_controlled_id` at its default
+    None only excludes method-specific entries (matches "Global only" for
+    Customer Trial / Optimization Trial import rows, which carry no
+    Production Method context) - a Global entry (`production_methods` is
+    None) is always accepted regardless of this parameter, so behavior
+    for every entry on the current production taxonomy (all Global) is
+    unchanged."""
     entry = lookup_case_insensitive(name)
     if entry is None or entry["state"] != STATE_ACTIVE:
+        return None
+    methods = entry["production_methods"]
+    if methods is not None and production_method_controlled_id not in methods:
         return None
     return entry
 

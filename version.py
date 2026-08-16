@@ -6988,4 +6988,73 @@ file-partition split, no xdist/parallel workers): 198 + 198 + 83 + 132 =
 611 passed, 0 failed, 0 skipped.
 """
 
-APP_VERSION = "0.65.0"
+VERSION_0_65_1_NOTES = """
+CR-22 correction (2026-08-16): Charlie's focused closeout return on the
+original CR-22/AF22-01 submission rejected the F22-06 evidence as a
+"helper-function truth table" and required six items completed with
+genuine AppTest-driven (rendered UI) evidence before re-review, plus a
+rerun of the customer-facing semantic inventory against the current
+v0.65.0 codebase (not just a "Foam scope" phrase search).
+
+1. F22-06 mechanism gap (the actual defect Charlie's return was about):
+the taxonomy quarantine mechanism from v0.65.0 filtered STATE_QUARANTINED
+entries but never actually filtered by production_methods applicability -
+every ACTIVE entry on the current production taxonomy happens to be
+Global, so the gap was invisible without a synthetic PM-500-only entry.
+Fixed: quality_issue_taxonomy.lookup_active_case_insensitive() now takes
+an optional production_method_controlled_id and excludes any entry whose
+production_methods list doesn't contain it (mirrors
+active_issue_types_for_category()'s existing rule). pages/
+6_Quality_Observation.py's _issue_type_picker() now takes the same
+parameter and both call sites (Add form, Edit form) resolve it from the
+selected Production Run's Production Method before rendering the picker
+(None - Global only - for Customer Trial/Optimization Trial sources, or
+when no Production Run is selected yet); the CSV/Excel import tab's row
+validation and canonical-name resolution now do the same resolution
+per-row from the row's production_run_id.
+
+2. Full semantic inventory rerun (Section 3 of Charlie's return) found
+one genuine residual leak beyond the "Foam scope" search: three
+render_function_action_intro() calls (pages/5_Physical_Property_Result.py,
+pages/6_Quality_Observation.py, pages/9_Samples_Conditioning.py) still
+used PM-500-specific "block" phrasing in their rendered Function/Action
+intro paragraphs ("where in the block it was cut/showed up", "block
+location", "location in the block") even though the corresponding field
+LABELS (Sample Location Reference / Observed location) were already
+correctly reworded under F22-03 in the original CR-22 pass - the intro
+copy had been missed. Reworded to method-neutral phrasing on all three
+pages (sample location / observed location, matching each page's own
+field label).
+
+3-6. Rendered-UI evidence for F22-06 (a synthetic PM-500-only taxonomy
+entry visible only for a PM-500 run and absent for both trial paths),
+direct PM-100/PM-500/PM-800 block_reference behavior (Add/Edit field
+presence, overview-table empty marker, CSV import accept/reject), the
+universal-wording CSV import caption, and Customer/Optimization Trial
+Quality Issue picker/historical-readability paths: new tests/
+test_cr22_correction_focused_closeout.py (13 tests), all driving real
+AppTest widgets (selectbox .options, dataframe .value, radio .options)
+rather than calling business-logic functions or checking source strings -
+per Charlie's explicit "helper-function truth table alone does not
+satisfy this acceptance item" standard. One genuine AppTest framework
+quirk was found and worked around while writing these: presetting a
+dataframe widget's on_select selection state resolves to the wrong row
+if done on a second .run() of an AppTest instance that already completed
+one unselected run; fixed by using a throwaway probe AppTest to
+determine row order, then a fresh AppTest instance (preset before its
+own first .run()) per selection needed - documented in the test file's
+own docstring for future maintainers.
+
+Regression: the CR-18 "foam family" line-number allowlist
+(test_cr18_product_family_terminology.py) needed two entries' line
+numbers bumped again (635->641, 617->623) because the two explanatory
+comments added in item 2 above shifted every line below them - a pure
+allowlist-drift fix, not a new terminology leak (confirmed via a repo-
+wide grep for "where in the block"/"block location"/"location in the
+block" finding zero remaining hits and zero pre-existing test assertions
+on the old wording). Full serial suite (6-way file-partition split, no
+xdist/parallel workers): 173 + 188 + 64 + 67 + 59 + 73 = 624 passed, 0
+failed, 0 skipped, across all 55 test files.
+"""
+
+APP_VERSION = "0.65.1"

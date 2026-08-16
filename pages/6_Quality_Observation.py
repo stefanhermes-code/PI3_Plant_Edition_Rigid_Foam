@@ -101,7 +101,7 @@ def _obs_foam_grade_id(obs):
     return None
 
 
-def _issue_type_picker(key_prefix, current_value=None):
+def _issue_type_picker(key_prefix, current_value=None, production_method_controlled_id=None):
     """Category -> Issue type dependent picker for the controlled "Issue
     type" vocabulary (see quality_issue_taxonomy.py). Deliberately rendered
     OUTSIDE any st.form - Streamlit forms only rerun on submit, so a
@@ -117,6 +117,20 @@ def _issue_type_picker(key_prefix, current_value=None):
     was CSV-imported before it existed) won't match any entry - it falls
     back to "Other / not yet classified" with the existing text preserved
     in the free-text box rather than silently discarded.
+
+    production_method_controlled_id (CR-22 correction, 2026-08-16,
+    Charlie's focused closeout return on F22-06): the calling site's
+    "Record against" selection resolved to a Production Method
+    controlled_id when the source is a Production Run, or left None for
+    Customer Trial / Optimization Trial (those records carry no
+    Production Method context, so only Global entries are ever offered -
+    AF22-01 Section 5's "Trial behavior" requirement) or when no parent is
+    selected yet. Threaded straight into
+    quality_issue_taxonomy.active_issue_types_for_category() - see that
+    function's docstring for the Global-vs-method-specific rule. The
+    caller must re-render this picker (a fresh Streamlit rerun) whenever
+    the parent selection changes so the option list stays in sync - both
+    call sites below already select the parent before calling this.
 
     Returns (resolved_issue_type, typical_causes_or_None).
     """
@@ -147,9 +161,20 @@ def _issue_type_picker(key_prefix, current_value=None):
         key=f"{key_prefix}_category",
     )
     issue_options = quality_issue_taxonomy.active_issue_types_for_category(
-        category, include_names={current_value} if current_value else None
+        category,
+        production_method_controlled_id=production_method_controlled_id,
+        include_names={current_value} if current_value else None,
     )
     issue_names = [it["name"] for it in issue_options]
+    if not issue_names:
+        # Defensive only - on the current production taxonomy every ACTIVE
+        # category always has at least one Global entry (production_methods
+        # is None), so this is unreachable today. Guards against a future
+        # method-specific-only category being picked for a non-matching
+        # Production Method, which would otherwise hand st.selectbox an
+        # empty options list.
+        st.caption("No active issue types are available for this category and Production Method.")
+        return (current_value or ""), None
     default_issue_index = (
         issue_names.index(match["name"])
         if match and match["category"] == category and match["name"] in issue_names
@@ -178,17 +203,23 @@ require_login()
 logout_button()
 
 st.title("Quality Issues")
+# CR-22 correction (2026-08-16, Charlie's focused closeout return, Section 3
+# semantic inventory rerun): "where in the block it showed up" and
+# "location in the block" are PM-500-only phrasing on a page that serves
+# every Production Method - the "Observed location" field itself was
+# already reworded under F22-03, but this intro text wasn't. Reworded to
+# method-neutral phrasing matching the field's own label.
 render_function_action_intro(
     function_text=(
         "Captures what went wrong (or was noticed) on a batch - the issue type, severity, "
-        "frequency, where in the block it showed up, suspected cause, and how confident the "
+        "frequency, where it was observed, suspected cause, and how confident the "
         "report is - building a factual, confidence-rated history of quality issues per foam "
         "grade instead of word-of-mouth. Each issue belongs to exactly one source: a routine "
         "production run, a Customer Trial, or an Optimization Trial."
     ),
     action_text=(
         "Pick which of the three you're logging against (Production Run / Customer Trial / "
-        "Optimization Trial), then log the issue type, severity, frequency, location in the block, "
+        "Optimization Trial), then log the issue type, severity, frequency, observed location, "
         "suspected cause, and your confidence level in that assessment. Use the CSV/Excel import "
         "tab to bulk-load a batch of issues instead of entering them one by one."
     ),
@@ -240,15 +271,17 @@ with tab_create:
         if not page_usable:
             st.caption("View-only access - adding a quality issue is restricted for your role.")
         else:
-            st.caption(
-                "Issue type is a controlled list grouped by category - not free text, so the "
-                "same fault always gets recorded the same way and can be counted/trended "
-                "reliably."
-            )
-            observation_type, _typical_causes = _issue_type_picker("add_obs")
-            if _typical_causes:
-                st.caption(f"Typical causes/checks: {_typical_causes}")
-
+            # CR-22 correction (2026-08-16, Charlie's focused closeout return
+            # on F22-06): "Record against" is picked BEFORE the issue-type
+            # picker (reordered from the original layout) so the picker
+            # below can filter by the selected Production Run's Production
+            # Method - a method-specific taxonomy entry (see
+            # quality_issue_taxonomy.py's `production_methods` attribute)
+            # can only be offered once we know which method, if any,
+            # applies. Both selectboxes stay outside any st.form for the
+            # same "dependent options need an immediate rerun" reason the
+            # issue-type picker itself is outside a form (see
+            # _issue_type_picker()'s docstring).
             available_sources = [
                 s for s in SAMPLE_SOURCE_TYPES
                 if (s == "Production Run" and runs)
@@ -277,6 +310,26 @@ with tab_create:
                     ),
                     key="obs_ot_select",
                 )
+            # CR-22 / F22-06 (AF22-01): Global entries plus entries
+            # applicable to this Production Run's Production Method - None
+            # (Global only) for Customer Trial / Optimization Trial, since
+            # those two sources carry no Production Method context.
+            add_pm_controlled_id = (
+                parent.production_method.controlled_id
+                if source_type == "Production Run" and parent is not None and parent.production_method
+                else None
+            )
+            st.caption(
+                "Issue type is a controlled list grouped by category - not free text, so the "
+                "same fault always gets recorded the same way and can be counted/trended "
+                "reliably."
+            )
+            observation_type, _typical_causes = _issue_type_picker(
+                "add_obs", production_method_controlled_id=add_pm_controlled_id
+            )
+            if _typical_causes:
+                st.caption(f"Typical causes/checks: {_typical_causes}")
+
             with st.form("add_observation"):
                 st.caption(f"Issue type: **{observation_type or '(describe the issue above)'}**")
                 c1, c2 = st.columns(2)
@@ -320,9 +373,14 @@ with tab_create:
 with tab_import:
     show_pending_banner("observation_import_msg")
     with st.expander("Accepted issue-type names (must match exactly, case-insensitive)"):
-        # CR-22 / F22-06 (AF22-01): only active names are listed/accepted -
-        # import is a new-selection surface, same rule as the manual entry
-        # picker above (quarantined names are not offered here either).
+        # CR-22 / F22-06 (AF22-01): only active, Global names are listed
+        # here - import is a new-selection surface, same rule as the manual
+        # entry picker above (quarantined names are not offered here
+        # either). A row against a production_run_id may ALSO accept a
+        # name restricted to that run's specific Production Method (none
+        # exist on the current production taxonomy - every active entry
+        # today is Global, so this list is complete for every source as of
+        # this release).
         for _cat in quality_issue_taxonomy.active_categories():
             st.write(f"**{_cat}**")
             st.write(", ".join(it["name"] for it in quality_issue_taxonomy.active_issue_types_for_category(_cat)))
@@ -337,6 +395,11 @@ with tab_import:
         import_run_ids = {r.id for r in runs}
         import_ct_ids = {t.id for t in customer_trials}
         import_ot_ids = {t.id for t in optimization_trials}
+        # CR-22 correction (2026-08-16, Charlie's focused closeout return on
+        # F22-06): resolves the source Production Run's Production Method
+        # for a row so a method-specific taxonomy entry validates the same
+        # way for CSV import as it does for the manual-entry picker.
+        runs_by_id = {r.id: r for r in runs}
 
         def _row_fk(row):
             """(fk_field, fk_value) if exactly one of the three FK columns
@@ -359,10 +422,22 @@ with tab_import:
                 return None, None
             return (field, val_int) if val_int in id_set else (None, None)
 
+        def _row_production_method_controlled_id(fk_field, fk_val):
+            """CR-22 / F22-06 (AF22-01): Global entries plus entries
+            applicable to the row's Production Run's Production Method for
+            a production_run_id row; None (Global only) for
+            customer_trial_id / optimization_trial_id rows, since those two
+            sources carry no Production Method context - same rule the
+            manual-entry picker applies."""
+            if fk_field != "production_run_id":
+                return None
+            run = runs_by_id.get(fk_val)
+            return run.production_method.controlled_id if (run and run.production_method) else None
+
         good_rows, bad_rows = [], []
         for _, row in obs_df.iterrows():
             try:
-                fk_field, _fk_val = _row_fk(row)
+                fk_field, fk_val = _row_fk(row)
                 # Issue type must match the controlled taxonomy (see
                 # quality_issue_taxonomy.py) the same as the manual entry
                 # form now requires - a CSV can't be used to sneak free
@@ -370,11 +445,13 @@ with tab_import:
                 # spreadsheet author might type "shrinkage" instead of the
                 # exact stored casing "Shrinkage". CR-22 / F22-06
                 # (AF22-01): import is a new-selection surface, so it uses
-                # the active-only lookup - a quarantined name (e.g. "Gross
-                # splits") is rejected here the same as it would be if
-                # picked from the manual entry dropdown.
+                # the active-only, method-aware lookup - a quarantined name
+                # (e.g. "Gross splits") or a name restricted to a
+                # different Production Method is rejected here the same as
+                # it would be if picked from the manual entry dropdown.
                 issue_match = quality_issue_taxonomy.lookup_active_case_insensitive(
-                    str(row.get("observation_type", "") or "")
+                    str(row.get("observation_type", "") or ""),
+                    production_method_controlled_id=_row_production_method_controlled_id(fk_field, fk_val),
                 )
                 ok = bool(fk_field and issue_match)
             except (TypeError, ValueError):
@@ -421,12 +498,13 @@ with tab_import:
                 observed_val = pd.to_datetime(row.get("observed_at"), errors="coerce")
                 # Store the taxonomy's own canonical spelling/casing, not
                 # whatever the CSV happened to contain - already validated
-                # to match (active only, CR-22 / F22-06) above, so this
-                # lookup can't come back empty here.
-                canonical_issue_type = quality_issue_taxonomy.lookup_active_case_insensitive(
-                    str(row["observation_type"])
-                )["name"]
+                # to match (active + method-aware, CR-22 / F22-06) above, so
+                # this lookup can't come back empty here.
                 fk_field, fk_val = _row_fk(row)
+                canonical_issue_type = quality_issue_taxonomy.lookup_active_case_insensitive(
+                    str(row["observation_type"]),
+                    production_method_controlled_id=_row_production_method_controlled_id(fk_field, fk_val),
+                )["name"]
                 new_obs = QualityObservation(
                     observation_type=canonical_issue_type,
                     severity=severity_val if severity_val in SEVERITIES else "Low",
@@ -667,7 +745,18 @@ with tab_edit_delete:
                     key=f"edit_obs_ot_{selected.id}",
                 )
 
-            e_type, e_typical_causes = _issue_type_picker(f"edit_obs_{selected.id}", current_value=selected.observation_type)
+            # CR-22 / F22-06 (AF22-01): same Global-plus-matching-method rule
+            # as the Add form above - e_parent/e_source_type are already
+            # resolved above this point.
+            edit_pm_controlled_id = (
+                e_parent.production_method.controlled_id
+                if e_source_type == "Production Run" and e_parent is not None and e_parent.production_method
+                else None
+            )
+            e_type, e_typical_causes = _issue_type_picker(
+                f"edit_obs_{selected.id}", current_value=selected.observation_type,
+                production_method_controlled_id=edit_pm_controlled_id,
+            )
             if e_typical_causes:
                 st.caption(f"Typical causes/checks: {e_typical_causes}")
 

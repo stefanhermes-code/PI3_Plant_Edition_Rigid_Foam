@@ -69,9 +69,14 @@ require_login()
 logout_button()
 
 st.title("Production Samples")
+# CR-22 correction (2026-08-16, Charlie's focused closeout return, Section 3
+# semantic inventory rerun): "where in the block" is PM-500-only phrasing -
+# this page's own "Sample Location Reference" field was already reworded
+# under F22-03, but this intro text wasn't. Reworded to method-neutral
+# phrasing.
 render_function_action_intro(
     function_text=(
-        "Records where in the block a production-run sample was taken, for traceability back to "
+        "Records where a production-run sample was taken, for traceability back to "
         "a lab result. Customer Trial and Optimization Trial samples live on their own pages now "
         "(Customer Trials & Samples / Optimization Trials & Samples), alongside the trial itself."
     ),
