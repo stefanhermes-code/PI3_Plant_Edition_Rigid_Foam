@@ -7055,6 +7055,60 @@ block" finding zero remaining hits and zero pre-existing test assertions
 on the old wording). Full serial suite (6-way file-partition split, no
 xdist/parallel workers): 173 + 188 + 64 + 67 + 59 + 73 = 624 passed, 0
 failed, 0 skipped, across all 55 test files.
+
+v0.65.2 (2026-08-16): Production hotfix - Stefan reported a live crash
+immediately after the v0.65.0->v0.65.1 stale-Streamlit-Cloud-cache issue
+was resolved:
+
+    TypeError: '<' not supported between instances of 'NoneType' and
+    'datetime.datetime'
+    pages/15_Recipe_Optimization.py, line 121, in <module>
+        versions = sorted(grade.recipe_versions, key=lambda v: v.created_at)
+
+Root cause: RecipeVersion.created_at (db.py) is DB-nullable - its
+`default=dt.datetime.utcnow` is a Python-side ORM default that only fires
+when the column is omitted from an ORM-issued INSERT, not a NOT NULL
+constraint - so any row written via direct SQL (this project's
+established pattern for data-loading/reconciliation batches: WP5 waves,
+CR-08 reconciliation, DEF-011, Post-G5 imports, etc.) can legitimately
+skip it and land NULL. Confirmed live in Supabase: grade "RF-COLDROOM-001"
+(foam_grades.id=7) had exactly one recipe version (recipe_versions.id=6,
+its only and active version) with created_at NULL, plus its
+production_runs.id=15 row with the same NULL - so every visit to Recipe
+Optimization with that grade selected crashed the whole page for every
+reviewer, not just whoever created the row.
+
+Fix: a None-safe sort key, `v.created_at or dt.datetime.min` (treats a
+NULL creation time as "oldest", the same interpretation already used
+elsewhere on this page for a missing created_by), applied in the two
+places this repo has this exact sort - pages/15_Recipe_Optimization.py
+and the PI3 query tool's own identical copy in ai_assistant.py's
+`analysis_type == "recipe_cost"` branch (found via a targeted repo-wide
+grep for `key=lambda \w+: \w+\.created_at`, confirming these are the only
+two occurrences of the risky pattern app-wide). Both files needed a new
+`import datetime as dt` added, since neither previously imported the
+datetime module directly.
+
+New direct-evidence regression test (tests/
+test_recipe_version_null_created_at_defect.py): seeds a FoamGrade with a
+RecipeVersion whose created_at is explicitly None - the exact shape of
+the live defect, not a helper-function truth table - and drives pages/
+15_Recipe_Optimization.py through AppTest, asserting no unhandled
+exception. A companion unit test proves the sort key itself doesn't raise
+on a mixed None/datetime list and orders the None entry first (oldest).
+Targeted regression (6 recipe-related test files + 6 ai_assistant-
+importing test files, 123 tests total) passed clean.
+
+Known open item, NOT closed by this fix: the 3 live NULL created_at rows
+in Supabase (foam_grades.id=7, recipe_versions.id=6, production_runs.id=
+15) remain NULL - an attempted backfill UPDATE was blocked by this
+environment's own write-permission guardrail, so it could not be applied
+from here. This code fix prevents the crash regardless of whether that
+backfill ever happens (any future NULL created_at row hits the same safe
+fallback), but the 3 rows' actual creation timestamps are still unknown
+pending either a manual Supabase-side backfill or a decision that it's
+not worth doing. Flagged to Stefan in the reporting conversation for this
+fix, 2026-08-16.
 """
 
-APP_VERSION = "0.65.1"
+APP_VERSION = "0.65.2"

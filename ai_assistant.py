@@ -66,6 +66,7 @@ every OpenAI call below is also wrapped in try/except so a transient API
 problem shows a friendly st.error instead of crashing the page.
 """
 
+import datetime as dt
 import json
 import os
 import time
@@ -945,7 +946,13 @@ def _run_verified_analysis(session, plant_id, analysis_type, foam_grade_id, prop
         )
 
     if analysis_type == "recipe_cost":
-        versions = sorted(grade.recipe_versions, key=lambda v: v.created_at)
+        # Defensive: created_at is DB-nullable (see pages/15_Recipe_
+        # Optimization.py's matching fix for the production incident this
+        # traces back to - a raw-SQL-seeded RecipeVersion with created_at
+        # =NULL crashed the sort with a TypeError comparing NoneType to
+        # datetime). Same fallback applied here since this is the PI3
+        # query-tool's own copy of the same sort.
+        versions = sorted(grade.recipe_versions, key=lambda v: v.created_at or dt.datetime.min)
         rows = []
         for v in versions:
             cost = analytics.recipe_version_cost(session, v)

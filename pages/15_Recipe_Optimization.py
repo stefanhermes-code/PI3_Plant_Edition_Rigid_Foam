@@ -16,6 +16,8 @@ history" at the bottom, since that's occasional-audit territory, not
 day-to-day use.
 """
 
+import datetime as dt
+
 import pandas as pd
 import streamlit as st
 
@@ -118,7 +120,18 @@ grade = st.selectbox("Product grade", grades, format_func=lambda g: g.grade_name
 # branch on this flag. Everything else on this page (cost, ingredient list,
 # version history) is schema-shared and unaffected by grade type.
 is_rigid = grade.chemistry_id is not None
-versions = sorted(grade.recipe_versions, key=lambda v: v.created_at)
+# Defensive: created_at is DB-nullable (Python-side default only, not a
+# DB constraint - see db.py's RecipeVersion.created_at), so a row written
+# via direct SQL that skipped the column is a real possibility, not just
+# a theoretical one (hit in production 2026-08-16: a raw-SQL-seeded
+# RecipeVersion had created_at=NULL, crashing this page's sort with
+# "'<' not supported between instances of 'NoneType' and 'datetime.
+# datetime'" for every reviewer, not just the affected grade's viewers,
+# since the TypeError happens before the page can render anything).
+# dt.datetime.min sorts a NULL row first (oldest), which is the same
+# "unknown creation time" interpretation the None-check for created_by
+# uses elsewhere on this page.
+versions = sorted(grade.recipe_versions, key=lambda v: v.created_at or dt.datetime.min)
 
 if not versions:
     st.info("This product grade has no recipe versions yet.")
