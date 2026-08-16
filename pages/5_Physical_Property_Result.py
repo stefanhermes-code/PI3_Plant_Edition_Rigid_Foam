@@ -529,19 +529,22 @@ with tab_edit_delete:
             else None
         )
     with filter_col3:
-        # Foam scope - "All product grades" pools the whole company's results (the
-        # common case: which properties fail most, overall), while Foam
-        # grade/family narrows to one grade or a whole family (e.g. "Comfort
-        # foams that failed") - both this filter set and the Pareto chart below
-        # read from the same scoped_grade_ids, so the chart always matches
-        # exactly what the table above it shows.
+        # Product scope (CR-22 / F22-01, F22-02) - "All product grades" pools
+        # the whole company's results (the common case: which properties fail
+        # most, overall), while Product family/grade narrows to one grade or
+        # a whole family (e.g. "Comfort foams that failed") - both this
+        # filter set and the Pareto chart below read from the same
+        # scoped_grade_ids, so the chart always matches exactly what the
+        # table above it shows. Option order is Product family before
+        # Product grade, matching the hierarchy order used everywhere else
+        # (e.g. helpers.analysis_unit_picker()).
         scoped_grades = (
             apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids_for_company(session, active_company_id))
             .order_by(FoamGrade.grade_name)
             .all()
         )
         foam_scope_mode = st.radio(
-            "Foam scope", ["All product grades", "Product grade", "Product family"], key="qtr_foam_scope_mode"
+            "Product scope", ["All product grades", "Product family", "Product grade"], key="qtr_foam_scope_mode"
         )
         if foam_scope_mode == "All product grades" or not scoped_grades:
             scope_grade_ids = None
@@ -670,7 +673,7 @@ with tab_edit_delete:
             property_label = ", ".join(property_filter)
         else:
             property_label = f"{len(property_filter)} of {len(property_name_options)} properties"
-        st.caption(f"Pass/Fail: {pass_fail_label} · Property: {property_label} · Foam scope: {scope_label}")
+        st.caption(f"Pass/Fail: {pass_fail_label} · Property: {property_label} · Product scope: {scope_label}")
 
         report_data = reports.build_quality_test_report_data(
             session, [r.id for r, _ in filtered_results],

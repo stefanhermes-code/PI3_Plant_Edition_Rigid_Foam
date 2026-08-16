@@ -87,7 +87,48 @@ existed, or anything recorded under a name later removed here in the
 A5-08 filtering pass) that don't match any `name` below still display and
 edit fine - see pages/6_Quality_Observation.py's handling of a
 legacy/unmatched value.
+
+CR-22 / F22-06, F22-07 (AF22-01, 2026-08-16): two new per-entry attributes,
+both optional and defaulted by _normalize_entries() below so most literal
+dicts don't need to spell them out:
+
+- `state`: STATE_ACTIVE (default) or STATE_QUARANTINED. A QUARANTINED
+  entry is removed from every NEW-selection surface (manual entry, CSV/
+  Excel import, Customer Trial and Optimization Trial paths) but remains
+  a valid, fully readable/reportable value on any QualityObservation row
+  already carrying it - the same "deprecate in place, never touch
+  history" posture as D5-05's air_injection_rate/air_pressure_bar
+  quarantine. See active_issue_types_for_category()'s `include_names`
+  parameter for how an already-quarantined value stays visible/editable
+  on its own row without being offered as a fresh pick.
+- `production_methods`: None (default) means Global - the entry is
+  offered for every Production Method and both trial paths, same as
+  every entry today. A list of ProductionMethod.controlled_id strings
+  (e.g. ["PM-500"]) would restrict the entry to matching Production Runs
+  only; see active_issue_types_for_category()'s
+  `production_method_controlled_id` parameter. AF22-01 Section 4 froze
+  this mechanism into the module even though the post-freeze active set
+  contains zero method-specific entries, so a future validated
+  method-specific issue can be activated later without another schema
+  redesign.
+
+AF22-01 Section 4 ruling applied below: ten entries inherited from the
+Flexible slabstock source guide move to STATE_QUARANTINED (the four
+"Splits & cracks" entries, Tacky block surface, Low block density,
+Bottom cavitation, Bottom skin densification, Stratification, Heavy
+skin) because their current definition/cause text is either slabstock/
+block-process-based or pending a validated Rigid Block definition in the
+approved Rigid master. Three entries stay STATE_ACTIVE but had their
+remaining block/tunnel-specific wording stripped per Charlie's explicit
+per-entry direction (Relaxation, Slow curing, Scorching) - no replacement
+guidance was invented, same policy as the A5-08 passes above. This
+yields a 32-entry active baseline on the v0.64.1 challenge baseline (42
+total entries unchanged - quarantine does not remove an entry, only its
+new-selection eligibility).
 """
+
+STATE_ACTIVE = "active"
+STATE_QUARANTINED = "quarantined"
 
 OTHER_ISSUE_NAME = "Other (not yet in this list)"
 
@@ -127,7 +168,11 @@ QUALITY_ISSUE_TAXONOMY = {
         },
         {
             "name": "Relaxation",
-            "typical_causes": "Block rises to maximum height, then settles back. Increase silicone and tin "
+            # CR-22 / F22-07 (AF22-01): "Block rises..." -> "Foam rises..." -
+            # the fault description no longer names the PM-500-only "block"
+            # concept (F22-04). No other clause changed; nothing generic
+            # was invented.
+            "typical_causes": "Foam rises to maximum height, then settles back. Increase silicone and tin "
             "catalyst (check output); reduce amine catalyst; reduce stirrer speed.",
         },
         {
@@ -138,16 +183,22 @@ QUALITY_ISSUE_TAXONOMY = {
         },
         {
             "name": "Slow curing",
-            "typical_causes": "Polymer strength builds too slowly; foam too weak/sticky to cut; block "
+            # CR-22 / F22-07 (AF22-01): dropped "cut" (a block-specific
+            # handling operation) and the leading "block" in "block
+            # dimensionally unstable" - kept the rest, which is generic
+            # curing chemistry/process guidance.
+            "typical_causes": "Polymer strength builds too slowly; foam too weak/sticky to handle; "
             "dimensionally unstable. Increase amine and/or tin catalyst; check metering "
             "of water/TDI/polyol/tin; check for catalyst deactivation; raise component temperatures; "
             "improve mixer efficiency.",
         },
         {
             "name": "Scorching",
+            # CR-22 / F22-07 (AF22-01): "reduce the block size" clause
+            # removed (block-specific guidance) with no replacement
+            # invented - the remaining generic guidance stands on its own.
             "typical_causes": "Discoloration and loss of properties in the foam core; high internal "
-            "temperature during curing. Check TDI/water/polyol outputs; check for contaminants; reduce the "
-            "block size.",
+            "temperature during curing. Check TDI/water/polyol outputs; check for contaminants.",
         },
         {
             "name": "Odour",
@@ -155,7 +206,10 @@ QUALITY_ISSUE_TAXONOMY = {
             "less-odorous formulation additives; give the foam more time to degas.",
         },
         {
+            # CR-22 / F22-07 (AF22-01): QUARANTINED - the term itself is
+            # explicitly block-specific (inherited Flexible guidance).
             "name": "Tacky block surface",
+            "state": STATE_QUARANTINED,
             "typical_causes": "Surface of the foam block remains sticky for a prolonged time. Increase "
             "total catalyst levels; check block storage conditions; see also Slow curing.",
         },
@@ -231,7 +285,13 @@ QUALITY_ISSUE_TAXONOMY = {
     ],
     "Splits & cracks": [
         {
+            # CR-22 / F22-07 (AF22-01): QUARANTINED - inherited from the
+            # non-Rigid source guide's continuous-line process, requires
+            # separate technical validation before Rigid Block
+            # reactivation. Guidance text left as-is (historical display
+            # only, not offered for new selection).
             "name": "Splits - normal cell structure, open cells",
+            "state": STATE_QUARANTINED,
             "typical_causes": "Splits associated with a normal cell size and open cells. Tin catalyst too "
             "low or deactivated - check output; polyol/TDI temperature too low - check and adjust; "
             "silicone level too low - lab-test and adjust; incorrect amine catalyst blend ratio - compare "
@@ -239,18 +299,21 @@ QUALITY_ISSUE_TAXONOMY = {
         },
         {
             "name": "Splits - abnormal fine/broken cell structure",
+            "state": STATE_QUARANTINED,
             "typical_causes": "Splits associated with an abnormally fine, broken cell structure. Excessive "
             "air in the mix - check for entrained air/leaks; stirrer speed too high - reduce in stages; "
             "mixer exit nozzle too large - reduce diameter in stages.",
         },
         {
             "name": "Gross splits",
+            "state": STATE_QUARANTINED,
             "typical_causes": "Large vertical or horizontal separation in the block. Increase tin catalyst "
             "(check activity); decrease amine catalyst; increase silicone (check activity); decrease water "
             "level; check mechanical factors.",
         },
         {
             "name": "Zigzag (tin) splits",
+            "state": STATE_QUARANTINED,
             "typical_causes": "Crumbly zigzag splits throughout the block or on the sides. Increase tin "
             "catalyst concentration; check for reduced tin reactivity/output; check TDI and water output; "
             "increase silicone level.",
@@ -264,28 +327,43 @@ QUALITY_ISSUE_TAXONOMY = {
             "catalyst; lower component temperatures; enlarge the mixer outlet nozzle.",
         },
         {
+            # CR-22 / F22-07 (AF22-01): QUARANTINED - pending a validated
+            # Rigid Block issue definition; density remains available
+            # through the Rigid property/test model in the meantime.
             "name": "Low block density",
+            "state": STATE_QUARANTINED,
             "typical_causes": "Reduced block height, associated with high curing temperature/scorching or "
             "increased TDI vapour at cut-off. Check for a shortage of blowing agent or "
             "water for primary blowing; check output, temperature, and feed tank/filter/valve condition.",
         },
         {
             "name": "Bottom cavitation",
+            "state": STATE_QUARANTINED,
             "typical_causes": "Closed cells with the bottom of the block eaten away. Reduce tin catalyst; "
             "check for metering errors.",
         },
         {
             "name": "Bottom skin densification",
+            "state": STATE_QUARANTINED,
             "typical_causes": "A layer of denser foam at the bottom of the block. Increase silicone level "
             "or check for reduced activity.",
         },
         {
+            # AF22-01: the approved Rigid master already contains "Density
+            # gradient" as the controlled Rigid concept for this fault - no
+            # automatic remapping performed (CR-22 does no destructive
+            # migration), so the legacy name is simply quarantined.
             "name": "Stratification",
+            "state": STATE_QUARANTINED,
             "typical_causes": "Irregular density throughout the block. Look for errors in component "
             "metering; check mechanical factors.",
         },
         {
+            # AF22-01: the approved Rigid master defines "Skin" and "Poor
+            # skin formation" - "Heavy skin" has no validated Rigid issue
+            # definition in the current master.
             "name": "Heavy skin",
+            "state": STATE_QUARANTINED,
             "typical_causes": "Thick skin of high density. Increase total system catalysis and TDI content; "
             "heat the block surface.",
         },
@@ -340,16 +418,81 @@ QUALITY_ISSUE_TAXONOMY = {
 }
 
 
+def _normalize_entries():
+    """Fills in the two CR-22 attributes (`state`, `production_methods`)
+    on every entry that didn't spell them out explicitly above, so the
+    ~30 unaffected literal dicts don't all need `"state": STATE_ACTIVE,
+    "production_methods": None,` boilerplate. Runs once at import time."""
+    for entries in QUALITY_ISSUE_TAXONOMY.values():
+        for entry in entries:
+            entry.setdefault("state", STATE_ACTIVE)
+            entry.setdefault("production_methods", None)
+
+
+_normalize_entries()
+
+
 def categories():
-    """Ordered list of category names, for the first-level selectbox."""
+    """Ordered list of category names, for the first-level selectbox. All
+    categories regardless of active/quarantined content - see
+    active_categories() for the CR-22 new-selection-safe subset."""
     return list(QUALITY_ISSUE_TAXONOMY.keys())
 
 
+def active_categories():
+    """Ordered list of category names that contain at least one
+    STATE_ACTIVE entry - CR-22 / F22-07 (AF22-01). "Splits & cracks" is
+    the one category on the v0.64.1 baseline where every entry was
+    quarantined, so it's excluded here even though categories() still
+    lists it (needed for historical lookup/display)."""
+    return [
+        category for category, entries in QUALITY_ISSUE_TAXONOMY.items()
+        if any(e["state"] == STATE_ACTIVE for e in entries)
+    ]
+
+
 def issue_types_for_category(category):
-    """List of issue-type dicts ({"name", "typical_causes"}) for one
-    category, for the second-level selectbox. Empty list for an unknown
-    category rather than raising, since this is driven by UI state."""
+    """List of issue-type dicts ({"name", "typical_causes", "state",
+    "production_methods"}) for one category, unfiltered (active +
+    quarantined) - for reference/historical listing. Empty list for an
+    unknown category rather than raising, since this is driven by UI
+    state. See active_issue_types_for_category() for the CR-22
+    new-selection-safe subset."""
     return QUALITY_ISSUE_TAXONOMY.get(category, [])
+
+
+def active_issue_types_for_category(category, production_method_controlled_id=None, include_names=None):
+    """List of issue-type dicts for one category, restricted to entries
+    that are safe to offer for a NEW selection - CR-22 / F22-06, F22-07
+    (AF22-01):
+
+    - STATE_QUARANTINED entries are excluded, UNLESS their name is in
+      `include_names` - this is how a picker keeps an already-recorded
+      quarantined value visible/selected while editing that one row,
+      without offering it as a fresh pick anywhere else (see
+      pages/6_Quality_Observation.py's _issue_type_picker()).
+    - A method-specific entry (`production_methods` is a non-None list)
+      is excluded unless `production_method_controlled_id` is given and
+      is a member of that list. A Global entry (`production_methods` is
+      None) is always included regardless of this parameter. On the
+      v0.64.1 baseline every active entry is Global, so this parameter
+      currently has no observable effect - it exists so a future
+      validated method-specific entry activates without another schema
+      or call-site redesign (AF22-01 Section 4).
+    """
+    include_names = include_names or set()
+    result = []
+    for entry in QUALITY_ISSUE_TAXONOMY.get(category, []):
+        if entry["name"] in include_names:
+            result.append(entry)
+            continue
+        if entry["state"] != STATE_ACTIVE:
+            continue
+        methods = entry["production_methods"]
+        if methods is not None and production_method_controlled_id not in methods:
+            continue
+        result.append(entry)
+    return result
 
 
 _NAME_TO_ENTRY = {
@@ -369,15 +512,35 @@ def lookup(name):
 
 
 def lookup_case_insensitive(name):
-    """Same as lookup() but case-insensitive and whitespace-trimmed - used
-    by CSV/Excel import, where a spreadsheet author might type "shrinkage"
-    instead of the exact stored casing "Shrinkage"."""
+    """Same as lookup() but case-insensitive and whitespace-trimmed.
+    Matches ANY taxonomy entry regardless of state, including
+    STATE_QUARANTINED - used where a quarantined value legitimately needs
+    to resolve (e.g. displaying/reporting an existing historical row). For
+    CSV/Excel import of a NEW row, see lookup_active_case_insensitive()
+    instead - CR-22 / F22-06 (AF22-01) requires new-selection paths to
+    reject quarantined names the same way the manual-entry picker does."""
     if not name:
         return None
     return _NAME_TO_ENTRY_LOWER.get(name.strip().lower())
 
 
+def lookup_active_case_insensitive(name):
+    """Same as lookup_case_insensitive(), but returns None for a
+    STATE_QUARANTINED entry - CR-22 / F22-06 (AF22-01): "Trial behavior"
+    and every other new-selection surface must never expose a quarantined
+    issue type, and CSV/Excel import is a new-selection surface the same
+    as the manual entry form. Used by pages/6_Quality_Observation.py's
+    import tab in place of lookup_case_insensitive()."""
+    entry = lookup_case_insensitive(name)
+    if entry is None or entry["state"] != STATE_ACTIVE:
+        return None
+    return entry
+
+
 def all_issue_names():
-    """Flat list of every controlled issue-type name, in category order -
-    the full set of values CSV/Excel import will accept."""
+    """Flat list of every controlled issue-type name (active AND
+    quarantined), in category order - the full set of values a historical
+    QualityObservation row may legitimately carry. NOT the set CSV/Excel
+    import will accept for a NEW row - see lookup_active_case_insensitive()
+    for that (CR-22 / F22-06, AF22-01)."""
     return list(_NAME_TO_ENTRY.keys())

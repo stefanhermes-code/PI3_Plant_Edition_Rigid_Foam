@@ -6909,4 +6909,83 @@ parallel workers within or across partitions) - 198 + 192 + 91 + 124 =
 new A21-05/A21-10 tests added this correction).
 """
 
-APP_VERSION = "0.64.1"
+VERSION_0_65_0_NOTES = """
+CR-22 (2026-08-16): Architecture Freeze AF22-01 implementation - Charlie's
+customer-facing terminology and semantic corrections for 8 frozen decisions
+(F22-01 through F22-08), authorized for direct implementation without a
+further review cycle.
+
+1. F22-01/F22-02 (Product hierarchy): renamed the "Foam scope" filter
+control to "Product scope" everywhere it's customer-facing - pages/
+5_Physical_Property_Result.py and pages/6_Quality_Observation.py's radio
+widgets, and the two report builders (Quality Test Result Report, Quality
+Issues Report in reports.py) that echo the selection back into report
+headers. Reordered the option list to "All product grades" -> "Product
+family" -> "Product grade" on both pages, matching the hierarchy order
+already used by helpers.analysis_unit_picker() (pages 16/17/19). Updated
+tests/test_cr18_product_family_terminology.py and
+tests/test_cr12_report_scope_isolation.py for the new default (Product
+family, not Product grade, is now the radio's first/default option).
+
+2. F22-03 (Location semantics): "Sample Location Reference" was already
+in place app-wide from an earlier CR; the remaining gap was pages/
+6_Quality_Observation.py's Quality Issue create/edit forms, which still
+said "Location in block" - renamed to "Observed location".
+
+3. F22-04 (Block reference customer-facing scope): Block reference is now
+shown/editable/importable only for PM-500 Rigid Block Production runs -
+every other Production Method treats it as N/A. New shared helper
+helpers.block_reference_applicable() (and reports.py's duplicated
+_block_reference_applicable(), kept in sync only because reports.py
+cannot import helpers.py without a circular import). Applied to:
+pages/4_Production_Run_Trial_Record.py's overview table, Create/Edit
+forms (a hidden field's historical value is left untouched, never
+blanked, per F22-08's no-destructive-migration rule), and CSV import;
+reports.py's Batch Release Record and Sample Certificate of Analysis
+report builders/renderers (the "Block reference" row is omitted entirely
+from the report, not shown as "-").
+
+4. F22-05 (Block reference import validation): the Production Run CSV
+importer's pre-persistence row validation now rejects any row with a
+populated block_reference value whose resolved machine is not PM-500,
+so a bad row never reaches the DB.
+
+5. F22-06/F22-07 (Quality Issue taxonomy applicability + quarantine):
+quality_issue_taxonomy.py gained a per-entry state (STATE_ACTIVE /
+STATE_QUARANTINED) and an optional production_methods applicability list
+(None = Global). 10 entries quarantined (removed from every NEW-selection
+surface - manual entry, CSV import, Customer/Optimization Trial paths -
+but still fully readable/reportable on any existing row): Bottom
+cavitation, Bottom skin densification, Gross splits, Heavy skin, Low
+block density, Splits - abnormal fine/broken cell structure, Splits -
+normal cell structure open cells, Stratification, Tacky block surface,
+Zigzag (tin) splits. 3 entries (Relaxation, Slow curing, Scorching) stay
+ACTIVE-Global with their block-specific guidance text stripped. New
+active_categories()/active_issue_types_for_category()/
+lookup_active_case_insensitive() functions; pages/6_Quality_Observation.py's
+category and issue-name pickers use them, with an include_names escape
+hatch so a row already carrying a quarantined value stays editable/
+visible without ever offering that value as a fresh pick elsewhere (same
+"deprecate in place, never touch history" pattern as the WP7 Phase 5
+D5-05 quarantine).
+
+Regression: new tests/test_cr22_semantic_freeze_evidence.py (6 direct-
+evidence tests covering block_reference gating at the report-builder
+level for both report types, the helpers/reports gate-sync guard, the
+32-active/10-quarantined taxonomy count + name match, historical
+readability via include_names, and a semantic guard against "Foam scope"
+wording ever reappearing) plus targeted fixes to 3 pre-existing tests
+whose fixtures/assertions assumed the pre-freeze wording, order, or a
+non-PM-500 default method: test_cr11_functional_evidence_group_d.py's
+seeded_grade_chain fixture (now uses the real "PM-500" controlled_id so
+its own block_reference edit/import tests exercise the field the way
+it's actually gated), test_cr18_product_family_terminology.py (Product
+scope order/label + a line-number allowlist shift), and
+test_cr12_report_scope_isolation.py (Trend Analysis's Analyze-by radio
+now defaults to Product family, so the grade-selector test must switch
+modes explicitly before asserting on it). Full serial suite (4-way
+file-partition split, no xdist/parallel workers): 198 + 198 + 83 + 132 =
+611 passed, 0 failed, 0 skipped.
+"""
+
+APP_VERSION = "0.65.0"

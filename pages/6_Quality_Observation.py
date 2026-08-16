@@ -120,8 +120,20 @@ def _issue_type_picker(key_prefix, current_value=None):
 
     Returns (resolved_issue_type, typical_causes_or_None).
     """
+    # CR-22 / F22-06, F22-07 (AF22-01): the category list offered for a
+    # NEW pick is active_categories() (excludes "Splits & cracks", which
+    # is 100% quarantined on the v0.64.1 baseline) - but if we're editing
+    # a row whose existing value sits in a since-quarantined category,
+    # that category is added back in so the current value stays visible/
+    # editable without forcing a change. Same "include the current value,
+    # never offer it as a fresh pick elsewhere" rule the issue-name
+    # dropdown below applies.
     match = quality_issue_taxonomy.lookup(current_value) if current_value else None
-    cats = quality_issue_taxonomy.categories()
+    all_cats = quality_issue_taxonomy.categories()
+    active_cats = set(quality_issue_taxonomy.active_categories())
+    if match and match["category"] not in active_cats:
+        active_cats = active_cats | {match["category"]}
+    cats = [c for c in all_cats if c in active_cats]
     if match:
         default_category = match["category"]
     elif current_value:
@@ -134,7 +146,9 @@ def _issue_type_picker(key_prefix, current_value=None):
         index=cats.index(default_category) if default_category in cats else 0,
         key=f"{key_prefix}_category",
     )
-    issue_options = quality_issue_taxonomy.issue_types_for_category(category)
+    issue_options = quality_issue_taxonomy.active_issue_types_for_category(
+        category, include_names={current_value} if current_value else None
+    )
     issue_names = [it["name"] for it in issue_options]
     default_issue_index = (
         issue_names.index(match["name"])
@@ -268,7 +282,12 @@ with tab_create:
                 c1, c2 = st.columns(2)
                 severity = c1.selectbox("Severity", SEVERITIES)
                 frequency = c2.selectbox("Frequency", ["One-off", "Recurring"])
-                location_in_block = st.text_input("Location in block")
+                # CR-22 / F22-03 (AF22-01): customer-facing label is
+                # "Observed location" - method-neutral, not PM-500/block
+                # specific. location_in_block stays the internal
+                # column/CSV-header name (F22-03 explicitly allows internal
+                # compatibility identifiers to remain).
+                location_in_block = st.text_input("Observed location")
                 suspected_cause = st.text_area("Suspected cause")
                 confidence_level = st.selectbox("Confidence level *", CONFIDENCE_LEVELS, index=2)
                 product_impact = st.text_area("Product impact")
@@ -301,9 +320,12 @@ with tab_create:
 with tab_import:
     show_pending_banner("observation_import_msg")
     with st.expander("Accepted issue-type names (must match exactly, case-insensitive)"):
-        for _cat in quality_issue_taxonomy.categories():
+        # CR-22 / F22-06 (AF22-01): only active names are listed/accepted -
+        # import is a new-selection surface, same rule as the manual entry
+        # picker above (quarantined names are not offered here either).
+        for _cat in quality_issue_taxonomy.active_categories():
             st.write(f"**{_cat}**")
-            st.write(", ".join(it["name"] for it in quality_issue_taxonomy.issue_types_for_category(_cat)))
+            st.write(", ".join(it["name"] for it in quality_issue_taxonomy.active_issue_types_for_category(_cat)))
     st.caption(
         "Each row needs exactly one of production_run_id / customer_trial_id / optimization_trial_id "
         "set, matching which of the three that issue belongs to."
@@ -346,8 +368,12 @@ with tab_import:
                 # form now requires - a CSV can't be used to sneak free
                 # text back in. Matched case-insensitively since a
                 # spreadsheet author might type "shrinkage" instead of the
-                # exact stored casing "Shrinkage".
-                issue_match = quality_issue_taxonomy.lookup_case_insensitive(
+                # exact stored casing "Shrinkage". CR-22 / F22-06
+                # (AF22-01): import is a new-selection surface, so it uses
+                # the active-only lookup - a quarantined name (e.g. "Gross
+                # splits") is rejected here the same as it would be if
+                # picked from the manual entry dropdown.
+                issue_match = quality_issue_taxonomy.lookup_active_case_insensitive(
                     str(row.get("observation_type", "") or "")
                 )
                 ok = bool(fk_field and issue_match)
@@ -395,8 +421,9 @@ with tab_import:
                 observed_val = pd.to_datetime(row.get("observed_at"), errors="coerce")
                 # Store the taxonomy's own canonical spelling/casing, not
                 # whatever the CSV happened to contain - already validated
-                # to match above, so this lookup can't come back empty here.
-                canonical_issue_type = quality_issue_taxonomy.lookup_case_insensitive(
+                # to match (active only, CR-22 / F22-06) above, so this
+                # lookup can't come back empty here.
+                canonical_issue_type = quality_issue_taxonomy.lookup_active_case_insensitive(
                     str(row["observation_type"])
                 )["name"]
                 fk_field, fk_val = _row_fk(row)
@@ -430,18 +457,21 @@ with tab_edit_delete:
     with filter_col1:
         severity_filter = st.multiselect("Severity filter", SEVERITIES, default=SEVERITIES)
     with filter_col2:
-        # Foam scope - same "All product grades / Product grade / Product family" pattern
-        # as the Quality Test Result page's breakdown chart, so both pages let
-        # you ask "which issue is most common for this grade/family" the same
-        # way. This filter set and the Pareto chart below both read from the
-        # same scoped_grade_ids, so the chart always matches the table.
+        # Product scope (CR-22 / F22-01, F22-02) - same "All product grades /
+        # Product family / Product grade" pattern as the Quality Test Result
+        # page's breakdown chart, so both pages let you ask "which issue is
+        # most common for this grade/family" the same way. This filter set
+        # and the Pareto chart below both read from the same
+        # scoped_grade_ids, so the chart always matches the table. Option
+        # order is Product family before Product grade, matching the
+        # hierarchy order used everywhere else.
         scoped_grades = (
             apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids_for_company(session, active_company_id))
             .order_by(FoamGrade.grade_name)
             .all()
         )
         foam_scope_mode = st.radio(
-            "Foam scope", ["All product grades", "Product grade", "Product family"], key="qi_foam_scope_mode"
+            "Product scope", ["All product grades", "Product family", "Product grade"], key="qi_foam_scope_mode"
         )
         if foam_scope_mode == "All product grades" or not scoped_grades:
             scope_grade_ids = None
@@ -556,7 +586,7 @@ with tab_edit_delete:
             severity_label = ", ".join(severity_filter)
         else:
             severity_label = "None selected"
-        st.caption(f"Severity: {severity_label} · Foam scope: {scope_label} · Grouped by: {breakdown_col}")
+        st.caption(f"Severity: {severity_label} · Product scope: {scope_label} · Grouped by: {breakdown_col}")
 
         issue_report_data = reports.build_quality_issue_report_data(
             session, [o.id for o in observations],
@@ -654,7 +684,8 @@ with tab_edit_delete:
                     index=["One-off", "Recurring"].index(selected.frequency) if selected.frequency in ["One-off", "Recurring"] else 0,
                     key=f"edit_obs_frequency_{selected.id}",
                 )
-                e_location = st.text_input("Location in block", value=selected.location_in_block or "", key=f"edit_obs_location_{selected.id}")
+                # CR-22 / F22-03 (AF22-01): "Observed location" - see the Add form's matching comment above.
+                e_location = st.text_input("Observed location", value=selected.location_in_block or "", key=f"edit_obs_location_{selected.id}")
                 e_cause = st.text_area("Suspected cause", value=selected.suspected_cause or "", key=f"edit_obs_cause_{selected.id}")
                 e_confidence = st.selectbox(
                     "Confidence level *", CONFIDENCE_LEVELS,

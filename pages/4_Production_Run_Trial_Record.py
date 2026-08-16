@@ -136,6 +136,7 @@ from db import (
 )
 from helpers import (
     activated_methods_for_plant,
+    block_reference_applicable,
     clickable_table,
     combine_date_time,
     cr11_function_tab_labels,
@@ -413,7 +414,12 @@ with tab_runs:
                     "Grade": r.foam_grade.grade_name,
                     "Date": r.run_date,
                     "Batch": r.batch_reference,
-                    "Block": r.block_reference,
+                    # CR-22 / F22-04 (AF22-01): Block reference is
+                    # customer-facing only for PM-500 Rigid Block
+                    # Production - a mixed-method overview table shows the
+                    # empty marker "—" for every other method, even if the
+                    # column happens to carry a legacy non-PM-500 value.
+                    "Block": r.block_reference if block_reference_applicable(r.production_method) else "—",
                     "Production Method": r.production_method.name if r.production_method else "—",
                     "Production Unit or Cell": r.machine.name if r.machine else "—",
                     "Operator": r.operator_or_team_reference,
@@ -607,10 +613,27 @@ with tab_runs:
                         help="Auto-generated when the run was created (B-DDMMYY-NN). Only change this "
                         "to correct a genuine mistake.",
                     )
-                    block_reference = st.text_input(
-                        "Block reference", value=selected_run.block_reference or "",
-                        key=f"edit_run_block_{selected_run.id}",
-                    )
+                    # CR-22 / F22-04 (AF22-01): Block reference is
+                    # customer-facing ONLY for PM-500 Rigid Block
+                    # Production. `method` is resolved above from the
+                    # widget outside this form, so it already reflects
+                    # whatever Production Method is currently selected.
+                    # For every other method the field is omitted from
+                    # the form entirely (a stray legacy value, if any,
+                    # stays untouched in the DB - see the save handler
+                    # below - not silently blanked by an unshown widget).
+                    block_ref_applicable = block_reference_applicable(method)
+                    if block_ref_applicable:
+                        block_reference = st.text_input(
+                            "Block reference", value=selected_run.block_reference or "",
+                            key=f"edit_run_block_{selected_run.id}",
+                        )
+                    else:
+                        block_reference = None
+                        if selected_run.block_reference:
+                            st.caption(
+                                f"Block reference (historical, PM-500 only): {selected_run.block_reference}"
+                            )
                     operator = st.text_input(
                         "Operator / team reference", value=selected_run.operator_or_team_reference or "",
                         key=f"edit_run_operator_{selected_run.id}",
@@ -645,7 +668,14 @@ with tab_runs:
                             selected_run.run_end = run_end
                             selected_run.order_item_reference = order_item_reference or None
                             selected_run.batch_reference = batch_reference
-                            selected_run.block_reference = block_reference
+                            # CR-22 / F22-04, F22-05 (AF22-01): only write
+                            # block_reference when the field was actually
+                            # shown (PM-500) - when hidden for another
+                            # method, leave whatever is already stored
+                            # untouched rather than overwriting with the
+                            # unshown widget's None.
+                            if block_ref_applicable:
+                                selected_run.block_reference = block_reference
                             selected_run.operator_or_team_reference = operator
                             selected_run.notes = notes
                             session.commit()
@@ -774,7 +804,11 @@ with tab_runs:
             run_end_value = combine_date_time("Run end", "create_run_end", default_date=run_date)
             run_end = run_end_value if record_run_end else None
             order_item_reference = st.text_input("Customer order / order item reference")
-            block_reference = st.text_input("Block reference")
+            # CR-22 / F22-04 (AF22-01): Block reference is customer-facing
+            # only for PM-500 Rigid Block Production - `method` is
+            # resolved above, outside this form, so it reflects whatever
+            # is currently selected.
+            block_reference = st.text_input("Block reference") if block_reference_applicable(method) else None
             operator = st.text_input("Operator / team reference")
             notes = st.text_area("Notes")
 
@@ -812,7 +846,9 @@ with tab_runs:
         show_pending_banner("run_import_msg")
         st.caption(
             "recipe_version_id must belong to the foam_grade_id on the same row. plant_id and machine "
-            "assignment are derived/validated from the product grade automatically."
+            "assignment are derived/validated from the product grade automatically. block_reference "
+            "(PM-500 only): a value is accepted only when the row's machine_id resolves to PM-500 Rigid "
+            "Block Production - a populated value for any other Production Method fails the row."
         )
         run_df, run_filename = csv_excel_uploader(RUN_REQUIRED_COLUMNS, RUN_OPTIONAL_COLUMNS, key="run_upload")
         if run_df is not None:
@@ -839,7 +875,22 @@ with tab_runs:
                     version_row = versions_by_id.get(row.get("recipe_version_id"))
                     machine_val = row.get("machine_id")
                     machine_ok = pd.isna(machine_val) or int(machine_val) in machines_by_id
-                    ok = bool(grade_row and version_row and version_row.foam_grade_id == grade_row.id and machine_ok)
+                    # CR-22 / F22-05 (AF22-01): the importer validates
+                    # method context before persistence. A populated
+                    # block_reference is only accepted when the row's
+                    # machine resolves to PM-500 - unresolved/blank
+                    # machine_id with a populated block_reference is also
+                    # rejected (PM-500 eligibility can't be confirmed).
+                    block_ref_val = str(row.get("block_reference", "") or "").strip()
+                    if block_ref_val:
+                        row_machine = machines_by_id.get(int(machine_val)) if machine_ok and not pd.isna(machine_val) else None
+                        block_ref_ok = bool(row_machine) and block_reference_applicable(row_machine.production_method)
+                    else:
+                        block_ref_ok = True
+                    ok = bool(
+                        grade_row and version_row and version_row.foam_grade_id == grade_row.id
+                        and machine_ok and block_ref_ok
+                    )
                 except (TypeError, ValueError):
                     ok = False
                 if ok:
@@ -851,7 +902,8 @@ with tab_runs:
             if bad_rows:
                 st.warning(
                     "Flagged rows reference an unknown foam_grade_id/recipe_version_id, a recipe version "
-                    "that doesn't belong to that product grade, or an unknown machine_id."
+                    "that doesn't belong to that product grade, an unknown machine_id, or a populated "
+                    "block_reference on a row whose machine isn't PM-500 Rigid Block Production."
                 )
                 render_data_table(pd.DataFrame(bad_rows), max_height="300px")
 

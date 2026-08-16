@@ -161,6 +161,13 @@ def analysis_unit_picker(grades, key_prefix):
     facing text, so they are unchanged (see CR-18's Internal Compatibility
     Boundary).
 
+    CR-22 / F22-02 (AF22-01, 2026-08-16): the radio's option order was
+    changed from ["Product grade", "Product family"] to ["Product family",
+    "Product grade"] to lead with the pooled/family-level view. This is a
+    display-order-only change - the `mode_choice == "Product grade"` branch
+    logic below is string-keyed, not position-keyed, so no other behavior
+    changes.
+
     `grades` must be the CALLER's already-scoped-and-filtered list of
     FoamGrade objects (e.g. already restricted to grades with quality test
     results) - product families are derived from this same list via
@@ -185,7 +192,7 @@ def analysis_unit_picker(grades, key_prefix):
       that want to spell out exactly which grades were pooled
     """
     mode_choice = st.radio(
-        "Analyze by", ["Product grade", "Product family"], key=f"{key_prefix}_unit_mode", horizontal=True
+        "Analyze by", ["Product family", "Product grade"], key=f"{key_prefix}_unit_mode", horizontal=True
     )
     if mode_choice == "Product grade":
         grade = st.selectbox(
@@ -422,6 +429,24 @@ def production_method_label(record):
     if getattr(record, "customer_trial_id", None) or getattr(record, "optimization_trial_id", None):
         return "N/A (lab trial)"
     return "—"
+
+
+# CR-22 / F22-04, F22-05 (AF22-01): Block reference is customer-facing
+# ONLY for PM-500 Rigid Block Production. Every other Production Method
+# omits the field from forms/generated outputs entirely, and import
+# rejects (row validation failure) a populated value for any other
+# method. A single controlled_id constant, not a list, since AF22-01
+# scopes this to exactly one method and any future expansion is a new
+# frozen decision, not a config change here.
+BLOCK_REFERENCE_METHOD_CONTROLLED_ID = "PM-500"
+
+
+def block_reference_applicable(production_method):
+    """True if `production_method` (a db.ProductionMethod instance, or
+    None) is PM-500 Rigid Block Production - the only method for which
+    Block reference is customer-facing (CR-22 / F22-04, AF22-01). None
+    (e.g. a run with no production_method_id set) is not applicable."""
+    return bool(production_method) and production_method.controlled_id == BLOCK_REFERENCE_METHOD_CONTROLLED_ID
 
 
 def machines_for_plant_and_method(session, plant_id, method_id):

@@ -199,8 +199,10 @@ ALLOWED_FOAM_FAMILY_HITS = {
     ("pages/19_Machine_Settings_Optimization.py", 105),
     ("pages/20_Expert_Notes.py", 6), ("pages/20_Expert_Notes.py", 38),
     ("pages/20_Expert_Notes.py", 146),
-    ("pages/5_Physical_Property_Result.py", 632),
-    ("pages/6_Quality_Observation.py", 515),
+    # Line numbers shifted again by the CR-22 / F22-01, F22-02 Product
+    # scope rename + reorder edits.
+    ("pages/5_Physical_Property_Result.py", 635),
+    ("pages/6_Quality_Observation.py", 545),
 }
 
 # A hit whose line contains any of these is a live customer-facing string
@@ -313,10 +315,12 @@ def test_process_parameter_optimization_action_text_and_radio_say_product_family
     assert "a foam family to pool several grades together" not in action_text
 
 
-def test_quality_pages_foam_scope_control_says_product_family():
-    """pages/5 and pages/6's "Foam scope" radio has the same 'All product
-    grades / Product grade / Foam family' -> 'Product family' fix as the
-    shared analysis_unit_picker control. Both pages gate their filterable
+def test_quality_pages_product_scope_control_says_product_family():
+    """pages/5 and pages/6's "Product scope" radio (renamed from "Foam
+    scope" and reordered per CR-22 / F22-01, F22-02, AF22-01) has options
+    'All product grades / Product family / Product grade' - Product family
+    before Product grade, matching the hierarchy order used everywhere else
+    (e.g. helpers.analysis_unit_picker()). Both pages gate their filterable
     table (and this radio) behind "at least one production run/trial
     exists" - reaching it live would require a full run/trial fixture for
     no extra assurance, so this is a direct source check of the exact
@@ -325,9 +329,12 @@ def test_quality_pages_foam_scope_control_says_product_family():
     for page_path, page_name in ((PAGE5, "Quality Test Result"), (PAGE6, "Quality Issue")):
         with open(page_path, encoding="utf-8") as f:
             source = f.read()
-        assert '"Foam scope", ["All product grades", "Product grade", "Product family"]' in source, (
-            f"{page_name}'s Foam scope radio options are not "
-            f"'All product grades / Product grade / Product family'"
+        assert '"Product scope", ["All product grades", "Product family", "Product grade"]' in source, (
+            f"{page_name}'s Product scope radio options are not "
+            f"'All product grades / Product family / Product grade'"
+        )
+        assert '"Foam scope"' not in source, (
+            f"{page_name} still has a 'Foam scope' widget label - should be 'Product scope' (CR-22 / F22-01)"
         )
         assert 'st.caption("No product family available for these grades yet.")' in source, (
             f"{page_name}'s empty-state caption is not 'No product family available...'"
@@ -399,9 +406,13 @@ def test_analysis_unit_picker_family_mode_uses_product_family_wording_and_pools_
     at.run()
     assert not at.exception, f"Unhandled exception loading Trend Analysis: {at.exception}"
 
+    # Option order is Product family before Product grade (CR-22 / F22-02,
+    # AF22-01) - helpers.analysis_unit_picker() was reordered so the
+    # hierarchy order (All product grades -> Product family -> Product
+    # grade) is consistent everywhere it appears.
     unit_mode = next(r for r in at.radio if r.key == "trend_unit_mode")
-    assert unit_mode.options == ["Product grade", "Product family"], (
-        f"Analyze-by control's own option text is not 'Product grade'/'Product family': {unit_mode.options}"
+    assert unit_mode.options == ["Product family", "Product grade"], (
+        f"Analyze-by control's own option text is not 'Product family'/'Product grade': {unit_mode.options}"
     )
     unit_mode.set_value("Product family")
     at.run()

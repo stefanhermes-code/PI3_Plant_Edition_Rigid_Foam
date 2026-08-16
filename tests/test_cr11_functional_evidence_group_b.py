@@ -642,7 +642,8 @@ def test_quality_issue_create_via_form(seeded_run_for_quality_issue):
     )
     severity_sb = next(sb for sb in at.selectbox if sb.label == "Severity" and sb.key is None)
     severity_sb.set_value("High")
-    location_input = next(t for t in at.text_input if t.label == "Location in block" and t.key is None)
+    # CR-22 / F22-03 (AF22-01): label renamed "Location in block" -> "Observed location".
+    location_input = next(t for t in at.text_input if t.label == "Observed location" and t.key is None)
     location_input.set_value("Top corner")
     save_btn = next(b for b in at.button if b.label == "Save issue")
     save_btn.click()

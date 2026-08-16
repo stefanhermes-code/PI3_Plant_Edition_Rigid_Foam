@@ -199,7 +199,11 @@ def seeded_grade_chain():
     plant = db.Plant(company_id=company.id, name=f"CR11D Plant {u}")
     session.add(plant); session.flush()
 
-    method = db.ProductionMethod(controlled_id=f"PM-CR11D-{u}", name=f"CR11D Method {u}")
+    # CR-22 / F22-04 (AF22-01): controlled_id must be the real "PM-500" -
+    # Block reference (edited/imported by this file's Production Run tests)
+    # is only shown/accepted for PM-500 Rigid Block Production, so a
+    # synthetic non-PM-500 id here would silently hide that field.
+    method = db.ProductionMethod(controlled_id="PM-500", name=f"CR11D Method {u}")
     session.add(method); session.flush()
     session.add(db.PlantProductionMethod(plant_id=plant.id, production_method_id=method.id, active=True))
     session.flush()

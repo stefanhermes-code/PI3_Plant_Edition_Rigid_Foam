@@ -249,6 +249,22 @@ import quality_issue_taxonomy
 from quality_standards import compute_pass_fail
 import wp3_conformance
 
+# CR-22 / F22-04 (AF22-01): mirrors helpers.BLOCK_REFERENCE_METHOD_
+# CONTROLLED_ID / helpers.block_reference_applicable() - duplicated here
+# (not imported) because helpers.py already does `import reports` at
+# module scope, and reports.py importing helpers back would be a
+# circular import (helpers.py's own module-level statements run before
+# its function definitions exist, so a `from helpers import ...` reached
+# via that cycle would fail). Both constants must be changed together if
+# this ever changes.
+_BLOCK_REFERENCE_METHOD_CONTROLLED_ID = "PM-500"
+
+
+def _block_reference_applicable(production_method):
+    """True only for PM-500 Rigid Block Production - see the module-level
+    comment above and helpers.block_reference_applicable()."""
+    return bool(production_method) and production_method.controlled_id == _BLOCK_REFERENCE_METHOD_CONTROLLED_ID
+
 STYLES = getSampleStyleSheet()
 STYLES.add(ParagraphStyle(name="Small", parent=STYLES["Normal"], fontSize=8, leading=10))
 STYLES.add(ParagraphStyle(
@@ -1636,6 +1652,10 @@ def build_batch_release_record_data(session, run_id):
         "run_date": run.run_date,
         "batch_reference": run.batch_reference or "—",
         "block_reference": run.block_reference or "—",
+        # CR-22 / F22-04 (AF22-01): Block reference is customer-facing
+        # only for PM-500 Rigid Block Production - the renderers below
+        # omit the "Block reference" row entirely for every other method.
+        "block_reference_applicable": _block_reference_applicable(run.production_method),
         "operator": run.operator_or_team_reference or "—",
         "notes": run.notes or "",
         "recipe_version_label": recipe.version_label if recipe else "—",
@@ -1665,13 +1685,17 @@ def render_batch_release_record_pdf(data):
             f"{data['plant']} · {data['foam_grade']} · {data['run_date'] or '—'} · "
             f"Verdict: {data['quality_verdict']}",
         )
-        story.append(_key_value_table([
+        # CR-22 / F22-04 (AF22-01): "Block reference" row omitted entirely
+        # for every method except PM-500 Rigid Block Production.
+        batch_release_kv = [
             ("Plant", data["plant"]), ("Product family", data["product_family"]),
             ("Product grade", data["foam_grade"]), ("Production Unit or Cell", data["machine"]),
             ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
-            ("Block reference", data["block_reference"]), ("Operator/team", data["operator"]),
-            ("Quality verdict", data["quality_verdict"]), ("", ""),
-        ]))
+        ]
+        if data["block_reference_applicable"]:
+            batch_release_kv.append(("Block reference", data["block_reference"]))
+        batch_release_kv += [("Operator/team", data["operator"]), ("Quality verdict", data["quality_verdict"]), ("", "")]
+        story.append(_key_value_table(batch_release_kv))
         if data["notes"]:
             story.append(Spacer(1, 6))
             story.append(_p(f"Notes: {data['notes']}"))
@@ -1729,14 +1753,18 @@ def render_batch_release_record_docx(data):
         f"{data['plant']} · {data['foam_grade']} · {data['run_date'] or '—'} · "
         f"Verdict: {data['quality_verdict']}",
     )
-    _docx_kv_table(doc, [
+    # CR-22 / F22-04 (AF22-01): "Block reference" row omitted entirely for
+    # every method except PM-500 Rigid Block Production.
+    batch_release_docx_kv = [
         ("Plant", data["plant"]), ("Product family", data["product_family"]),
         ("Product grade", data["foam_grade"]), ("Production Unit or Cell", data["machine"]),
         ("Production method", data["production_method"]),
         ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
-        ("Block reference", data["block_reference"]), ("Operator/team", data["operator"]),
-        ("Quality verdict", data["quality_verdict"]),
-    ])
+    ]
+    if data["block_reference_applicable"]:
+        batch_release_docx_kv.append(("Block reference", data["block_reference"]))
+    batch_release_docx_kv += [("Operator/team", data["operator"]), ("Quality verdict", data["quality_verdict"])]
+    _docx_kv_table(doc, batch_release_docx_kv)
     if data["notes"]:
         doc.add_paragraph(f"Notes: {data['notes']}")
 
@@ -1832,7 +1860,12 @@ def build_sample_certificate_data(session, sample_id):
         header_fields = [
             ("Source", f"Production Run #{source.id}"),
             ("Run date", source.run_date), ("Batch reference", source.batch_reference or "—"),
-            ("Block reference", source.block_reference or "—"),
+        ]
+        # CR-22 / F22-04 (AF22-01): Block reference row omitted entirely
+        # for every method except PM-500 Rigid Block Production.
+        if _block_reference_applicable(source.production_method):
+            header_fields.append(("Block reference", source.block_reference or "—"))
+        header_fields += [
             ("Production Unit or Cell", source.machine.name if source.machine else "—"),
             ("Production Method", source.production_method.name if source.production_method else "—"),
             ("Operator/team", source.operator_or_team_reference or "—"),
@@ -2155,7 +2188,7 @@ def render_quality_test_report_pdf(data):
         _title_block(
             story, "Test Results Report",
             f"Pass/Fail: {scope['pass_fail_label']} · Property: {scope['property_label']} · "
-            f"Foam scope: {scope['foam_scope_label']}",
+            f"Product scope: {scope['foam_scope_label']}",
         )
         story.append(_key_value_table([
             ("Results", data["total_results"]),
@@ -2195,7 +2228,7 @@ def render_quality_test_report_docx(data):
     _docx_report_header(
         doc, "Test Results Report",
         f"Pass/Fail: {scope['pass_fail_label']} · Property: {scope['property_label']} · "
-        f"Foam scope: {scope['foam_scope_label']}",
+        f"Product scope: {scope['foam_scope_label']}",
     )
     _docx_kv_table(doc, [
         ("Results", data["total_results"]),
@@ -2348,7 +2381,7 @@ def render_quality_issue_report_pdf(data):
     def build(story):
         _title_block(
             story, "Quality Issues Report",
-            f"Severity: {scope['severity_label']} · Foam scope: {scope['foam_scope_label']} · "
+            f"Severity: {scope['severity_label']} · Product scope: {scope['foam_scope_label']} · "
             f"Grouped by: {scope['group_by_label']}",
         )
         high_count = next((r["Count"] for r in data["severity_breakdown"] if r["Severity"] == "High"), 0)
@@ -2396,7 +2429,7 @@ def render_quality_issue_report_docx(data):
     doc = Document()
     _docx_report_header(
         doc, "Quality Issues Report",
-        f"Severity: {scope['severity_label']} · Foam scope: {scope['foam_scope_label']} · "
+        f"Severity: {scope['severity_label']} · Product scope: {scope['foam_scope_label']} · "
         f"Grouped by: {scope['group_by_label']}",
     )
     high_count = next((r["Count"] for r in data["severity_breakdown"] if r["Severity"] == "High"), 0)

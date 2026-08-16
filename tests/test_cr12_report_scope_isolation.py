@@ -687,6 +687,13 @@ def test_grade_ids_for_company_excludes_other_company_grade(two_companies):
 def test_trend_analysis_page_grade_selector_excludes_other_company_grade(two_companies):
     a, b = two_companies["a"], two_companies["b"]
     at = _run("16_Trend_Analysis.py", a["company_id"])
+    # CR-22 / F22-02 (AF22-01) reordered the Analyze-by radio to Product
+    # family first, Product grade second - so the page now defaults to
+    # Product family mode and the grade selector only appears once Product
+    # grade mode is explicitly selected.
+    unit_mode = next(r for r in at.radio if r.key == "trend_unit_mode")
+    unit_mode.set_value("Product grade")
+    at.run()
     grade_select = next(s for s in at.selectbox if s.key == "trend_grade_select")
     assert a["grade_name"] in grade_select.options
     assert b["grade_name"] not in grade_select.options, (
