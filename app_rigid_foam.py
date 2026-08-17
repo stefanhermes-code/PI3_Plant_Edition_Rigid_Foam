@@ -53,6 +53,12 @@ from version import APP_VERSION
 
 LOGO_PATH = "assets/htc_global_logo_blue_steel.png"
 
+# See the sa_exc.InvalidRequestError handler around pg.run() below: how many
+# consecutive cached-session corruptions (Streamlit cancelling an in-flight
+# rerun mid-statement) this app will silently discard-and-retry, per browser
+# tab, before giving up and letting the error surface to the user.
+_MAX_SESSION_RECOVERY_ATTEMPTS = 2
+
 st.set_page_config(page_title="PI3 - Rigid Foam Intelligence", page_icon="🏗️", layout="wide")
 
 # Light styling on top of the .streamlit/config.toml color theme.
@@ -675,9 +681,9 @@ try:
     pg.run()
     # Reaching here means this rerun's page script ran to completion using
     # the cached session without SQLAlchemy objecting - clear any earlier
-    # recovery flag so a *future* one-off corruption (see except below) can
-    # still be auto-recovered from, rather than only ever once per tab.
-    st.session_state["_sa_session_recovery_attempted"] = False
+    # recovery count so a *future* burst of corruption (see except below)
+    # can still be auto-recovered from, rather than only ever once per tab.
+    st.session_state["_sa_session_recovery_attempts"] = 0
 except sa_exc.InvalidRequestError:
     # Production incident, 2026-08-05: a plain, ordinary .all() query on
     # Default User Roles crashed with sqlalchemy.exc.InvalidRequestError
@@ -694,14 +700,22 @@ except sa_exc.InvalidRequestError:
     #
     # There is nothing page-specific to fix: discard the cached session
     # (the next get_session() call builds a fresh one against a
-    # pool_pre_ping-verified connection) and rerun once so the user gets
-    # the page they asked for instead of a crash. Guarded to one recovery
-    # attempt per browser tab (reset above on the next clean run) so a
-    # different, page-code-level bug that happens to also raise
-    # InvalidRequestError can't silently rerun forever instead of
-    # surfacing normally.
-    if not st.session_state.get("_sa_session_recovery_attempted"):
-        st.session_state["_sa_session_recovery_attempted"] = True
+    # pool_pre_ping-verified connection) and rerun so the user gets the
+    # page they asked for instead of a crash.
+    #
+    # Raised from 1 to 2 attempts on 2026-08-17: production incident that
+    # day showed two of these cancellations landing back-to-back in the
+    # same tab (a burst of rapid clicks/reruns is exactly the trigger
+    # described above), which exhausted a 1-attempt cap and surfaced the
+    # raw crash to the user even though the underlying cause was still
+    # just this same transient session corruption. _MAX_SESSION_RECOVERY_
+    # ATTEMPTS stays finite (not unlimited) so a different, page-code-level
+    # bug that happens to also raise InvalidRequestError can't silently
+    # rerun forever instead of surfacing normally - it just tolerates a
+    # short burst before giving up.
+    attempts = st.session_state.get("_sa_session_recovery_attempts", 0)
+    if attempts < _MAX_SESSION_RECOVERY_ATTEMPTS:
+        st.session_state["_sa_session_recovery_attempts"] = attempts + 1
         st.session_state.pop("_sa_session", None)
         st.rerun()
     raise

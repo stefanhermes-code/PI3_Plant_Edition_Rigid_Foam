@@ -7109,6 +7109,38 @@ fallback), but the 3 rows' actual creation timestamps are still unknown
 pending either a manual Supabase-side backfill or a decision that it's
 not worth doing. Flagged to Stefan in the reporting conversation for this
 fix, 2026-08-16.
+
+v0.65.3, 2026-08-17: raised the cached-DB-session recovery cap in
+app_rigid_foam.py from 1 to 2 attempts per browser tab.
+
+Production incident that day: Process Parameters vs Product Properties
+Correlation (page 17) crashed with the exact sa_exc.InvalidRequestError
+class of failure already diagnosed and self-healed as of v0.55.0-era work
+(see the "Production incident, 2026-08-05" comment on the pg.run() error
+handler) - Streamlit cancelling an in-flight rerun mid-statement leaves
+the cached SQLAlchemy Session's transaction state machine stuck, and
+that's page-agnostic (breaks every page sharing that browser tab's
+session, not just the one interrupted). The existing handler already
+discards the broken session and silently reruns once per tab before
+giving up; this incident's root cause was a burst of rapid clicks/reruns
+in the same tab (live UAT browser-automation testing switching dropdowns
+faster than each rerun could finish) triggering two of these
+cancellations back-to-back, which exhausted the 1-attempt cap and
+surfaced the raw crash instead of self-healing.
+
+Fix: replaced the boolean "_sa_session_recovery_attempted" flag with an
+integer counter ("_sa_session_recovery_attempts") and a new module-level
+_MAX_SESSION_RECOVERY_ATTEMPTS = 2 constant, so up to 2 consecutive
+cancellations self-heal silently before the error is allowed to surface.
+Still finite (not unlimited) - a different, page-code-level bug that
+happens to also raise InvalidRequestError still surfaces normally rather
+than looping forever. Verified live: reloaded the crashed browser tab and
+confirmed Process Parameters vs Product Properties Correlation loads
+cleanly again with a fresh session. No test file exists for this handler
+specifically (it wraps pg.run()/st.rerun() at the app.py routing layer,
+not independently unit-testable the way page-level logic is) - verified
+via py_compile plus the full existing test suite passing clean, and via
+the live reload.
 """
 
-APP_VERSION = "0.65.2"
+APP_VERSION = "0.65.3"
