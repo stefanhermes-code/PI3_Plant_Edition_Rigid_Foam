@@ -80,6 +80,41 @@ EXPECTED_QUARANTINED = {
 }
 
 
+def _seed_full_taxonomy_into_db(session):
+    """Phase 8 Wave A (2026-08-17): the Quality Issue picker on pages/6 now
+    reads its controlled vocabulary from the QualityIssueType DB master
+    (quality_issue_registry.py) instead of quality_issue_taxonomy.py's
+    static Python dict, so this file's driven-widget tests need real DB
+    rows, not qit module state. Mirrors qit.QUALITY_ISSUE_TAXONOMY's full
+    content 1:1 into QualityIssueType rows (same name/category/state for
+    every entry) - the module is left in place as the frozen AF22-01
+    reference set (see quality_issue_registry.py's own docstring), so this
+    is a faithful reproduction, not invented test data.
+
+    The "Other / not yet classified" category/entry is skipped: the DB
+    registry treats that exact category as a synthetic, non-DB catch-all
+    (quality_issue_registry.OTHER_CATEGORY) always appended to
+    categories()/always returned by active_issue_types_for_category() for
+    that category regardless of DB content - seeding a real row there
+    would duplicate the category string in categories()'s output. Skipping
+    it does not change any expected count: the registry's synthetic
+    "Other (not yet in this list)" entry is offered in its place exactly
+    as the old module offered its own literal "Other" entry - confirmed by
+    direct count: 31 real active + 1 synthetic Other = the frozen 32,
+    matching AF22-01 Section 4 exactly."""
+    n = 0
+    for category, entries in qit.QUALITY_ISSUE_TAXONOMY.items():
+        if category == "Other / not yet classified":
+            continue
+        for entry in entries:
+            n += 1
+            session.add(db.QualityIssueType(
+                controlled_id=f"QI-CR22C-{n}", name=entry["name"],
+                issue_category=category, state=entry["state"],
+            ))
+    session.flush()
+
+
 def _clear_relevant_caches():
     tenant_scope.plant_ids_for_company.clear()
     tenant_scope.family_ids_for_plants.clear()
@@ -182,6 +217,7 @@ def three_method_run_and_trial_chain():
         plant_id=plant.id, foam_grade_id=grade.id, status="Open",
     )
     session.add_all([customer_trial, optimization_trial]); session.flush()
+    _seed_full_taxonomy_into_db(session)
     session.commit()
 
     ids = {
@@ -221,32 +257,36 @@ SYNTHETIC_CATEGORY = "Rise & cure behavior"
 
 
 @pytest.fixture()
-def synthetic_pm500_only_issue():
-    """Temporarily injects one synthetic STATE_ACTIVE, production_methods=
-    ["PM-500"] entry into an existing active category, mutating the same
-    module-level structures quality_issue_taxonomy.py builds once at import
-    time (QUALITY_ISSUE_TAXONOMY, _NAME_TO_ENTRY, _NAME_TO_ENTRY_LOWER),
-    and removes it again in the finally block so no other test in the same
-    process session is affected. Needed because the real production
-    taxonomy has zero method-specific entries today (every active entry is
-    Global) - see quality_issue_taxonomy.py's own docstring - so F22-06's
-    mechanism has nothing real to prove itself against without a synthetic
-    entry, exactly as Charlie's Section 2 anticipated."""
-    entry = {
-        "name": SYNTHETIC_ISSUE_NAME,
-        "typical_causes": "Synthetic entry for CR-22 correction test evidence only - not a real issue type.",
-        "state": qit.STATE_ACTIVE,
-        "production_methods": ["PM-500"],
-    }
-    qit.QUALITY_ISSUE_TAXONOMY[SYNTHETIC_CATEGORY].append(entry)
-    qit._NAME_TO_ENTRY[SYNTHETIC_ISSUE_NAME] = {"category": SYNTHETIC_CATEGORY, **entry}
-    qit._NAME_TO_ENTRY_LOWER[SYNTHETIC_ISSUE_NAME.lower()] = qit._NAME_TO_ENTRY[SYNTHETIC_ISSUE_NAME]
-    try:
-        yield entry
-    finally:
-        qit.QUALITY_ISSUE_TAXONOMY[SYNTHETIC_CATEGORY].remove(entry)
-        del qit._NAME_TO_ENTRY[SYNTHETIC_ISSUE_NAME]
-        del qit._NAME_TO_ENTRY_LOWER[SYNTHETIC_ISSUE_NAME.lower()]
+def synthetic_pm500_only_issue(three_method_run_and_trial_chain):
+    """Phase 8 Wave A (2026-08-17): the PM-applicability mechanism this
+    fixture proves now lives in QualityIssueType/QualityIssueTypeApplicability
+    DB rows (quality_issue_registry.py, per Charlie's P8-D01), not
+    quality_issue_taxonomy.py's module-level dict - mutating qit's Python
+    structures no longer affects the live DB-backed picker at all (pages/6
+    stopped reading that module). Inserts one real STATE_ACTIVE
+    QualityIssueType row in an existing active category, plus one
+    QualityIssueTypeApplicability row restricting it to the real PM-500
+    ProductionMethod three_method_run_and_trial_chain seeded - the same
+    'temporary synthetic method-specific entry' proof Charlie's Section 2
+    asked for (the real production taxonomy has zero method-specific
+    entries today, so F22-06's mechanism has nothing real to prove itself
+    against without one), now expressed at the DB layer that actually
+    gates the picker. No teardown needed: three_method_run_and_trial_chain
+    already runs db.init_db()/_reset_schema() fresh for every test, so
+    this row never persists past the current test."""
+    ids = three_method_run_and_trial_chain
+    session = db.get_session()
+    issue = db.QualityIssueType(
+        controlled_id="QI-CR22C-SYNTH-PM500", name=SYNTHETIC_ISSUE_NAME,
+        issue_category=SYNTHETIC_CATEGORY, state=qit.STATE_ACTIVE,
+    )
+    session.add(issue); session.flush()
+    session.add(db.QualityIssueTypeApplicability(
+        quality_issue_type_id=issue.id, production_method_id=ids["method_500_id"],
+    ))
+    session.commit()
+    session.close()
+    return {"name": SYNTHETIC_ISSUE_NAME}
 
 
 def _select_run_by_id(at, run_id):

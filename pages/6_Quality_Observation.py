@@ -15,7 +15,7 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy import or_
 
-import quality_issue_taxonomy
+import quality_issue_registry
 from access_control import can_use_page
 from db import (
     CONFIDENCE_LEVELS,
@@ -103,14 +103,19 @@ def _obs_foam_grade_id(obs):
 
 def _issue_type_picker(key_prefix, current_value=None, production_method_controlled_id=None):
     """Category -> Issue type dependent picker for the controlled "Issue
-    type" vocabulary (see quality_issue_taxonomy.py). Deliberately rendered
+    type" vocabulary (see quality_issue_registry.py - Phase 8 P8-D01,
+    17 Aug 2026: the picker's source is now the QualityIssueType /
+    PossibleCause / IssueCauseLink database masters, not
+    quality_issue_taxonomy.py's Python dict). Deliberately rendered
     OUTSIDE any st.form - Streamlit forms only rerun on submit, so a
     dependent second selectbox (whose options depend on the first) placed
     inside a form would show stale options for the category last picked,
     not the one just chosen. These widgets react immediately instead, and
     the resolved issue-type string is read back into the enclosing form's
     submit handler as a plain variable (safe, since the whole script reruns
-    top-to-bottom on every interaction, form submit included).
+    top-to-bottom on every interaction, form submit included). Reads the
+    module-level `session` global (assigned below at page_setup time),
+    same pattern every other DB-backed picker on this page already uses.
 
     current_value pre-selects the matching category/issue type when
     editing an existing row. A legacy value that predates this taxonomy (or
@@ -119,39 +124,39 @@ def _issue_type_picker(key_prefix, current_value=None, production_method_control
     in the free-text box rather than silently discarded.
 
     production_method_controlled_id (CR-22 correction, 2026-08-16,
-    Charlie's focused closeout return on F22-06): the calling site's
-    "Record against" selection resolved to a Production Method
-    controlled_id when the source is a Production Run, or left None for
-    Customer Trial / Optimization Trial (those records carry no
-    Production Method context, so only Global entries are ever offered -
-    AF22-01 Section 5's "Trial behavior" requirement) or when no parent is
-    selected yet. Threaded straight into
-    quality_issue_taxonomy.active_issue_types_for_category() - see that
-    function's docstring for the Global-vs-method-specific rule. The
-    caller must re-render this picker (a fresh Streamlit rerun) whenever
-    the parent selection changes so the option list stays in sync - both
-    call sites below already select the parent before calling this.
+    Charlie's focused closeout return on F22-06; preserved unchanged by
+    the Phase 8 P8-D01 cutover): the calling site's "Record against"
+    selection resolved to a Production Method controlled_id when the
+    source is a Production Run, or left None for Customer Trial /
+    Optimization Trial (those records carry no Production Method context,
+    so only Global entries are ever offered - AF22-01 Section 5's "Trial
+    behavior" requirement) or when no parent is selected yet. Threaded
+    straight into quality_issue_registry.active_issue_types_for_category()
+    - see that function's docstring for the Global-vs-method-specific
+    rule. The caller must re-render this picker (a fresh Streamlit rerun)
+    whenever the parent selection changes so the option list stays in
+    sync - both call sites below already select the parent before calling
+    this.
 
     Returns (resolved_issue_type, typical_causes_or_None).
     """
-    # CR-22 / F22-06, F22-07 (AF22-01): the category list offered for a
-    # NEW pick is active_categories() (excludes "Splits & cracks", which
-    # is 100% quarantined on the v0.64.1 baseline) - but if we're editing
-    # a row whose existing value sits in a since-quarantined category,
-    # that category is added back in so the current value stays visible/
-    # editable without forcing a change. Same "include the current value,
-    # never offer it as a fresh pick elsewhere" rule the issue-name
-    # dropdown below applies.
-    match = quality_issue_taxonomy.lookup(current_value) if current_value else None
-    all_cats = quality_issue_taxonomy.categories()
-    active_cats = set(quality_issue_taxonomy.active_categories())
+    # CR-22 / F22-06, F22-07 (AF22-01), preserved by the P8-D01 cutover:
+    # the category list offered for a NEW pick is active_categories() -
+    # but if we're editing a row whose existing value sits in a
+    # since-quarantined category, that category is added back in so the
+    # current value stays visible/editable without forcing a change. Same
+    # "include the current value, never offer it as a fresh pick
+    # elsewhere" rule the issue-name dropdown below applies.
+    match = quality_issue_registry.lookup(session, current_value) if current_value else None
+    all_cats = quality_issue_registry.categories(session)
+    active_cats = set(quality_issue_registry.active_categories(session))
     if match and match["category"] not in active_cats:
         active_cats = active_cats | {match["category"]}
     cats = [c for c in all_cats if c in active_cats]
     if match:
         default_category = match["category"]
     elif current_value:
-        default_category = "Other / not yet classified"
+        default_category = quality_issue_registry.OTHER_CATEGORY
     else:
         default_category = cats[0]
     category = st.selectbox(
@@ -160,7 +165,8 @@ def _issue_type_picker(key_prefix, current_value=None, production_method_control
         index=cats.index(default_category) if default_category in cats else 0,
         key=f"{key_prefix}_category",
     )
-    issue_options = quality_issue_taxonomy.active_issue_types_for_category(
+    issue_options = quality_issue_registry.active_issue_types_for_category(
+        session,
         category,
         production_method_controlled_id=production_method_controlled_id,
         include_names={current_value} if current_value else None,
@@ -168,11 +174,10 @@ def _issue_type_picker(key_prefix, current_value=None, production_method_control
     issue_names = [it["name"] for it in issue_options]
     if not issue_names:
         # Defensive only - on the current production taxonomy every ACTIVE
-        # category always has at least one Global entry (production_methods
-        # is None), so this is unreachable today. Guards against a future
-        # method-specific-only category being picked for a non-matching
-        # Production Method, which would otherwise hand st.selectbox an
-        # empty options list.
+        # category always has at least one Global entry, so this is
+        # unreachable today. Guards against a future method-specific-only
+        # category being picked for a non-matching Production Method,
+        # which would otherwise hand st.selectbox an empty options list.
         st.caption("No active issue types are available for this category and Production Method.")
         return (current_value or ""), None
     default_issue_index = (
@@ -183,9 +188,9 @@ def _issue_type_picker(key_prefix, current_value=None, production_method_control
     issue_name = st.selectbox(
         "Issue type *", issue_names, index=default_issue_index, key=f"{key_prefix}_issue_name",
     )
-    entry = quality_issue_taxonomy.lookup(issue_name)
+    entry = quality_issue_registry.lookup(session, issue_name)
 
-    if issue_name == quality_issue_taxonomy.OTHER_ISSUE_NAME:
+    if issue_name == quality_issue_registry.OTHER_ISSUE_NAME:
         other_default = current_value if (current_value and not match) else ""
         other_text = st.text_input(
             "Describe the issue *",
@@ -381,9 +386,9 @@ with tab_import:
         # exist on the current production taxonomy - every active entry
         # today is Global, so this list is complete for every source as of
         # this release).
-        for _cat in quality_issue_taxonomy.active_categories():
+        for _cat in quality_issue_registry.active_categories(session):
             st.write(f"**{_cat}**")
-            st.write(", ".join(it["name"] for it in quality_issue_taxonomy.active_issue_types_for_category(_cat)))
+            st.write(", ".join(it["name"] for it in quality_issue_registry.active_issue_types_for_category(session, _cat)))
     st.caption(
         "Each row needs exactly one of production_run_id / customer_trial_id / optimization_trial_id "
         "set, matching which of the three that issue belongs to."
@@ -449,7 +454,8 @@ with tab_import:
                 # (e.g. "Gross splits") or a name restricted to a
                 # different Production Method is rejected here the same as
                 # it would be if picked from the manual entry dropdown.
-                issue_match = quality_issue_taxonomy.lookup_active_case_insensitive(
+                issue_match = quality_issue_registry.lookup_active_case_insensitive(
+                    session,
                     str(row.get("observation_type", "") or ""),
                     production_method_controlled_id=_row_production_method_controlled_id(fk_field, fk_val),
                 )
@@ -501,7 +507,8 @@ with tab_import:
                 # to match (active + method-aware, CR-22 / F22-06) above, so
                 # this lookup can't come back empty here.
                 fk_field, fk_val = _row_fk(row)
-                canonical_issue_type = quality_issue_taxonomy.lookup_active_case_insensitive(
+                canonical_issue_type = quality_issue_registry.lookup_active_case_insensitive(
+                    session,
                     str(row["observation_type"]),
                     production_method_controlled_id=_row_production_method_controlled_id(fk_field, fk_val),
                 )["name"]
@@ -632,8 +639,8 @@ with tab_edit_delete:
             breakdown_col = "Issue type"
         else:
             breakdown_labels = [
-                (quality_issue_taxonomy.lookup(o.observation_type) or {}).get("category")
-                or "Other / not yet classified"
+                (quality_issue_registry.lookup(session, o.observation_type) or {}).get("category")
+                or quality_issue_registry.OTHER_CATEGORY
                 for o in observations
             ]
             breakdown_col = "Issue category"

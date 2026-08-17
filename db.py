@@ -3427,9 +3427,31 @@ class GradeSpecificationTemplate(Base):
 # IssueCauseLink is deferred, matching every prior WP5 wave's schema-first,
 # UI-later pattern.
 # ---------------------------------------------------------------------------
+QUALITY_ISSUE_STATES = ["active", "quarantined"]
+
+
 class QualityIssueType(Base):
     """Charlie's QI-* vocabulary, e.g. "Short shot or incomplete fill",
-    "Facer delamination"."""
+    "Facer delamination".
+
+    Phase 8 P8-D01 (17 Aug 2026, Charlie's binding architecture decision
+    on the JC implementation plan review): this table + PossibleCause +
+    IssueCauseLink become the customer-facing source for the Rigid
+    Quality Issue picker (pages/6_Quality_Observation.py), replacing
+    quality_issue_taxonomy.py's Python dict for this app. See
+    quality_issue_registry.py for the read API and QualityIssueTypeApplicability
+    below for the method-scoping mechanism this cutover needed.
+
+    `state` (added by this same migration): 'active' | 'quarantined' -
+    same semantics quality_issue_taxonomy.py used (STATE_ACTIVE /
+    STATE_QUARANTINED, CR-22 / AF22-01): a quarantined entry is excluded
+    from every NEW-selection surface but stays valid/readable on any
+    QualityObservation row that already carries it. Defaults to 'active'
+    for all pre-existing WP5 Wave 3 rows - Charlie's WP5 Wave 3 seeding
+    never flagged any of the 64 rows for quarantine (unlike the
+    Flexible-sourced Laader Berg content the old Python module had to
+    filter under A5-08), so this is a pure additive default, not a
+    reclassification."""
 
     __tablename__ = "quality_issue_types"
 
@@ -3439,8 +3461,51 @@ class QualityIssueType(Base):
     issue_category = Column(String(100))  # e.g. "Filling/Flow", "Bonding", "Performance"
     definition = Column(Text)
     default_severity = Column(String(50))  # workbook's own text, e.g. "Major/Critical" - not squeezed into a single-value enum
-    applicable_methods = Column(String(300))  # e.g. "All Phase 1", "Sandwich panel"
+    applicable_methods = Column(String(300))  # e.g. "All Phase 1", "Sandwich panel" - free-text scope description, NOT a structured PM filter; see QualityIssueTypeApplicability for that.
     sort_order = Column(Integer)
+    state = Column(String(20), default="active", nullable=False)  # see QUALITY_ISSUE_STATES
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('active', 'quarantined')",
+            name="ck_quality_issue_types_state",
+        ),
+    )
+
+    @validates("state")
+    def _validate_state(self, key, value):
+        if value is not None and value not in QUALITY_ISSUE_STATES:
+            raise ValueError(f"state must be one of {QUALITY_ISSUE_STATES}, got {value!r}")
+        return value
+
+
+class QualityIssueTypeApplicability(Base):
+    """Phase 8 P8-D01 addition (17 Aug 2026). Structured Production Method
+    scoping for a QualityIssueType, mirroring the "absence means Global"
+    convention already used by ProcessSettingApplicability (NULL scope)
+    and quality_issue_taxonomy.py's own `production_methods=None` default:
+    zero rows for a given quality_issue_type_id means that issue is
+    offered for every Production Method (Global). One or more rows
+    restricts it to exactly those methods.
+
+    No live WP5 Wave 3 data structurally restricts any issue to specific
+    methods (QualityIssueType.applicable_methods is free descriptive text,
+    e.g. "Faced panels/products" - not a controlled_id list), so this
+    table starts empty: every issue is Global on cutover, which reproduces
+    the old Python module's actual current behavior ("every active entry
+    today is Global") exactly. The mechanism exists so a future
+    method-specific restriction can be added without another schema
+    change - same reasoning AF22-01 Section 4 used for
+    quality_issue_taxonomy.py's `production_methods` attribute."""
+
+    __tablename__ = "quality_issue_type_applicabilities"
+
+    id = Column(Integer, primary_key=True)
+    quality_issue_type_id = Column(Integer, ForeignKey("quality_issue_types.id"), nullable=False)
+    production_method_id = Column(Integer, ForeignKey("production_methods.id"), nullable=False)
+
+    quality_issue_type = relationship("QualityIssueType")
+    production_method = relationship("ProductionMethod")
 
 
 class PossibleCause(Base):

@@ -245,7 +245,7 @@ from db import (
     RecipeVersion,
     Sample,
 )
-import quality_issue_taxonomy
+import quality_issue_registry
 from quality_standards import compute_pass_fail
 import wp3_conformance
 
@@ -2336,7 +2336,7 @@ def build_quality_issue_report_data(session, observation_ids, scope):
     issue_group_counts = {}
     for o in observations:
         if group_by_col == "Issue category":
-            label = (quality_issue_taxonomy.lookup(o.observation_type) or {}).get("category") or "Other / not yet classified"
+            label = (quality_issue_registry.lookup(session, o.observation_type) or {}).get("category") or quality_issue_registry.OTHER_CATEGORY
         else:
             label = o.observation_type
         issue_group_counts[label] = issue_group_counts.get(label, 0) + 1

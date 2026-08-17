@@ -208,8 +208,12 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # focused closeout return on F22-06): "Record against" was reordered
     # before the issue-type picker and a production_method_controlled_id
     # resolution block was added, both above this comment; shifted again
-    # by an added explanatory comment above render_function_action_intro().
-    ("pages/6_Quality_Observation.py", 623),
+    # by an added explanatory comment above render_function_action_intro();
+    # shifted again by the Phase 8 Wave A (2026-08-17) P8-D01 fix to the
+    # "Breakdown by issue" chart, which replaced a single-line taxonomy
+    # lookup with a multi-line quality_issue_registry.lookup() call above
+    # this comment.
+    ("pages/6_Quality_Observation.py", 630),
 }
 
 # A hit whose line contains any of these is a live customer-facing string

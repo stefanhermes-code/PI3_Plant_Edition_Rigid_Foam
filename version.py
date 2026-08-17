@@ -7141,6 +7141,68 @@ specifically (it wraps pg.run()/st.rerun() at the app.py routing layer,
 not independently unit-testable the way page-level logic is) - verified
 via py_compile plus the full existing test suite passing clean, and via
 the live reload.
+
+v0.66.0, 2026-08-17: Phase 8 (PM-800 "Discontinuous Appliance & Cavity
+Foaming") Wave A - data foundation + Quality Issue DB cutover, per
+Charlie's P8-D01..D08 binding architecture decisions on the JC Phase 8
+implementation plan review.
+
+Data foundation (Supabase rigid_foam schema, live writes):
+- 3 new `applications` rows: APP-320 "Refrigerator or freezer door",
+  APP-330 "Commercial refrigeration equipment", APP-340 "Water-heater
+  insulation" (table now 7 rows total).
+- 9 new `process_setting_definitions` rows (PS-005/006/025/028/047/051/
+  069/074/076) sourced from WP2 sheet 04, `production_method_id` left
+  NULL on all of them (that column is dormant/deprecated per its own
+  db.py docstring - WP7 Phase 1 architecture correction; real Method/
+  Machine scoping lives exclusively in ProcessSettingApplicability).
+  UOM gap flagged, not fabricated: bar/minute/kg/kg-per-m3 have no
+  controlled `units_of_measure` master entry today, so `unit_id` is left
+  NULL on the affected new definitions, consistent with the existing
+  majority-null pattern - a new UOM row was not invented without
+  Charlie's sign-off.
+- 43 new `process_setting_applicabilities` rows for PM-800
+  (production_method_id=17), classified Machine vs Method by a documented
+  textual rule (pure "Machine" wording, exact match -> Machine-scoped,
+  machine_id=4 "Appliance Cavity Foaming Unit"; any dual/derived/
+  configured/product/plant/global wording -> Method-scoped,
+  machine_id=NULL): 8 Machine-scoped (PS-006/020/021/022/024/026/027/034)
+  + 35 Method-scoped = 43 total, verified by count against WP2 sheet 04.
+
+Quality Issue DB cutover (P8-D01): pages/6_Quality_Observation.py and
+reports.py's `build_quality_issue_report_data()` now read the customer-
+facing Quality Issue picker's controlled vocabulary from the
+QualityIssueType/PossibleCause/IssueCauseLink DB masters via new module
+quality_issue_registry.py, replacing quality_issue_taxonomy.py's static
+Python dict for this app (that module is left in place, unused going
+forward, per Charlie's instruction not to maintain a second PM-800/Rigid
+list inside a Flexible-sourced file). Schema additions: QualityIssueType.
+state ('active'|'quarantined', CR-22/AF22-01 equivalent, all 64
+pre-existing WP5 Wave 3 rows default 'active') and new
+QualityIssueTypeApplicability table (zero rows for an issue = Global,
+same convention as ProcessSettingApplicability). Fixed one pre-existing
+bug surfaced during this cutover: the "Breakdown by issue" chart on
+pages/6 referenced the old taxonomy call incorrectly (NameError) - now
+uses quality_issue_registry.lookup().
+
+Regression: new tests/test_phase8_wave_a_quality_issue_cutover.py (13
+tests) covering schema build, registry behavioral equivalence, and page/
+report cutover verification. Fixed 3 pre-existing test fixtures broken by
+moving the picker's source of truth from a static module (no DB seeding
+needed) to the DB: tests/test_cr11_functional_evidence_group_b.py's
+Quality-Issue fixtures now seed a real "Shrinkage"/"Density, shape &
+dimensional" QualityIssueType row; tests/
+test_cr22_correction_focused_closeout.py's shared three-method fixture
+now seeds the full 42-entry (32 active + 10 quarantined) frozen AF22-01
+taxonomy as real DB rows mirrored from quality_issue_taxonomy.py, and its
+F22-06 PM-applicability proof now inserts a real synthetic QualityIssueType
++ QualityIssueTypeApplicability row instead of mutating the now-unread
+qit module; tests/test_cr18_product_family_terminology.py's line-number-
+pinned "foam family" allowlist re-pinned for pages/6's shifted comment
+line (623 -> 630) after the breakdown-chart bug fix added lines above it.
+Full serial regression across all 57 test files (637 tests) run in 4
+chunks after this batch: 637 passed, 2 skipped (pre-existing, unrelated),
+0 failed.
 """
 
-APP_VERSION = "0.65.3"
+APP_VERSION = "0.66.0"

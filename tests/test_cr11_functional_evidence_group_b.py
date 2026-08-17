@@ -143,6 +143,24 @@ def _seed_company_plant_family_grade(session, tag):
     return company, plant, family, grade
 
 
+def _seed_shrinkage_issue_type(session, tag):
+    """Phase 8 Wave A (2026-08-17): the Quality Issue picker on pages/6 now
+    reads its controlled vocabulary from the QualityIssueType DB master
+    (quality_issue_registry.py) instead of quality_issue_taxonomy.py's
+    static Python dict - so a test that drives the real category/issue-type
+    selectboxes needs a real DB row, not just a name string. Seeds one
+    active, Global (no QualityIssueTypeApplicability row) entry matching
+    the "Density, shape & dimensional" / "Shrinkage" pair these fixtures
+    have always used, so the picker's categories()/lookup() calls resolve
+    it exactly as before the cutover."""
+    issue = db.QualityIssueType(
+        controlled_id=f"QI-CR11B-{tag}", name="Shrinkage",
+        issue_category="Density, shape & dimensional", state="active",
+    )
+    session.add(issue); session.flush()
+    return issue
+
+
 # ===========================================================================
 # 1. Recipe (pages/3_Recipe_Version_Record.py)
 # ===========================================================================
@@ -562,6 +580,7 @@ def seeded_run_for_quality_issue():
     u = uuid.uuid4().hex[:8]
     session = db.get_session()
     _company, plant, _family, grade = _seed_company_plant_family_grade(session, u)
+    _seed_shrinkage_issue_type(session, u)
     version = db.RecipeVersion(
         foam_grade_id=grade.id, version_label=f"CR11B-RV-{u}", change_note="For run seeding.",
         approval_status="Approved", is_active=True,
@@ -592,6 +611,7 @@ def seeded_quality_issue():
     u = uuid.uuid4().hex[:8]
     session = db.get_session()
     _company, plant, _family, grade = _seed_company_plant_family_grade(session, u)
+    _seed_shrinkage_issue_type(session, u)
     version = db.RecipeVersion(
         foam_grade_id=grade.id, version_label=f"CR11B-RV-{u}", change_note="For run seeding.",
         approval_status="Approved", is_active=True,
@@ -1150,6 +1170,7 @@ def view_only_role_fixture_qi():
     u = uuid.uuid4().hex[:8]
     session = db.get_session()
     company, plant, _family, grade = _seed_company_plant_family_grade(session, u)
+    _seed_shrinkage_issue_type(session, u)
     version = db.RecipeVersion(
         foam_grade_id=grade.id, version_label=f"CR11B-RV-{u}", change_note="For run seeding.",
         approval_status="Approved", is_active=True,
