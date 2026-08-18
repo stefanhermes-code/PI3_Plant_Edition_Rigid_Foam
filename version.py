@@ -7258,4 +7258,70 @@ Corrections #2 and #4 remain open - see the revised Wave A closeout for
 their status. No new Phase 8 scope introduced.
 """
 
-APP_VERSION = "0.67.0"
+VERSION_0_67_1_NOTES = """
+v0.67.1, 2026-08-18: Phase 8 Wave A correction #4 (CR-22 state/applicability
+live-migration evidence), closing 3 of Charlie's 4 required Wave A
+corrections (see v0.67.0 for #1 and #3). Correction #2 (controlled UOM
+reconciliation) remains open - a genuine 3-way ID collision between the
+WP1 source master, the Stefan-approved Phase 1 UOM Governance Correction
+Register v1, and live Supabase state, requiring Charlie's ruling before any
+UOM row is written; not something to guess at.
+
+Live-data investigation (Supabase project aazkdsqpytjciiqtvnfj, rigid_foam
+schema): `quality_issue_types` held 64 rows, every one `state='active'` -
+the P8-D01 migration that added the `state` column only applied a blanket
+default, it never carried CR-22/AF22-01's specific 32-active/10-quarantined
+crosswalk from quality_issue_taxonomy.py into this table. Comparing names
+confirmed why: the live 64-row WP5 Wave 3 taxonomy and the frozen 42-entry
+CR-22 taxonomy are two disjoint, independently-sourced lists (one
+"Shrinkage" name coincidentally in both) - CR-22's quarantine work was done
+entirely against the Flexible-slabstock-sourced static module, which the
+P8-D01 cutover replaced with an unrelated Rigid-specific DB master. None of
+CR-22's 10 quarantined terms occur in live `quality_observations.
+observation_type` data, so Charlie's literal scenario doesn't presently
+apply to those 10. But `select distinct observation_type from
+quality_observations` surfaced a related, real gap: 7 distinct historical
+values (Boiling, Coarse foam, Collapse, Friable / loose foam, Scorching,
+Shrinkage, Voids / pinholes), all `active` in the old taxonomy, only one of
+which ("Shrinkage") has a matching row in the new 64-row master - the other
+6 would silently fail to resolve through quality_issue_registry.lookup()
+post-cutover, losing their "Issue category" in report breakdowns.
+
+Applying Charlie's own stated rule (retain an absent-from-master historical
+term as a quarantined historical-only record) to this evidence, 6 new rows
+were added live: QI-090 Boiling, QI-091 Collapse, QI-092 Scorching, QI-093
+Coarse foam, QI-094 Friable / loose foam, QI-095 Voids / pinholes - all
+`issue_category='Legacy (pre-cutover)'`, `state='quarantined'`, zero
+QualityIssueTypeApplicability rows (Global, per the existing "zero rows =
+Global" convention), each `definition` noting the old taxonomy's category
+and, where wording is close to a live active term, which live controlled_id
+it must not be confused with (e.g. QI-092 Scorching vs QI-036 "Core
+scorching"). Live count after the insert: 64 active + 6 quarantined = 70
+total (was 64 active + 0 quarantined before).
+
+New tests/test_phase8_wave_a_cr22_migration_evidence.py (6 tests) proves,
+against a SQLite fixture rebuilding this exact live shape (the 7 real
+historical observation_type values, the Shrinkage overlap, the 6 new
+quarantined rows, a handful of live active neighbors to prove no name
+collision): (1) active-picker exclusion - the 6 historical-only rows never
+appear in active_issue_types_for_category()/active_categories(), and
+lookup_active_case_insensitive() returns None for all 6 both with and
+without a PM-800 context; (2) historical readability - all 7 real
+historical observation_type values resolve via lookup() and
+all_issue_names(), and a direct call through reports.py's
+build_quality_issue_report_data() confirms the "Issue category" breakdown
+shows "Legacy (pre-cutover)" rather than silently falling through to
+"Other / not yet classified"; (3) Production Method applicability - the 6
+rows carry zero QualityIssueTypeApplicability rows, confirmed both via a
+direct query and via the PM-800-scoped registry call path.
+
+Regression: targeted run (this new file + the 2 other Wave A correction
+test files + the 3 CR-22/A5-08 files the P8-D01 cutover touches) - 48
+passed, 4 skipped (Flexible-sibling-app checks, expected in this sandbox's
+mount layout), 0 failed. Full 57-file suite not rerun in this batch (no
+production code paths changed, only a live data INSERT and a new test
+file); scheduled for the next full regression pass once correction #2 is
+unblocked and the revised Wave A closeout is assembled.
+"""
+
+APP_VERSION = "0.67.1"
