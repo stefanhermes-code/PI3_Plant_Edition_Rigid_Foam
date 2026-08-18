@@ -7205,4 +7205,57 @@ chunks after this batch: 637 passed, 2 skipped (pre-existing, unrelated),
 0 failed.
 """
 
-APP_VERSION = "0.66.0"
+VERSION_0_67_0_NOTES = """
+v0.67.0, 2026-08-18: Phase 8 Wave A correction batch #1/#3, per Charlie's
+2026-08-17 Wave A closeout return (Phase8_PM800_WaveA_Closeout_Review_
+Return_to_JC.docx), which required 4 corrections before Wave A acceptance.
+This batch closes correction #1 in full and correction #3 in full;
+corrections #2 (controlled UOM reconciliation) and #4 (CR-22 state/
+applicability live-migration evidence) continue separately.
+
+Correction #1 - PS-051 applicability scope (Supabase data fix, live write):
+Charlie's review found PS-051 ("Optional machine capability" wording per
+WP2) misclassified Method-scoped by v0.66.0's Machine/Method rule, which
+only caught pure/exact "Machine" wording and missed this convention.
+`UPDATE rigid_foam.process_setting_applicabilities SET machine_id = 4
+WHERE id = 36` (the PS-051/PM-800 row) moves it to Machine-scoped for
+machine_id 4 "Appliance Cavity Foaming Unit". Verified live: PM-800's 43
+process_setting_applicabilities rows are now 9 Machine-scoped + 34
+Method-scoped, matching Charlie's required corrected count exactly (was
+8/35 in v0.66.0).
+
+Correction #3 - Flexible edition isolation evidence: Charlie required
+direct evidence that Rigid reads QualityIssueType/PossibleCause/
+IssueCauseLink from the database (the v0.66.0 P8-D01 cutover) while the
+Flexible edition (PI3_Plant_Edition_App, a separate codebase living
+alongside this repo) still uses its own static quality_issue_taxonomy.py,
+plus regression coverage for both edition paths. New tests/
+test_phase8_wave_a_flexible_edition_isolation.py: static source checks
+confirming Flexible's pages/6_Quality_Observation.py and reports.py import
+quality_issue_taxonomy only (never quality_issue_registry, which does not
+even exist in Flexible's app directory) while this repo's same files
+import quality_issue_registry only (never quality_issue_taxonomy); plus a
+subprocess-isolated AppTest execution proof that Flexible's Quality Issue
+page renders cleanly off its own static taxonomy against a fresh SQLite DB
+with quality_issue_registry never touching sys.modules. Run in a genuinely
+separate Python process because Rigid and Flexible define same-named
+top-level modules (db, helpers, reports, access_control, tenant_scope,
+quality_issue_taxonomy) that would silently collide if both were imported
+into one process. The 4 sibling-directory-dependent checks skip cleanly
+(with a stated reason) when the Flexible app isn't present alongside this
+repo, e.g. a standalone clone of just this repository; verified passing
+(not skipped) against the real sibling directory on the authoring machine,
+including the subprocess execution proof.
+
+Regression: targeted run (new isolation file + the v0.66.0 cutover test +
+the 3 fixtures the cutover touched) - 42 passed, 4 skipped (sibling-app
+checks, expected in this sandbox's mount layout), 0 failed. Full 57-file/
+637-test suite not rerun in this batch (no production code paths changed,
+only a live data UPDATE and a new test file); scheduled for the next full
+regression pass alongside corrections #2 and #4.
+
+Corrections #2 and #4 remain open - see the revised Wave A closeout for
+their status. No new Phase 8 scope introduced.
+"""
+
+APP_VERSION = "0.67.0"
