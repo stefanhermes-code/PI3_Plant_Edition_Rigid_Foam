@@ -7324,4 +7324,65 @@ file); scheduled for the next full regression pass once correction #2 is
 unblocked and the revised Wave A closeout is assembled.
 """
 
-APP_VERSION = "0.67.1"
+VERSION_0_67_2_NOTES = """
+v0.67.2, 2026-08-18: Phase 8 Wave A correction #2 (controlled UOM
+reconciliation) - closes the last of Charlie's four required Wave A
+corrections. Charlie's ruling of 18 August ("Phase8_PM800_WaveA_Correction_
+Review_and_UOM_Ruling_to_JC.docx") resolved the 3-way identifier collision
+v0.67.1 flagged: for these four physical units the Phase 1 / WP2 technical
+UOM master numbering is the active authority, superseding the WP1
+10_Units_Bases numbering where the two conflict, with no fresh UOM-096..099
+block and existing conflicting legacy rows left intact for a separate
+reconciliation.
+
+Live implementation (Supabase project aazkdsqpytjciiqtvnfj, rigid_foam
+schema), both source masters read directly before writing and agreeing on
+every field - WP2_Technical_Master_Data.xlsx sheet 03_UOM and Phase_1_UOM_
+Governance_Correction_Register_v1.xlsx sheet 02_Canonical_UOM:
+
+  UOM-001  kg/m3  kilogram per cubic metre  Density   SI
+  UOM-011  min    minute                    Time      SI accepted
+  UOM-015  kg     kilogram                  Mass      SI
+  UOM-019  bar    bar                       Pressure  SI accepted
+
+units_of_measure went 17 -> 21 rows. Five ProcessSettingDefinition rows
+moved off unit_id NULL: PS-076 -> UOM-001, PS-069 -> UOM-011, PS-074 ->
+UOM-015, PS-028 -> UOM-019, PS-051 -> UOM-019. Both tables were snapshotted
+first, as rigid_foam._backup_units_of_measure_20260818 and
+rigid_foam._backup_psd_unitlink_20260818. Verified live afterwards: zero
+pre-existing unit rows altered, zero duplicate controlled_ids, zero other
+Process Settings touched, PM-800 applicability split still 9 Machine / 34
+Method.
+
+New tests/test_phase8_wave_a_uom_controlled_resolution.py (23 tests) proves
+against a SQLite fixture rebuilding this exact live shape: each seeded row
+matches the WP2 master field for field; each of the five definitions
+resolves through its FK to the intended controlled UOM; PS-028 and PS-051
+share one bar row rather than two parallel ones; and the WP7 Phase 1
+before_insert/before_update hook holds - a ProcessParameterValue written
+with a conflicting unit string is stored carrying the definition's
+controlled symbol, re-derives on update, follows a relinked definition, and
+degrades to None rather than to a stale symbol when a definition carries no
+controlled unit. The four retained legacy rows (UOM-038 second, UOM-039
+millimetre, UOM-040 degree Celsius, UOM-041 percent) are pinned as distinct
+from the ruled block, with their canonical identifiers (UOM-010, UOM-007,
+UOM-009, UOM-006) confirmed still unissued so the separate reconciliation
+stays possible.
+
+Regression: full suite, all 60 test files in one serial run - 667 passed,
+6 skipped, 0 failed out of 673 collected (was 644 passed / 6 skipped / 650
+collected at v0.67.1; the 23 new tests are this file's). All 6 skips are
+the same pre-existing cause named in the v0.67.1 return - the Flexible
+edition app is not a sibling directory in this run environment, so the 2
+CR-12 reporting-parity checks and the 4 Wave A edition-isolation checks
+cannot evaluate. Run against the pinned dependency set (streamlit 1.60.0,
+pandas 2.3.3, pyarrow 24.0.0); an unpinned pandas 3.0 reproduces exactly
+the Arrow/dtype breakage requirements.txt documents, in the three sample
+CSV import paths.
+
+Data-only change plus a new test file; no production code path was
+modified. All four Wave A corrections are now closed on the data and test
+side.
+"""
+
+APP_VERSION = "0.67.2"
