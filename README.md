@@ -86,11 +86,22 @@ the open questions in the technical research plan.
 
 ## Deploying to Streamlit Community Cloud
 
-This repo has **not been deployed anywhere yet** — no Streamlit Cloud app
-of its own. It currently shares nothing at runtime with the flexible app's
-deployment; setting up its own deployment is future work, not something
-already configured. When that's ready, the mechanics are the same as the
-flexible app's, except for the database step below.
+**This repo IS deployed**, at
+
+    https://pi3planteditionrigidfoam-main.streamlit.app/
+
+on Streamlit Community Cloud, from this repo's `main` branch with
+`app_rigid_foam.py` as the main file. It has its own app, separate from the
+flexible edition's — the two share a Supabase project but nothing at runtime.
+
+(Until 18 Aug 2026 this section said the repo had not been deployed anywhere
+and that doing so was future work. That was true when it was written on
+6 August and then went stale, which cost real time when someone went looking
+for the app and concluded from this file that it did not exist. If the
+deployment changes again, change this section in the same commit.)
+
+The mechanics below are the same as the flexible app's, except for the
+database step.
 
 ### 1. Database — Supabase Postgres, same project, separate schema
 
@@ -153,10 +164,10 @@ a local `migrations/` folder.
 4. Bump `version.py`, commit, push.
 
 **Environments, honestly stated:** there is currently **one** database
-environment — the shared Supabase project's `rigid_foam` schema. This repo
-hasn't been deployed anywhere yet (see above), so there's no physically
-separate "UAT" or "production" database today; both terms would currently
-point at the same schema. When a real UAT deployment exists, step 2's
+environment — the shared Supabase project's `rigid_foam` schema. The
+deployment above is the only one, so there is no physically separate "UAT"
+and "production" database today; both terms point at the same schema, and
+the deployed app reads and writes it directly. When a real UAT deployment exists, step 2's
 disposable-test-schema technique is exactly what should run as a pre-UAT
 gate; until then, it already proves every change against the real
 project/server before anything touches live data.
