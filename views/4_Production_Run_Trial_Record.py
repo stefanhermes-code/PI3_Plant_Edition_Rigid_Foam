@@ -489,10 +489,10 @@ with tab_runs:
                 st.markdown(f"#### Edit Run #{selected_run.id}")
                 _render_machine_stream_stamp(session, selected_run)
                 st.caption(
-                    "WP7 Phase 2 Closeout Correction: Run Context is captured context-first - "
-                    "Plant, then Production Method, then Production Unit or Cell, then Product "
-                    "Grade - since the Production Unit or Cell you pick is what actually "
-                    "determines which Product Grades are producible on it."
+                    "Run context is captured in order - Plant, then Production Method, then "
+                    "Production Unit or Cell, then Product Grade - because the Production Unit "
+                    "or Cell you pick is what determines which Product Grades are producible "
+                    "on it."
                 )
                 # WP7 Phase 2 Closeout Correction v2 (2026-08-14, Charlie's
                 # material completion item 1): Plant / Production Method /
@@ -767,9 +767,9 @@ with tab_runs:
             f"Batch reference (auto-generated, prevents typos/duplicates): **{batch_reference}**"
         )
         st.caption(
-            "WP7 Phase 2 Closeout Correction: pick Plant, then Production Method, then Production "
-            "Unit or Cell, then Product Grade - the Production Unit or Cell you select determines "
-            "which Product Grades are producible on it."
+            "Pick Plant, then Production Method, then Production Unit or Cell, then Product "
+            "Grade - the Production Unit or Cell you select determines which Product Grades "
+            "are producible on it."
         )
         # Steps 1-3 (Plant / Production Method / Production Unit or Cell)
         # live outside the form too, since Step 4's Product Grade choices
@@ -1306,8 +1306,9 @@ with tab_method_settings:
                 st.info(
                     "No process settings are configured as applicable to this run's Production "
                     "Method/Unit yet. This is expected until an approved, evidence-based process "
-                    "setting definition/applicability catalogue exists for this Method/Unit — see "
-                    "the WP7 Phase 1 design decision (Phase 1 Production Seeding Rule)."
+                    "setting definition and applicability catalogue exists for this Method/Unit. "
+                    "Settings are never seeded by guesswork - they are added deliberately, with "
+                    "evidence, on the Production Methods page."
                 )
             else:
                 existing_by_key = {
@@ -1471,11 +1472,10 @@ with tab_method_settings:
 with tab_streams:
     st.caption(
         "Per raw-material stream (polyol, isocyanate, water/blowing agent, catalyst, etc.), the flow, "
-        "pressure, and temperature. WP7 Phase 1/2 (2026-08-13/14, per Charlie's decoupling decision, "
-        "design doc section 3.4): these readings now attach directly to the production run and no "
-        "longer require the Runtime Data (Finalized) snapshot to exist first - if a Finalized phase "
-        "does exist for the run, new readings are still linked to it too for continuity with the "
-        "legacy Setup/Runtime Data comparison."
+        "pressure, and temperature. These readings attach directly to the production run and do not "
+        "require the Runtime Data (Finalized) snapshot to exist first - if a Finalized phase does "
+        "exist for the run, new readings are still linked to it too, so the Setup/Runtime Data "
+        "comparison keeps working."
     )
 
     if not runs:
@@ -1724,10 +1724,9 @@ with tab_streams:
             show_pending_banner("stream_import_msg")
             st.caption(
                 "Required columns: " + ", ".join(STREAM_REQUIRED_COLUMNS) + ". Optional columns: "
-                + ", ".join(STREAM_OPTIONAL_COLUMNS) + ". WP7 Phase 1/2: each row's production_run_id "
-                "just needs to be a valid run - a Finalized phase is no longer required first. If a "
-                "Finalized phase does already exist for that run, the imported reading is linked to it "
-                "too for continuity."
+                + ", ".join(STREAM_OPTIONAL_COLUMNS) + ". Each row's production_run_id just needs "
+                "to be a valid run - a Finalized phase is not required first. If a Finalized phase "
+                "does already exist for that run, the imported reading is linked to it too."
             )
             uploaded = st.file_uploader("Upload CSV or Excel", type=["csv", "xlsx"], key="stream_upload")
             if uploaded and upload_within_size_limit(uploaded):
@@ -1987,11 +1986,11 @@ with tab_output:
 
         st.divider()
         st.caption(
-            "For reference, the legacy calculated output (length/volume/weight from tunnel width x "
-            "foam height x conveyor speed) still shows on the Actual Run and Cycle Data tab. Per the "
-            "WP7 governing document, that universal calculation only applies to methods it was "
-            "designed for and is expected to be retired for others in a later WP7 phase - it is not "
-            "removed here."
+            "For reference, the earlier calculated output (length/volume/weight from tunnel width x "
+            "foam height x conveyor speed) still shows on the Actual Run and Cycle Data tab. That "
+            "calculation only holds for the production methods it was designed for, so treat it with "
+            "care on any other method - it is kept here rather than removed so existing records stay "
+            "readable."
         )
 
 # ---------------------------------------------------------------------------
@@ -2321,7 +2320,7 @@ with tab_events:
                             "Action taken", value=sel_event.action_taken or "", key=f"edit_event_action_{sel_event.id}"
                         )
 
-                        st.markdown("**Optional context links** (WP7 Phase 2)")
+                        st.markdown("**Optional context links**")
                         ec1, ec2 = st.columns(2)
                         setting_options = [None] + setting_defs_for_picker
                         setting_idx = next(
@@ -2404,7 +2403,7 @@ with tab_events:
                 description = st.text_area("Description")
                 action_taken = st.text_area("Action taken")
 
-                st.markdown("**Optional context links** (WP7 Phase 2)")
+                st.markdown("**Optional context links**")
                 nc1, nc2 = st.columns(2)
                 setting_link = nc1.selectbox(
                     "Related process setting", [None] + setting_defs_for_picker, format_func=_setting_def_label,

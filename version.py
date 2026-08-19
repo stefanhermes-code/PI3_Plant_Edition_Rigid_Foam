@@ -7865,6 +7865,86 @@ unchanged.
 
 Full regression: see the closeout. Was 785 passed / 6 skipped at v0.70.2 before
 this work landed.
+
+v0.71.1, 2026-08-19: internal development vocabulary removed from customer-facing
+text, and a regression guard so it cannot come back.
+
+WHAT STEFAN SAW
+
+At the top of the Edit Run panel on the deployed application:
+
+  "WP7 Phase 2 Closeout Correction: Run Context is captured context-first - Plant,
+  then Production Method, then Production Unit or Cell, then Product Grade..."
+
+The advice is sound. The first six words are a note between developers about
+which internal work package produced the change, sitting on a screen a plant
+engineer reads. He called it meta-leaking, which is exactly what it is.
+
+WHY IT HAPPENS
+
+The project's own working method causes it. Every change arrives as a numbered
+work package or CR with a ruling behind it, so while the change is being made
+that vocabulary is the most natural way to say why a control exists - and a
+caption explaining a control is precisely where the explanation wants to go.
+Being more careful is not a fix. Making the boundary mechanical is.
+
+FOURTEEN OCCURRENCES REMOVED
+
+views/4_Production_Run_Trial_Record.py - eight. Two "WP7 Phase 2 Closeout
+Correction:" caption prefixes (Edit Run and Create Run), the WP7 Phase 1 design
+decision reference in the no-process-settings message, "WP7 Phase 1/2
+(2026-08-13/14, per Charlie's decoupling decision, design doc section 3.4)" in
+the stream-readings caption, "WP7 Phase 1/2:" in the stream import caption, the
+"Per the WP7 governing document ... a later WP7 phase" paragraph on legacy
+calculated output, and two "(WP7 Phase 2)" suffixes on the Optional context
+links heading.
+
+views/3_Recipe_Version_Record.py - four. "per CR-03's Pending Review
+governance", "Per CR-03 rule 4:", "per Charlie's calculation_definitions
+library", and "Target (RHF-010)".
+
+views/2_Product_Grades.py - one. "pre-CR-07" became a plain statement that the
+value predates the grade's controlled property specification.
+
+views/14_Raw_Materials.py - one. "CR-08's controlled exception path:" became
+"'Other' is the controlled exception path:".
+
+Every one was rewritten to say the same thing in the user's language, not
+deleted. The advice those captions carry is good advice; only the provenance
+was internal.
+
+WHAT WAS DELIBERATELY KEPT
+
+Controlled data identifiers the application genuinely owns - CALC-001, UOM-015,
+PS-076, MSC-001. A governed plant system is meant to cite those, and a QA user
+needs them. "Closeout" as a trial lifecycle stage on the Customer Trials and
+Optimization Trials pages is real business language, kept.
+
+Comments, docstrings and this change log keep the internal vocabulary. That is
+where it belongs and where the next developer needs it.
+
+THE GUARD
+
+New tests/test_internal_vocabulary_leak.py (3 tests). It tokenises every
+application module, finds string literals that reach a user - Streamlit display
+calls, and text-carrying keyword arguments - and fails on work package and CR
+identifiers, phase and closeout process language, project role names, and
+internal document references. Tokenising rather than line-scanning is what lets
+comments and docstrings keep the vocabulary while strings cannot.
+
+Two of the three tests exist to stop the guard rotting into a no-op: one pins
+the detector against the exact string Stefan found, and one asserts the
+controlled identifiers are NOT flagged, so a later tightening cannot quietly
+start stripping the vocabulary the system is supposed to show. The scan was
+also verified end to end by reintroducing the leak into a page and confirming
+the test fails on it.
+
+Also checked and clean: generated Word report text in reports.py and the other
+document builders carries no internal vocabulary.
+
+Full regression: 789 passed, 6 skipped, 0 failed of 795 collected across 66
+files. Was 786 / 6 / 792 at v0.71.0, so the 3 new tests are the whole delta. No
+existing test needed changing - the rewritten captions kept their meaning.
 """
 
-APP_VERSION = "0.71.0"
+APP_VERSION = "0.71.1"

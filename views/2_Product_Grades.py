@@ -370,7 +370,8 @@ else:
                         if selected_grade.target_hardness is not None:
                             legacy_bits.append(f"hardness {selected_grade.target_hardness:g} N (40% ILD)")
                         st.caption(
-                            "⚠️ Legacy value on file, pre-CR-07 (not part of the controlled specification below): "
+                            "⚠️ Older value on file, recorded before this grade's controlled property "
+                            "specification existed (not part of the specification below): "
                             + ", ".join(legacy_bits)
                             + ". Add it as a proper property target below once confirmed."
                         )

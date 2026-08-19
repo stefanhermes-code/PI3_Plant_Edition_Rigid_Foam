@@ -699,7 +699,7 @@ else:
             "🔒 Imported scientific reference formulation - not a plant recipe. Local material "
             "matching, safety review and validation are required before this informs production, "
             "per this record's own plant_use_rule. Visible here for technical review, comparison "
-            "and PI3 reasoning only, per CR-03's Pending Review governance.",
+            "and PI3 reasoning only, while it stays in Pending Review.",
             icon="🔒",
         )
         st.caption(
@@ -772,8 +772,8 @@ else:
                 st.caption("View-only access - changing approval status is restricted for your role.")
             else:
                 st.caption(
-                    "Per CR-03 rule 4: any transition away from Pending Review must go through this "
-                    "same controlled mechanism real recipes use - there is no separate bypass. This "
+                    "Any transition away from Pending Review must go through the same controlled "
+                    "mechanism real recipes use - there is no separate bypass. This "
                     "never makes the formulation selectable as a grade's active production recipe; "
                     "that only ever happens by creating a real Recipe that draws on it."
                 )
@@ -841,8 +841,8 @@ else:
 
         with st.expander("🧮 Formulation chemistry (A:B ratio, theoretical CO2, isocyanate index)"):
             st.caption(
-                "Calculated from this version's own components (php dosage), per Charlie's "
-                "calculation_definitions library (CALC-001, CALC-026, CALC-010/011, CALC-015). "
+                "Calculated from this version's own components (php dosage), using the controlled "
+                "calculation definitions CALC-001, CALC-026, CALC-010/011 and CALC-015. "
                 "Never guesses a missing input - a result shows 'insufficient data' with the "
                 "specific reason instead of a number when something needed isn't recorded."
             )
@@ -859,7 +859,7 @@ else:
                 else:
                     st.warning("Insufficient data - no B-side components resolved.")
                 if ab_result["target_ratio"] is not None:
-                    st.caption(f"Target (RHF-010): {ab_result['target_ratio']:.3f}")
+                    st.caption(f"Target: {ab_result['target_ratio']:.3f}")
                 if ab_result["unassigned_components"]:
                     st.caption(
                         "Not assigned to a side: " + ", ".join(ab_result["unassigned_components"])

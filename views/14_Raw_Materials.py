@@ -143,7 +143,7 @@ def _category_subcategory_picker(session, key_prefix, current_category_id=None, 
     if subcategory is not None and subcategory.is_exception_only:
         other_description = st.text_input(
             "Description (required for 'Other') *",
-            help="CR-08's controlled exception path: 'Other' has no further breakdown, so a "
+            help="'Other' is the controlled exception path: it has no further breakdown, so a "
             "short description of what this material actually is is mandatory, and the record "
             "stays visible for later master-data review.",
             key=f"{key_prefix}_other_description",
