@@ -60,7 +60,12 @@ ENVIRONMENT_OUTCOME_FIELD_MAP = {
         "controlled_id": "PS-009",
         "name": "Relative humidity",
         "category": "Environment",
-        "unit_symbol": "%",
+        # %RH, not plain %, per the controlled UOM reconciliation ruling
+        # (2026-08-18). WP2 sheet 07_Process_Settings gave %RH as this
+        # setting's default unit all along, and this row's own description
+        # column already recorded %RH - only the unit link said otherwise,
+        # because UOM-029 had never been loaded into the live table.
+        "unit_symbol": "%RH",
     },
     "foam_height_mm": {
         "controlled_id": "PS-078",
@@ -76,16 +81,37 @@ ENVIRONMENT_OUTCOME_FIELD_MAP = {
     },
 }
 
-# None of these 4 plain units existed in units_of_measure before WP7 Phase 3
-# - only compound/domain-specific units did (e.g. UOM-031 "wt%" for weight
-# percent, not a plain relative-humidity "%"). Added here as controlled
-# master data, following the existing UOM-0xx numbering convention (highest
-# pre-existing was UOM-037).
+# Canonical rows from the Phase 1 / WP2 technical UOM master, sheet 03_UOM,
+# per Charlie's controlled UOM reconciliation ruling of 2026-08-18.
+#
+# History, because the change is not a correction of a mistake: this list
+# originally created UOM-038/039/040/041 as a fresh block. At that time none
+# of these plain units existed in the live units_of_measure table - only
+# compound/domain-specific ones did, e.g. UOM-031 "wt%" for weight percent
+# rather than a plain relative-humidity "%" - and the highest live row was
+# UOM-037, so the block extended from there. That reading of the live table
+# was correct. What was actually wrong was the live table: the canonical
+# rows had simply never been loaded into it, the same gap Phase 8 Wave A hit
+# from the other direction with kilogram, minute and bar.
+#
+# The reconciliation loaded the full canonical master, re-pointed the four
+# definitions in ENVIRONMENT_OUTCOME_FIELD_MAP, and retired
+# UOM-038/039/040/041. Seeding canonical identifiers here keeps this
+# migration idempotent against the reconciled table rather than recreating
+# the retired block on its next run.
 ENVIRONMENT_OUTCOME_UOMS = [
-    {"controlled_id": "UOM-038", "symbol": "s", "name": "second"},
-    {"controlled_id": "UOM-039", "symbol": "mm", "name": "millimetre"},
-    {"controlled_id": "UOM-040", "symbol": "degC", "name": "degree Celsius"},
-    {"controlled_id": "UOM-041", "symbol": "%", "name": "percent"},
+    {"controlled_id": "UOM-007", "symbol": "mm", "name": "millimetre",
+     "quantity_type": "Length", "sort_order": 7,
+     "unit_system": "SI", "data_rule": "Store numeric"},
+    {"controlled_id": "UOM-009", "symbol": "degC", "name": "degree Celsius",
+     "quantity_type": "Temperature", "sort_order": 9,
+     "unit_system": "SI accepted", "data_rule": "Store numeric"},
+    {"controlled_id": "UOM-010", "symbol": "s", "name": "second",
+     "quantity_type": "Time", "sort_order": 10,
+     "unit_system": "SI", "data_rule": "Store numeric"},
+    {"controlled_id": "UOM-029", "symbol": "%RH", "name": "relative humidity percent",
+     "quantity_type": "Humidity", "sort_order": 29,
+     "unit_system": "Accepted", "data_rule": "Store numeric"},
 ]
 
 

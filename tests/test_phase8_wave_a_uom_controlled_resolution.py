@@ -84,14 +84,26 @@ _PS_TO_UOM = {
     "PS-051": ("Vacuum level", "UOM-019"),
 }
 
-# Live legacy rows the ruling requires to remain intact, with the canonical
-# ID each one's meaning actually belongs to under the governance register.
-# live controlled_id -> (symbol, name, canonical controlled_id)
-_LEGACY_LIVE_IDS = {
+# The four rows Wave A retained and the controlled UOM reconciliation
+# (2026-08-18) subsequently retired, with the canonical identifier each
+# meaning now lives under. Wave A pinned these as distinct so that a later
+# reconciliation could not silently fold them in; that reconciliation has
+# since happened, so the pin now asserts the completed end state instead.
+# retired controlled_id -> (symbol, name, canonical controlled_id)
+_RETIRED_TO_CANONICAL = {
     "UOM-038": ("s", "second", "UOM-010"),
     "UOM-039": ("mm", "millimetre", "UOM-007"),
     "UOM-040": ("degC", "degree Celsius", "UOM-009"),
     "UOM-041": ("%", "percent", "UOM-006"),
+}
+
+# Fields for the canonical replacements, from WP2 sheet 03_UOM.
+# controlled_id -> (symbol, name, quantity_type, sort_order, unit_system)
+_CANONICAL_REPLACEMENTS = {
+    "UOM-006": ("%", "percent", "Relative quantity", 6, "SI-compatible"),
+    "UOM-007": ("mm", "millimetre", "Length", 7, "SI"),
+    "UOM-009": ("degC", "degree Celsius", "Temperature", 9, "SI accepted"),
+    "UOM-010": ("s", "second", "Time", 10, "SI"),
 }
 
 
@@ -113,8 +125,12 @@ def uom_fixture():
         session.add(row)
         units[controlled_id] = row
 
-    for controlled_id, (symbol, name, _canonical) in _LEGACY_LIVE_IDS.items():
-        row = db.UnitOfMeasure(controlled_id=controlled_id, symbol=symbol, name=name)
+    for controlled_id, (symbol, name, qty, order, system) in _CANONICAL_REPLACEMENTS.items():
+        row = db.UnitOfMeasure(
+            controlled_id=controlled_id, symbol=symbol, name=name,
+            quantity_type=qty, sort_order=order, unit_system=system,
+            data_rule="Store numeric",
+        )
         session.add(row)
         units[controlled_id] = row
     session.flush()
@@ -260,21 +276,23 @@ def test_unlinked_definition_yields_no_snapshot_unit(uom_fixture):
     assert value.unit is None
 
 
-@pytest.mark.parametrize("controlled_id", sorted(_LEGACY_LIVE_IDS))
-def test_legacy_live_ids_retain_their_own_meaning(uom_fixture, controlled_id):
-    """The four retained legacy rows keep their live meaning and stay
-    distinct from the ruled block - the ruling's live collision rule. Their
-    canonical identifiers remain unissued, which is what makes the separate
-    reconciliation still possible."""
+@pytest.mark.parametrize("retired_id", sorted(_RETIRED_TO_CANONICAL))
+def test_retired_ids_are_gone_and_their_meaning_moved_to_canonical(uom_fixture, retired_id):
+    """Each retired identifier is absent, and the meaning it carried lives
+    on exactly one canonical row. This is the completed form of the pin Wave
+    A left behind: the reconciliation was allowed to fold these in, and the
+    test now proves it folded them in rather than leaving a parallel row."""
     session, _units, _definitions = uom_fixture
-    symbol, name, canonical = _LEGACY_LIVE_IDS[controlled_id]
+    symbol, name, canonical = _RETIRED_TO_CANONICAL[retired_id]
 
-    row = session.query(db.UnitOfMeasure).filter_by(controlled_id=controlled_id).one()
+    assert session.query(db.UnitOfMeasure).filter_by(controlled_id=retired_id).first() is None
+
+    row = session.query(db.UnitOfMeasure).filter_by(controlled_id=canonical).one()
     assert row.symbol == symbol
     assert row.name == name
-    assert controlled_id not in _RULED_UOM
 
-    assert session.query(db.UnitOfMeasure).filter_by(controlled_id=canonical).first() is None
+    same_symbol = session.query(db.UnitOfMeasure).filter_by(symbol=symbol).all()
+    assert len(same_symbol) == 1, f"{symbol} must resolve to exactly one controlled row"
 
 
 def test_no_duplicate_controlled_ids_across_the_unit_master(uom_fixture):

@@ -7385,4 +7385,126 @@ modified. All four Wave A corrections are now closed on the data and test
 side.
 """
 
-APP_VERSION = "0.67.2"
+VERSION_0_68_0_NOTES = """
+v0.68.0, 2026-08-18: Controlled UOM reconciliation - the separate
+reconciliation Charlie's Phase 8 Wave A UOM ruling reserved, now completed.
+
+Minor rather than patch: this changes what legacy_migration.py seeds, which
+is a production code path, and it retires four controlled-vocabulary rows.
+No DDL - the schema is unchanged.
+
+WHY THIS WAS BIGGER THAN FOUR ROWS
+
+Wave A closed a three-way identifier collision for kilogram, minute and bar.
+Scoping the reserved reconciliation showed that collision was a symptom.
+Most of the canonical unit master had never been loaded into the live
+rigid_foam schema, so every work package needing a plain unit found nothing
+to link to and either left the link NULL - Wave A's five settings - or
+created its own row - WP7 Phase 3's UOM-038/039/040/041 block. Two
+different-looking symptoms, one cause.
+
+The originating document for that block was found, in code rather than in a
+document: legacy_migration.ENVIRONMENT_OUTCOME_UOMS, whose comment recorded
+that none of those four plain units existed live and that the highest live
+row was UOM-037. That reading of the live table was correct. What was wrong
+was the live table.
+
+MASTER DATA (live rigid_foam schema, no DDL)
+
+26 canonical rows seeded - 21 transcribed from the Phase 1 / WP2 technical
+master sheet 03_UOM, plus the 5 remaining "New canonical" rows from the
+Phase 1 UOM Governance Correction Register v1 sheet 02_Canonical_UOM.
+units_of_measure went 21 -> 47 rows.
+
+Deliberately not seeded, per the register's own decisions: WP2's UOM-023 php
+and UOM-024 wt% (decisions UOM-D-001/002 map those meanings onto the live
+UOM-030 and UOM-031), and WP2's UOM-030 "index unit" and UOM-031 "class"
+(decision UOM-D-005 moved those to the live UOM-101 and UOM-102).
+
+Seven Process Setting definitions re-pointed, per Stefan's decisions of
+18 August recorded in the reconciliation ruling:
+
+  PS-079 Rise time            -> UOM-010 second
+  PS-078 Foam height          -> UOM-007 millimetre
+  PS-008 Ambient temperature  -> UOM-009 degree Celsius
+  PS-009 Relative humidity    -> UOM-029 relative humidity percent (%RH)
+  PS-025 Ratio deviation      -> UOM-006 percent
+  PS-023 Set mass ratio A:B   -> UOM-100 mass ratio (was unit_id NULL)
+  PS-024 Actual mass ratio A:B-> UOM-100 mass ratio (was unit_id NULL)
+
+PS-009 is a correction, not a preference. WP2 sheet 07_Process_Settings gave
+%RH as its default unit and the row's own description column already said
+%RH; only the unit link disagreed, because UOM-029 had never been loaded.
+Nothing numeric changes - ambient_humidity_pct holds the same value.
+
+UOM-038, UOM-039, UOM-040 and UOM-041 deleted, after a direct check that all
+seven foreign-key columns able to reference units_of_measure held zero
+references to them. Final count 43 rows.
+
+Both tables snapshotted first, as rigid_foam._backup_units_of_measure_20260818b
+and rigid_foam._backup_psd_unitlink_20260818b.
+
+Verified live afterwards: 43 rows, zero duplicate controlled_ids, zero
+duplicate symbols, zero duplicate names, zero orphaned unit foreign keys,
+the five Wave A links intact, and the PM-800 applicability split still
+9 Machine / 34 Method.
+
+CODE
+
+legacy_migration.py - ENVIRONMENT_OUTCOME_UOMS now seeds UOM-007, UOM-009,
+UOM-010 and UOM-029 with their full WP2 fields, and the humidity entry in
+ENVIRONMENT_OUTCOME_FIELD_MAP resolves on "%RH". The module stays idempotent
+in both directions: a no-op against the reconciled table, and a
+create-once-then-stop against an empty one. The original reasoning is kept
+in the comment rather than deleted, because it was sound.
+
+TESTS
+
+New tests/test_uom_master_reconciliation.py (67 tests) - the standing guard.
+Every live row matches the register exactly and the register holds nothing
+the live table does not; no two rows share a controlled_id, a symbol or a
+meaning; the retired identifiers are absent and the register-mapped source
+identifiers are never created; the seven re-pointed settings resolve; and
+legacy_migration seeds canonical identifiers without resurrecting the
+retired block.
+
+The duplicate-symbol guard is a correctness precondition rather than
+tidiness. ensure_environment_outcome_definitions() resolves a unit by
+building {u.symbol: u} over the whole table, which silently discards a row
+when two rows share a symbol - exactly what UOM-041 "%" and the canonical
+UOM-006 "%" would have produced the moment the canonical row was loaded.
+
+tests/test_phase8_wave_a_uom_controlled_resolution.py - the Wave A pin that
+held the four rows as distinct now asserts the completed end state: each
+retired identifier is absent and its meaning resolves to exactly one
+canonical row. Wave A left that pin so a later reconciliation could not fold
+them in silently; this is that reconciliation doing it openly.
+
+tests/test_wp7_phase3_reconciliation.py - its UOM assertion moved to the
+canonical identifiers.
+
+Full regression: 734 passed, 6 skipped, 0 failed of 740 collected across 61
+files, run as one serial pass. Was 667 passed / 6 skipped / 673 collected at
+v0.67.2, so the 67 new tests are the whole delta. All 6 skips are the
+pre-existing Flexible-sibling-app layout cause.
+
+RAISED AS SEPARATE WORK, NOT DONE HERE
+
+The controlled master specifies two calculations the application does not
+implement - A:B mass ratio, and ratio deviation percent as
+(actual - set) / set x 100. Both settings are marked Derived, so nobody
+should be typing them; today nobody can avoid it.
+
+Ratio deviation keeps its sign, positive meaning the actual ratio came out
+above the set ratio. Presenting that to a user as over- or under-indexed
+needs one more thing that is not true yet: analytics._component_side()
+documents that this database uses the A-side label inconsistently - the WP3
+seed recipe calls the isocyanate the A-side, the WP5-era reference recipes
+call it the B-side - and its docstring instructs callers not to guess.
+Checked live: stream_assignment is NULL on all 14 recipe component rows and
+none carry the free-text prefix, so that helper resolves nothing for any
+recipe in the database and A:B ratio reporting does not function on live
+data at all.
+"""
+
+APP_VERSION = "0.68.0"

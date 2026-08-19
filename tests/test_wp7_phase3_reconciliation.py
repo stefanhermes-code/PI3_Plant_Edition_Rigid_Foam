@@ -135,7 +135,11 @@ def test_ensure_uoms_creates_four_rows_and_is_idempotent(seeded_run):
     assert created_second == 0, "re-running must not create duplicate UOM rows"
 
     total = session.query(db.UnitOfMeasure).filter(
-        db.UnitOfMeasure.controlled_id.in_(["UOM-038", "UOM-039", "UOM-040", "UOM-041"])
+        # Canonical identifiers since the controlled UOM reconciliation
+        # (2026-08-18) retired the original UOM-038/039/040/041 block.
+        # UOM-029 %RH rather than a plain percent row: PS-009 Relative
+        # humidity carries the dedicated humidity unit.
+        db.UnitOfMeasure.controlled_id.in_(["UOM-007", "UOM-009", "UOM-010", "UOM-029"])
     ).count()
     assert total == 4
     session.close()
