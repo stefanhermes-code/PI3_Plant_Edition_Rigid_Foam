@@ -196,8 +196,12 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # MachineStreamConfiguration / MachineStreamAssignment models, their
     # explanatory block comment, and ProductionRun.machine_stream_
     # configuration_id all landed above this line. Same unchanged comment
-    # text, new position - 2046 -> 2178.
-    ("db.py", 2178),
+    # text, new position - 2046 -> 2178. Shifted again (+68) by Phase 8
+    # Decision 3 the same day: RecipeComponent gained chemical_role,
+    # chemical_role_source_id, chemical_role_source_location, their two
+    # CheckConstraints and the block comment explaining why a role is never
+    # inferred - 2178 -> 2246. Comment text unchanged throughout.
+    ("db.py", 2246),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("views/16_Trend_Analysis.py", 228), ("views/16_Trend_Analysis.py", 411),
     ("views/17_Process_Property_Correlation.py", 109),

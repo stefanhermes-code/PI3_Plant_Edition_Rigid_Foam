@@ -71,6 +71,8 @@ import streamlit as st
 from sqlalchemy import func
 
 import analytics
+import audit_log
+import component_role
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
 from cascades import delete_recipe_version_cascade, recipe_version_dependency_counts
@@ -82,6 +84,7 @@ from db import (
     RecipeComponent,
     RecipeVersion,
     ReferenceFormulation,
+    SourceRegister,
     get_session,
     init_db,
 )
@@ -210,6 +213,154 @@ def _match_or_create_raw_material(name, supplier=None):
     session.add(new_rm)
     session.flush()
     return new_rm
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 Decision 3: the controlled chemical-role assignment (2026-08-19)
+#
+# Separate from the ordinary component edit form above it, on purpose. Raw
+# material name, supplier, php and the free-text role are ordinary fields a
+# user corrects as they go. A chemical role is controlled data: it is the
+# formulation half of the A:B ratio answer, it cannot exist without the
+# document that establishes it, and every assignment and correction is
+# audited. Putting it in the same form would have made it look like one more
+# field to fill in.
+#
+# The role field starts Unresolved and stays Unresolved until somebody chooses
+# a term deliberately. There is no "assign roles from material category"
+# action anywhere on this page, and its absence is the point: a catalyst, a
+# surfactant and a physical blowing agent are USUALLY carried in the polyol
+# blend, and usually is not evidence. A convenience button would be that
+# inference with a human click on top of it.
+# ---------------------------------------------------------------------------
+
+def _source_register_label(source):
+    if source is None:
+        return "— none selected —"
+    bits = [source.controlled_id or f"Source {source.id}"]
+    if source.source_type:
+        bits.append(source.source_type)
+    if source.reference:
+        bits.append(source.reference)
+    return " · ".join(bits)
+
+
+def _render_chemical_role_control(session, component, user):
+    st.markdown("**Controlled chemical role**")
+    st.caption(
+        "Which component of the formulation this material is. This is what the A:B ratio is "
+        "built from, together with the machine's own A/B stream configuration — the two are "
+        "recorded separately because which physical stream carries which role varies by "
+        "machine. A role is only recorded from a controlled document; it is never inferred."
+    )
+
+    current_role = component_role.role_of(component)
+    if current_role:
+        st.success(f"Assigned: **{current_role}**")
+        st.caption(
+            f"Source: {_source_register_label(component.chemical_role_source)} · "
+            f"Location: {component.chemical_role_source_location}"
+        )
+    else:
+        st.warning(
+            "**Unresolved.** No controlled chemical role recorded for this component, so no A:B "
+            "ratio is derived for this recipe version."
+        )
+
+    sources = session.query(SourceRegister).order_by(SourceRegister.controlled_id).all()
+    if not sources:
+        st.caption(
+            "No entries in the source register yet. A chemical role cannot be recorded without "
+            "the document that establishes it."
+        )
+        return
+
+    role_options = ["— Unresolved —"] + list(component_role.CHEMICAL_ROLES)
+    role_index = role_options.index(current_role) if current_role in role_options else 0
+    source_options = [None] + sources
+    source_index = next(
+        (i for i, s in enumerate(source_options)
+         if s is not None and s.id == component.chemical_role_source_id),
+        0,
+    )
+
+    with st.form(f"chemical_role_{component.id}"):
+        chosen_role = st.selectbox(
+            "Chemical role", role_options, index=role_index,
+            key=f"cr_role_{component.id}",
+        )
+        chosen_source = st.selectbox(
+            "Source document *", source_options, index=source_index,
+            format_func=_source_register_label, key=f"cr_src_{component.id}",
+            help="The controlled document that establishes this role. Source quality follows "
+                 "what the source register records; describing it differently here does not "
+                 "change what it is.",
+        )
+        chosen_location = st.text_input(
+            "Source location *",
+            value=component.chemical_role_source_location or "",
+            key=f"cr_loc_{component.id}",
+            help="Where inside that document, e.g. 'Table 3, row 2'.",
+        )
+        saved = st.form_submit_button("Save chemical role")
+
+        if saved:
+            if chosen_role == role_options[0]:
+                # Clearing back to Unresolved. All three fields go together -
+                # leaving the source behind would create exactly the stranded
+                # provenance state the database constraint forbids.
+                if current_role is None:
+                    st.info("Already unresolved — nothing to change.")
+                else:
+                    summary = (
+                        f"Chemical role for '{component.raw_material_name}': "
+                        f"{current_role} -> Unresolved (cleared)"
+                    )
+                    component_role.clear_role(component)
+                    audit_log.log_role_change(
+                        session,
+                        target_type="recipe_component",
+                        change_summary=summary,
+                        changed_by_user_id=user["id"],
+                        company_id=user["company_id"],
+                        target_id=component.id,
+                        target_label=component.raw_material_name,
+                    )
+                    session.commit()
+                    st.success("Chemical role cleared. This component is Unresolved again.")
+                    st.rerun()
+            else:
+                problems = component_role.validate_assignment(
+                    chosen_role,
+                    chosen_source.id if chosen_source else None,
+                    chosen_location,
+                )
+                if problems:
+                    for problem in problems:
+                        st.error(problem)
+                else:
+                    summary = component_role.describe_assignment(
+                        component, chosen_role, chosen_location.strip()
+                    )
+                    component_role.assign_role(
+                        component, chosen_role, chosen_source.id, chosen_location
+                    )
+                    # Audited through the existing controlled-edit path rather
+                    # than a new mechanism, per Charlie's ruling. target_type
+                    # distinguishes these from the access-role changes that
+                    # share the table.
+                    audit_log.log_role_change(
+                        session,
+                        target_type="recipe_component",
+                        change_summary=summary,
+                        changed_by_user_id=user["id"],
+                        company_id=user["company_id"],
+                        target_id=component.id,
+                        target_label=component.raw_material_name,
+                    )
+                    session.commit()
+                    st.success(f"Chemical role recorded: {chosen_role}.")
+                    st.rerun()
 
 
 def _active_version(grade):
@@ -980,10 +1131,25 @@ else:
                         "Supplier": c.supplier,
                         "php": f"{c.php:.2f}" if c.php is not None else "",
                         "Role": c.role_in_formulation,
+                        # Phase 8 Decision 3: the CONTROLLED chemical role, which
+                        # is a different thing from the free-text "Role" beside
+                        # it. That column says what a material does ("Gelling
+                        # catalyst"); this one says which component of the
+                        # formulation it is, and only when a controlled document
+                        # establishes it.
+                        "Chemical role": component_role.role_of(c) or "Unresolved",
                         "Notes": c.notes,
                     }
                     for c in ordered_version_components
                 ]
+                _unresolved = component_role.unresolved_components(v)
+                if _unresolved:
+                    st.caption(
+                        f"{len(_unresolved)} of {len(v.components)} component(s) have no controlled "
+                        "chemical role yet, so the A:B ratio cannot be derived for this version. A "
+                        "role is only recorded from a controlled document - it is never inferred "
+                        "from the material's category, its name or its role in the formulation."
+                    )
                 st.caption("Click a row to edit (and optionally delete) that component.")
                 comp_idx = clickable_table(comp_rows, key=f"components_table_{v.id}")
                 if comp_idx is not None and comp_idx < len(ordered_version_components):
@@ -1040,6 +1206,8 @@ else:
                             _session.query(RecipeComponent).filter(RecipeComponent.id == _id).delete(synchronize_session=False)
                             _session.commit()
                             st.session_state.pop("comp_selected_id", None)
+
+                        _render_chemical_role_control(session, selected_comp, user)
 
                         delete_with_confirm(
                             f"component '{selected_comp.raw_material_name}'", _do_delete_comp,

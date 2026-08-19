@@ -8049,6 +8049,149 @@ Both regression tests were verified to FAIL against the pre-fix finally block.
 
 Full regression: 798 passed, 6 skipped, 0 failed of 804 collected across 67
 files. Was 789 / 6 / 795 at v0.71.1, so the 9 new tests are the whole delta.
+
+v0.72.0, 2026-08-19: Phase 8 Decision 3 - controlled chemical role on recipe
+components. The formulation half of the A:B ratio answer, and the last thing
+standing between the application and a ratio it can defend.
+
+WHAT IT IS
+
+Decision 2 recorded which physical stream a machine runs a chemical role on.
+This records what a material IS in one formulation - Isocyanate Component or
+Polyol Blend Component - and, inseparably, the document that establishes it.
+
+Three nullable columns on recipe_components: chemical_role,
+chemical_role_source_id (FK to the existing source_registers, ON DELETE
+RESTRICT) and chemical_role_source_location.
+
+WHY THE FIELDS ARE ON THE COMPONENT ROW AND NOT IN A VERSIONED SIDE TABLE
+
+Decision 2 gave the machine convention its own versioned entity because a
+machine outlives its own configuration - the same line can be re-hosed and must
+still say what applied before. A recipe component has no such life: it cannot be
+edited into a different formulation, because a formulation change produces a new
+RecipeVersion with new component rows. The version boundary already exists one
+level up, so duplicating it here would have created a second answer to "which
+row applies to this run" where recipe versioning already gives one.
+
+TWO CONSTRAINTS, NAMED SEPARATELY SO A VIOLATION SAYS WHICH RULE BROKE
+
+ck_rc_chemical_role_vocabulary - NULL, or one of the two controlled terms.
+
+ck_rc_chemical_role_provenance - all three fields resolve together or none of
+them do, and the location must be non-empty AFTER TRIMMING. Charlie strengthened
+this from the proposal: it makes a partial provenance state unrepresentable
+rather than merely discouraged. A role with only a document reference, source
+fields stranded after a role is cleared, and a space typed to get past a
+required field are all now impossible rather than merely wrong.
+
+The ORM constraint uses trim() rather than Postgres' btrim(). Identical
+semantics there - Postgres renders trim() as btrim - and it also exists in
+SQLite, which is the test path. A constraint the tests cannot create is a
+constraint the tests cannot prove.
+
+The role source is deliberately NOT the existing source_id / source_location
+pair on the same table. Those record where the component's php figure came
+from. A chemical role can be established by a different document than the
+dosage, and conflating them would lose one of the two.
+
+NEW MODULE: component_role.py
+
+Charlie's ruling kept the Decision 2 module focused on physical machine
+configuration and put the component resolver in its own module, calling
+machine_stream.stream_for_role() across the boundary. The import goes one way
+only.
+
+That is not filing tidiness. One file holding both would make it easy, one day,
+for something to reach across and infer one from the other - the exact defect
+the whole Decision 2/3 sequence exists to prevent.
+
+component_stream_for_run() is the single place chemistry meets plumbing. It
+needs both halves and defaults neither: an unresolved component, or a run with
+no stamped configuration, returns None. The two gaps are reported separately,
+because they are two different jobs for the user - complete a formulation
+record, or activate a machine configuration.
+
+php_by_chemical_role() sums in ROLE space, which is machine-independent;
+php_by_stream_for_run() relabels those totals through the run's stamped
+configuration, and that relabelling is the only step that varies by machine.
+Decision 4 consumes both. No arithmetic beyond the sums lives here.
+
+NO INFERENCE, AND WHY THE TEMPTATION IS REAL
+
+Of the five live components on Recipe Version 6, two have a raw material
+category that looks decisive - Polyol, Isocyanate - and three do not: Catalyst,
+Surfactant, Blowing Agent. A catalyst, a surfactant and a physical blowing agent
+are USUALLY carried in the polyol blend. Usually is not evidence. A pre-mixed
+blend, a co-catalyst dosed on the isocyanate side or a third-stream additive
+would each break it, and nothing in the data would show that it had.
+
+So nothing derives a role from raw material category, material name,
+role_in_formulation or stream_assignment, and there is deliberately no "assign
+roles from category" action anywhere in the UI. Its absence is the feature.
+
+MIGRATION - phase8_decision3_recipe_component_chemical_role
+
+Applied live to rigid_foam. Additive and nullable throughout; no row written or
+altered. All five Recipe Version 6 components verified byte-identical across all
+25 pre-existing fields, before and after: md5 92209563f4ec1cda803fada08244a823
+both times. 5 rows, 0 with a chemical role, 99 tables unchanged.
+
+Both constraints probe-tested live inside a self-rolling-back block, all seven
+cases behaving: full triple accepted; all-null accepted; role without source
+rejected; empty location rejected; whitespace-only location rejected; stranded
+source rejected; off-vocabulary term rejected. Zero rows remained.
+
+Idempotence measured, not asserted: the migration body re-run in place left the
+constraint and column inventory identical - md5 ae52084c718ba2e068aca01643fc4dc9
+over 35 objects, before and after - and wrote nothing.
+
+APPLICATION
+
+views/3_Recipe_Version_Record.py gained a Chemical role column reading the
+controlled term or Unresolved, a caption naming how many components are still
+unresolved and what that costs, and a controlled assignment control that sits
+OUTSIDE the ordinary component edit form. Name, supplier, php and the free-text
+role are fields a user corrects as they go; a chemical role is controlled data
+with provenance and an audit trail, and putting it in the same form would have
+made it look like one more field.
+
+Assignments and corrections are audited through the existing controlled-edit
+path - RoleChangeLog, with a new target_type of 'recipe_component'. No new
+mechanism, per the ruling. Note that 'role' in that table otherwise means an
+ACCESS role; target_type is what tells the two apart. The summary names the
+previous value as well as the new one, because a change log that records only
+the new value cannot answer the question anyone actually asks later.
+
+DEFERRED BY RULING
+
+The reference-formulation promotion path, and raw_materials.catalog_entry_id
+with it. JC's proposal showed why: of 152 reference component rows, 100 carry no
+source at all, the two material masters have no foreign key between them, and of
+the five live components only Cyclopentane appears in the reference set - on
+rows whose source_id is NULL. The path would have resolved zero of five. Charlie
+deferred it to later controlled material-identity work rather than build an
+identity decision for no live benefit.
+
+recipe_components.stream_assignment stays in place, unchanged and unread.
+Retirement is a separate cleanup after the controlled paths are proven.
+
+TESTS
+
+New tests/test_phase8_decision3_chemical_role.py (26 tests), one per item on
+the ruling's closeout list. Two are worth naming: one asserts the vocabulary
+tuple is the SAME OBJECT machine_stream uses, not merely equal to it, because
+two independent copies of a controlled vocabulary is how it stops being
+controlled; and the stream_assignment absence scan is tokenised rather than
+text-matched, since both controlled modules legitimately DISCUSS the field in
+their docstrings and a naive scan would flag the very comments that exist to
+prevent the mistake.
+
+tests/test_cr18_product_family_terminology.py - one allowlisted db.py line moved
+2178 -> 2246, the Decision 3 block having landed above it. Text unchanged.
+
+Full regression: 824 passed, 6 skipped, 0 failed of 830 collected across 68
+files. Was 798 / 6 / 804 at v0.71.2, so the 26 new tests are the whole delta.
 """
 
-APP_VERSION = "0.71.2"
+APP_VERSION = "0.72.0"

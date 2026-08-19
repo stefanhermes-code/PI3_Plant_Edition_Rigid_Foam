@@ -1156,9 +1156,77 @@ class RecipeComponent(Base):
     source_location = Column(String(300))  # RCF-019, see docstring note above
     release_note = Column(Text)  # RCF-020
 
+    # --- Phase 8 Decision 3 (controlled chemical role, 2026-08-19) -------
+    #
+    # WHAT A MATERIAL IS, as opposed to which stream carries it.
+    #
+    # This is the formulation half of the A:B ratio answer. Decision 2 gave
+    # the machine half: which physical stream (A or B) a given machine runs a
+    # given chemical role on, versioned per machine. Neither half is derivable
+    # from the other, and component_role.py is the only place they meet.
+    #
+    # Why these live on the component row rather than in a versioned side
+    # table, which is where Decision 2 put the machine's convention: a machine
+    # outlives its own configuration and can be re-hosed, so it needed its own
+    # history. A recipe component cannot be edited into a different
+    # formulation - a change produces a new RecipeVersion with new component
+    # rows - so the version boundary already exists one level up.
+    #
+    # Nullable, and NULL is a legitimate end state, not a gap waiting to be
+    # filled by inference. No migration wrote one of these, and nothing
+    # derives a role from raw material category, material name,
+    # role_in_formulation or stream_assignment. Those all look sufficient on
+    # the five live rows and are not: a catalyst, a surfactant and a physical
+    # blowing agent are usually carried in the polyol blend, and usually is
+    # not evidence.
+    #
+    # Two database constraints, deliberately named separately so a violation
+    # says which rule was broken (see the phase8_decision3_recipe_component_
+    # chemical_role migration):
+    #
+    #   ck_rc_chemical_role_vocabulary   NULL, or one of the two controlled
+    #                                    terms.
+    #   ck_rc_chemical_role_provenance   All three fields resolve together, or
+    #                                    none of them do, and the location must
+    #                                    be non-empty after trimming. Per
+    #                                    Charlie's ruling this makes a partial
+    #                                    provenance state - a role with only a
+    #                                    document reference, or source fields
+    #                                    stranded after the role is cleared -
+    #                                    unrepresentable rather than merely
+    #                                    discouraged.
+    #
+    # The source fields are deliberately NOT the existing source_id /
+    # source_location pair above. Those record where this component's php
+    # figure came from. A chemical role can be established by a different
+    # document than the dosage, so conflating them would lose one of the two.
+    chemical_role = Column(String(40))
+    chemical_role_source_id = Column(Integer, ForeignKey("source_registers.id", ondelete="RESTRICT"))
+    chemical_role_source_location = Column(String(300))
+
+    __table_args__ = (
+        CheckConstraint(
+            "chemical_role IS NULL OR chemical_role IN "
+            "('Isocyanate Component', 'Polyol Blend Component')",
+            name="ck_rc_chemical_role_vocabulary",
+        ),
+        CheckConstraint(
+            "(chemical_role IS NULL AND chemical_role_source_id IS NULL "
+            "AND chemical_role_source_location IS NULL) OR "
+            "(chemical_role IS NOT NULL AND chemical_role_source_id IS NOT NULL "
+            # trim() rather than Postgres' btrim(): identical semantics there
+            # (Postgres renders trim() as btrim), and it also exists in
+            # SQLite, which is the test path. A constraint the tests cannot
+            # create is a constraint the tests cannot prove.
+            "AND trim(chemical_role_source_location) <> '')",
+            name="ck_rc_chemical_role_provenance",
+        ),
+    )
+
     recipe_version = relationship("RecipeVersion", back_populates="components")
     raw_material = relationship("RawMaterial")
-    source = relationship("SourceRegister")
+    source = relationship("SourceRegister", foreign_keys=[source_id])
+    chemical_role_source = relationship("SourceRegister", foreign_keys=[chemical_role_source_id])
 
 
 # ---------------------------------------------------------------------------
@@ -2374,7 +2442,15 @@ class RoleChangeLog(Base):
     old/new diff (the User Roles page access grid alone has one entry per
     page x 3 access levels - a full diff would be a lot of machinery for
     a pilot-scale audit trail); target_type is 'user', 'role', or
-    'permission' (page-access grid saves)."""
+    'permission' (page-access grid saves).
+
+    Phase 8 Decision 3 (2026-08-19) added a fourth: 'recipe_component', for
+    controlled chemical-role assignments and corrections. Charlie's ruling
+    required corrections to be audited through the existing controlled-edit
+    path rather than a new mechanism, and this table is that path - its row
+    shape (who, which record, what changed, when) already fits. Note that
+    'role' here means an ACCESS role while a 'recipe_component' row is about a
+    CHEMICAL role; target_type is what tells the two apart."""
     __tablename__ = "role_change_logs"
 
     id = Column(Integer, primary_key=True)
