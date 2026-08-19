@@ -68,6 +68,7 @@ import datetime as dt
 
 import pandas as pd
 import streamlit as st
+from sqlalchemy import func
 
 import analytics
 from access_control import can_use_page
@@ -526,6 +527,49 @@ else:
         if bad_rows:
             st.warning("Flagged rows reference an unknown recipe_version_id or have no raw_material_name.")
             render_data_table(pd.DataFrame(bad_rows), max_height="300px")
+
+        # --- Mis-targeted-file warning (v0.70.0, Charlie's Decision 1 ruling,
+        # 2026-08-19). The id check above only asks whether a recipe_version_id
+        # EXISTS. On 12 August a Phase 1 import file carried a hard-coded
+        # recipe_version_id of 6, which existed and belonged to an unrelated
+        # polyether PUR recipe, so all nine of its polyester PIR rows passed
+        # validation and merged two formulations into one version. Nothing in
+        # the app was wrong; it imported exactly what the file asked for.
+        #
+        # What the file could not say, and the app can see, is that the target
+        # version ALREADY HAS components. A bulk component import into a
+        # populated version is the signature of a file pointed at the wrong id.
+        # It is a warning rather than a block because deliberately topping up a
+        # version is legitimate - the point is that it can no longer happen
+        # without the person importing being told.
+        populated_targets = {}
+        for row in good_rows:
+            populated_targets.setdefault(int(row["recipe_version_id"]), 0)
+        if populated_targets:
+            for vid, existing_count in (
+                apply_scope(
+                    session.query(RecipeComponent.recipe_version_id, func.count(RecipeComponent.id)),
+                    RecipeComponent.recipe_version_id,
+                    version_ids,
+                )
+                .filter(RecipeComponent.recipe_version_id.in_(list(populated_targets)))
+                .group_by(RecipeComponent.recipe_version_id)
+                .all()
+            ):
+                populated_targets[vid] = existing_count
+        merge_targets = {vid: n for vid, n in populated_targets.items() if n}
+        if merge_targets:
+            version_labels = {v.id: v.version_label for v in versions}
+            detail = ", ".join(
+                f"id {vid} ({version_labels.get(vid, 'unknown')}) already has {n} component(s)"
+                for vid, n in sorted(merge_targets.items())
+            )
+            st.warning(
+                "This file adds components to a recipe version that already has some: "
+                f"{detail}. Confirm the recipe_version_id in the file is the version you mean. "
+                "Importing a component list into the wrong existing version merges two "
+                "formulations into one and is not visible afterwards without comparing php totals."
+            )
 
         if good_rows and st.button("Confirm import (recipe components)", key="confirm_component_import"):
             existing_keys = {

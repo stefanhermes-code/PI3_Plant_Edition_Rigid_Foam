@@ -7618,4 +7618,106 @@ open door - fixed because the pattern should hold and because a later USAGE
 grant would otherwise open it silently.
 """
 
-APP_VERSION = "0.69.0"
+VERSION_0_70_0_NOTES = """
+v0.70.0, 2026-08-19: Recipe Version 6 restored, the direct-import route for
+Recipe Components retired, and a mis-targeted-import warning added.
+
+Per Charlie's Decision 1 Ruling and Execution Instructions, 19 August 2026.
+Minor rather than patch: a new validation surfaces in the Recipes page.
+
+WHAT HAD HAPPENED
+
+On 12 August 2026 a Phase 1 import file, 01_DIRECT_IMPORT/07_Recipe_Components.csv,
+carried a hard-coded recipe_version_id of 6. That id existed and belonged to an
+unrelated polyether PUR recipe on RF-COLDROOM-001, so all nine of its polyester
+PIR rows imported successfully and merged two formulations into one Recipe
+Version.
+
+The application was not at fault. Its importer checks whether the
+recipe_version_id exists, and it did. Nothing available to the importer could
+have said that a valid id was the wrong one.
+
+It stayed invisible for seven days. It surfaced on 19 August while auditing
+A:B stream assignment, when Recipe Version 6 was found holding two components at
+100 php, two isocyanates, two physical blowing agents, and both a PUR gelling
+catalyst and two PIR trimerisation catalysts. php is parts per hundred polyol, so
+one formulation carries exactly one 100 basis.
+
+THE CORRECTION, ON CONTROLLED EVIDENCE
+
+Charlie's two originally named sources did not cover this recipe: the 10 August
+pre-reset snapshot holds recipe_versions 1 to 5 only, because Recipe Version 6
+was created after that reset, and no migration creates the recipe or writes
+recipe_components. His ruling accepted the import manifest as controlled
+pre-import evidence instead.
+
+Three independent identifiers agreed on the same nine rows: they are exactly the
+nine named in the defective file, they are the only nine carrying the "Belongs to
+published recipe variant TCPP" note in live data, and the five that remain appear
+in no import package anywhere in the Phase 1 folder.
+
+Snapshot taken immediately before the change, both with RLS enabled to match the
+schema pattern: rigid_foam._backup_recipe_components_20260819 (14 rows) and
+rigid_foam._backup_recipe_versions_20260819 (1 row).
+
+Nine rows deleted, ids 58 to 66. No foreign key anywhere in the schema references
+recipe_components, verified before the delete. Recipe Version 6 now holds its five
+established components, all five byte-identical to the snapshot - no value was
+changed:
+
+  Lupranol 3300    100 php   Base polyol
+  Lupranate M20    145 php   Isocyanate
+  POLYCAT 5        1.2 php   Gelling catalyst
+  DABCO DC 193     2.0 php   Cell stabilizer
+  Cyclopentane     12.0 php  Physical blowing agent
+
+The php basis is coherent again: polyol total 100, one isocyanate. Both were
+doubled before.
+
+IMPORT ROUTE RETIRED
+
+01_DIRECT_IMPORT/07_Recipe_Components.csv moved to
+01_DIRECT_IMPORT/_RETIRED/ and kept as the evidence record. IMPORT_ORDER.txt
+rewritten to state the sequence: load 06_Recipe_Versions.csv, read each new
+version's database id, write those ids into the blank recipe_version_id column of
+02_ID_DEPENDENT_IMPORT/07_Recipe_Components.csv, then import components.
+
+The TCPP, TEP and L 2000 published LANXESS variants stay out of this correction.
+They remain source material for a separate controlled promotion into their own
+Recipe Versions, per the ruling.
+
+APPLICATION CHANGE
+
+views/3_Recipe_Version_Record.py - the component importer now warns when a file
+targets a Recipe Version that already holds components, naming the version and its
+current component count. That is the one thing the application can see and the
+file cannot say, and it is the signature of a file pointed at the wrong id.
+
+A warning rather than a block, because deliberately topping up a version is
+legitimate. The point is that a merge can no longer happen silently.
+
+TESTS
+
+New tests/test_recipe_component_import_order.py (4 tests): a populated target is
+detectable before import; the page carries the warning and states what goes wrong
+rather than only that something is unusual; the existing unresolved-id rejection
+still stands; and the doubled-php-basis signature that eventually exposed the
+defect is pinned, so the same shape is recognisable if it recurs.
+
+Full regression: 744 passed, 6 skipped, 0 failed of 750 collected across 63 files.
+Was 740 / 6 / 746 at v0.69.0, so the 4 new tests are the whole delta. The 6 skips
+remain the Flexible-sibling-app layout cause.
+
+BROWSER VERIFICATION
+
+Checked against the running application at v0.69.0. The Recipes page loads and
+shows RF-COLDROOM-001 with active version v1. The Where Used view for Cyclopentane
+reports one recipe version using it, RF-COLDROOM-001 v1, at 12.0 php - a retained
+component at its unchanged value, read live after the correction.
+
+The ingredients grid itself could not be captured: the browser tooling would not
+scroll Streamlit's inner container, so the full five-row list was verified against
+the database rather than on screen.
+"""
+
+APP_VERSION = "0.70.0"
