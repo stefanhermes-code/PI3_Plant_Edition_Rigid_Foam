@@ -7720,4 +7720,68 @@ scroll Streamlit's inner container, so the full five-row list was verified again
 the database rather than on screen.
 """
 
-APP_VERSION = "0.70.0"
+VERSION_0_70_1_NOTES = """
+v0.70.1, 2026-08-19: P8-OWR-001 verified and closed. Test evidence only - no
+application change was required.
+
+Charlie's Phase 8 Open Work Register v1 asked for a direct check of the Rigid
+Foam session lifecycle rather than an inference from the Flexible Foam handoff.
+The handoff proves the defect in Flexible Foam; it does not establish it here.
+
+FINDING: RIGID FOAM DOES NOT HAVE THE FLEXIBLE FAILURE
+
+The Flexible failure needs one precondition - a Streamlit rerun that ends with a
+transaction still open. The connection then stays checked out, Supabase's
+five-minute idle_in_transaction_session_timeout terminates it, and the next query
+from that browser tab dies on a dead socket. pool_pre_ping does not help, because
+pre-ping validates at pool checkout and a Session holding an open transaction
+never returns its connection to the pool.
+
+That precondition cannot hold in Rigid Foam. app_rigid_foam.py wraps its pg.run()
+call in try/finally and calls db.close_out_session() from the finally block, so
+the transaction is committed or rolled back on every rerun - including reruns
+where the routed page raised. The connection returns to the pool every time,
+which is also what makes pool_pre_ping effective here rather than decorative.
+
+Two further layers sit behind that, both already present:
+
+  db.py sets pool_recycle=280, below the 300-second server timeout, so a pooled
+  connection is retired before the server would consider terminating it.
+
+  close_out_session()'s except branch covers the case where the connection has
+  already died: if commit fails AND rollback also fails, the broken Session is
+  discarded from st.session_state, so the next get_session() builds a fresh one
+  rather than every later rerun of that tab failing identically until a full page
+  reload.
+
+TESTS
+
+New tests/test_p8_owr_001_session_recovery.py (10 tests), exercising the paths
+directly rather than asserting the code reads a certain way:
+
+  A read opens a transaction, and close_out_session leaves none open.
+  Closing out commits a page's own writes rather than discarding them.
+  It is safe on a rerun that never touched the database.
+  A dead connection - commit and rollback both failing - discards the broken
+  Session, and the next get_session() returns a working one.
+  A recoverable failure, where rollback succeeds, keeps the Session rather than
+  throwing it away on every transient error.
+  pool_recycle stays below the documented Supabase timeout.
+  close_out_session() is reached from the finally block, so a page raising cannot
+  leave the transaction open - the same failure mode by another route.
+
+One correction worth recording. The dead-connection test first asserted that
+st.session_state held no session afterwards, and failed against correct
+behaviour: close_out_session logs the failure through audit_log, which calls
+get_session() and caches a fresh Session. The property that matters is that the
+BROKEN Session is gone, not that the key is absent. The test now asserts
+identity rather than absence, and says so in place.
+
+Full regression: 754 passed, 6 skipped, 0 failed of 760 collected across 64
+files. Was 744 / 6 / 750 at v0.70.0, so the 10 new tests are the whole delta.
+
+No browser verification: Charlie's return condition requires it only where an
+application change was made, and none was.
+"""
+
+APP_VERSION = "0.70.1"
