@@ -7784,4 +7784,4 @@ No browser verification: Charlie's return condition requires it only where an
 application change was made, and none was.
 """
 
-APP_VERSION = "0.70.1"
+APP_VERSION = "0.70.2"

@@ -707,7 +707,12 @@ with st.sidebar:
     logo_col, version_col = st.columns([1, 1.4], vertical_alignment="center")
     logo_col.image(LOGO_PATH, width=140)
     with version_col:
-        st.markdown("**PI3 Plant Edition - Rigid Foam**")
+        st.markdown("**PI3 Plant Edition**")
+        # The edition on its own line, between the product name and the
+        # version, matching Flexible Foam (v2.9.1, 19 Aug 2026). Both editions
+        # share the product name and a near-identical sidebar, so with one of
+        # each open there was nothing at a glance to say which was which.
+        st.markdown("Rigid Foam")
         st.caption(f"v{APP_VERSION}")
     st.divider()
 
