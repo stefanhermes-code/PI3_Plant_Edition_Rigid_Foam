@@ -58,7 +58,7 @@ import reports
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGES_DIR = os.path.join(APP_DIR, "pages")
+PAGES_DIR = os.path.join(APP_DIR, "views")
 
 
 def _page(name):
@@ -209,7 +209,7 @@ def _build_company(session, label, u, run_date):
     session.add(note); session.flush()
 
     # Rigid-only grade + GradeSpecification, for the WP3 Property
-    # Conformance Report tab on pages/21_Report.py - shares the global
+    # Conformance Report tab on views/21_Report.py - shares the global
     # controlled-vocabulary rows (PhysicalPropertyDefinition/Method,
     # Orientation, Location, TestCondition) across both companies, since
     # those tables carry no company_id (see db.py) and are genuinely
@@ -297,7 +297,7 @@ def two_companies():
 
 
 # ---------------------------------------------------------------------------
-# 1. Recipe-based - pages/3_Recipe_Version_Record.py's "Recipe versions"
+# 1. Recipe-based - views/3_Recipe_Version_Record.py's "Recipe versions"
 # list (feeds Recipe Formulation Record + Where Used Report's recipe-side
 # usage). The page computes:
 #
@@ -305,7 +305,7 @@ def two_companies():
 #   versions = apply_scope(session.query(RecipeVersion),
 #                           RecipeVersion.foam_grade_id, grade_ids).all()
 #
-# (see pages/3_Recipe_Version_Record.py lines ~135-136 and ~474-478) - this
+# (see views/3_Recipe_Version_Record.py lines ~135-136 and ~474-478) - this
 # is the exact query replicated below, not a reimplementation, per the
 # task's own direct-backend-query allowance.
 # ---------------------------------------------------------------------------
@@ -331,16 +331,16 @@ def test_recipe_version_selector_excludes_other_company_recipe(two_companies):
 # 2. Raw-material-based - Where Used Report's raw_material_id input.
 #
 # Read directly: the actual selector that feeds build_where_used_report_
-# data() is NOT on pages/14_Raw_Materials.py (the task brief's assumption)
+# data() is NOT on views/14_Raw_Materials.py (the task brief's assumption)
 # - it's the "Where Used Report" section at the BOTTOM of
-# pages/3_Recipe_Version_Record.py itself:
+# views/3_Recipe_Version_Record.py itself:
 #
 #   wu_rm_query = session.query(RawMaterial)
 #   if active_company_id is not None:
 #       wu_rm_query = wu_rm_query.filter(RawMaterial.company_id == active_company_id)
 #   wu_materials = wu_rm_query.order_by(RawMaterial.name).all()
 #
-# (pages/3_Recipe_Version_Record.py lines ~1050-1054). pages/14_Raw_
+# (views/3_Recipe_Version_Record.py lines ~1050-1054). views/14_Raw_
 # Materials.py's own list (line ~672: `materials_query.filter(RawMaterial.
 # company_id == company_filter.id)`) uses the identical direct company_id
 # filter pattern for its own (separate) master-list selector - both are
@@ -352,7 +352,7 @@ def test_where_used_and_raw_materials_page_selectors_exclude_other_company_mater
     session = db.get_session()
     a, b = two_companies["a"], two_companies["b"]
 
-    # pages/3_Recipe_Version_Record.py's own Where Used Report material picker.
+    # views/3_Recipe_Version_Record.py's own Where Used Report material picker.
     wu_materials = (
         session.query(db.RawMaterial).filter(db.RawMaterial.company_id == a["company_id"])
         .order_by(db.RawMaterial.name).all()
@@ -360,18 +360,18 @@ def test_where_used_and_raw_materials_page_selectors_exclude_other_company_mater
     wu_ids = {m.id for m in wu_materials}
     assert a["raw_material_id"] in wu_ids
     assert b["raw_material_id"] not in wu_ids, (
-        "Where Used Report's own raw-material selector (pages/3_Recipe_Version_Record.py) "
+        "Where Used Report's own raw-material selector (views/3_Recipe_Version_Record.py) "
         "leaked Company B's raw material"
     )
 
-    # pages/14_Raw_Materials.py's own master-list selector query.
+    # views/14_Raw_Materials.py's own master-list selector query.
     rawmat_page_materials = (
         session.query(db.RawMaterial).filter(db.RawMaterial.company_id == a["company_id"]).all()
     )
     rawmat_page_ids = {m.id for m in rawmat_page_materials}
     assert a["raw_material_id"] in rawmat_page_ids
     assert b["raw_material_id"] not in rawmat_page_ids, (
-        "pages/14_Raw_Materials.py's own raw-material list leaked Company B's raw material"
+        "views/14_Raw_Materials.py's own raw-material list leaked Company B's raw material"
     )
 
     # And the report builder itself, called with Company A's own id, must
@@ -384,7 +384,7 @@ def test_where_used_and_raw_materials_page_selectors_exclude_other_company_mater
 
 
 # ---------------------------------------------------------------------------
-# 3. Production-run-based - the run selector shared by pages/4 (Production
+# 3. Production-run-based - the run selector shared by views/4 (Production
 # Run Trial Record), 5 (Physical Property Result -> Quality Test Result
 # Report), 6 (Quality Observation -> Quality Issue Report), 9 (Samples
 # Conditioning -> Sample Report's "Production Run" source), all scoped via
@@ -393,11 +393,11 @@ def test_where_used_and_raw_materials_page_selectors_exclude_other_company_mater
 #   run_ids = run_ids_for_company(session, active_company_id)
 #   runs = apply_scope(session.query(ProductionRun), ProductionRun.id, run_ids).all()
 #
-# pattern (see pages/5_Physical_Property_Result.py lines 162-171,
-# pages/6_Quality_Observation.py lines 187-196, pages/9_Samples_
+# pattern (see views/5_Physical_Property_Result.py lines 162-171,
+# views/6_Quality_Observation.py lines 187-196, views/9_Samples_
 # Conditioning.py lines 90-97 - all three read this exact query verbatim).
 # Proven once at the backend (the shared mechanism) and once at the widget
-# level on pages/9_Samples_Conditioning.py's own "Production run" selectbox
+# level on views/9_Samples_Conditioning.py's own "Production run" selectbox
 # (key="sample_run_select"), which is the concrete UI control a Company A
 # user would actually see leak from, if anything did.
 # ---------------------------------------------------------------------------
@@ -424,12 +424,12 @@ def test_samples_conditioning_page_run_selectbox_excludes_other_company_run(two_
     # frontend, per streamlit.testing.v1.element_tree.Selectbox.__init__),
     # not the original ProductionRun objects - so the only way to recover
     # which run ids were actually offered is to parse the same "Run #<id> "
-    # prefix the page's own format_func produces (pages/9_Samples_
+    # prefix the page's own format_func produces (views/9_Samples_
     # Conditioning.py: f"Run #{r.id} — {r.foam_grade.grade_name} · {r.run_date}").
     offered_run_ids = {int(opt.split("Run #", 1)[1].split(" ", 1)[0]) for opt in run_select.options}
     assert set(a["run_ids"]) & offered_run_ids, "Company A's own runs should be offered"
     assert not (set(b["run_ids"]) & offered_run_ids), (
-        "pages/9_Samples_Conditioning.py's 'Production run' selector offered Company B's run "
+        "views/9_Samples_Conditioning.py's 'Production run' selector offered Company B's run "
         "to a Company A user"
     )
     # And the Sample Report tab's own build, which pulls samples via
@@ -448,7 +448,7 @@ def test_samples_conditioning_page_run_selectbox_excludes_other_company_run(two_
 #   observations = apply_scope(session.query(QualityObservation),
 #                               QualityObservation.production_run_id, scoped_run_ids)...all()
 #
-# (pages/18_Root_Cause_Assistant.py lines 59-68) - contrary to the task
+# (views/18_Root_Cause_Assistant.py lines 59-68) - contrary to the task
 # brief's item 7 grouping page 18 in with the grade/family-based Industrial
 # Intelligence pages (15/16/17/19): reading the actual source, page 18 has
 # no grade selector or grade_ids_for_* call anywhere in it. Its own cross-
@@ -468,7 +468,7 @@ def test_root_cause_assistant_quality_issue_selector_excludes_other_company_obse
     at = _run("18_Root_Cause_Assistant.py", a["company_id"])
     obs_select = at.selectbox[0]
     # Same formatted-string caveat as the samples-conditioning test above -
-    # pages/18_Root_Cause_Assistant.py's own format_func is
+    # views/18_Root_Cause_Assistant.py's own format_func is
     # f"{o.observation_type} — {o.production_run.foam_grade.grade_name} "
     # f"(run #{o.production_run_id}, {o.observed_at}) · {o.severity}/{o.frequency}"
     # so "run #<id>" is parsed back out the same way.
@@ -482,15 +482,15 @@ def test_root_cause_assistant_quality_issue_selector_excludes_other_company_obse
 
 
 # ---------------------------------------------------------------------------
-# 4. Customer-Trial-based - pages/11_Customer_Trials.py's "Manage samples"
+# 4. Customer-Trial-based - views/11_Customer_Trials.py's "Manage samples"
 # trial selector (key="ct_manage_trial"), built from:
 #
 #   trials = apply_scope(session.query(CustomerTrial), CustomerTrial.plant_id, plant_ids)
 #            .order_by(CustomerTrial.created_at.desc()).all()
 #
-# (pages/11_Customer_Trials.py lines 116-131). This same `trials` list also
+# (views/11_Customer_Trials.py lines 116-131). This same `trials` list also
 # feeds the Sample Report ("Customer Trial" source, tab_report) and, once a
-# trial is Closed, pages/21_Report.py's Trial Closeout Report (proven
+# trial is Closed, views/21_Report.py's Trial Closeout Report (proven
 # separately below under item 8's central-widget test). Format_func is
 # f"#{t.id} — {t.customer_name} ({t.foam_grade.grade_name}, {t.status})".
 # ---------------------------------------------------------------------------
@@ -501,16 +501,16 @@ def test_customer_trials_page_trial_selector_excludes_other_company_trial(two_co
     offered_ids = {int(opt.split("#", 1)[1].split(" ", 1)[0]) for opt in trial_select.options}
     assert a["cust_trial_id"] in offered_ids
     assert b["cust_trial_id"] not in offered_ids, (
-        "pages/11_Customer_Trials.py's trial selector offered Company B's customer trial to a "
+        "views/11_Customer_Trials.py's trial selector offered Company B's customer trial to a "
         "Company A user"
     )
     assert "ct_sample_report_docx" in [btn.key for btn in at.download_button]
 
 
 # ---------------------------------------------------------------------------
-# 5. Optimization-Trial-based - pages/12_Optimization_Trials.py's own
+# 5. Optimization-Trial-based - views/12_Optimization_Trials.py's own
 # "Manage samples" trial selector (key="ot_manage_trial"), the identical
-# pattern against OptimizationTrial instead of CustomerTrial (pages/12_
+# pattern against OptimizationTrial instead of CustomerTrial (views/12_
 # Optimization_Trials.py lines 117-131). Feeds the Sample Report
 # ("Optimization Trial" source) the same way item 4 does for CustomerTrial.
 # ---------------------------------------------------------------------------
@@ -521,14 +521,14 @@ def test_optimization_trials_page_trial_selector_excludes_other_company_trial(tw
     offered_ids = {int(opt.split("#", 1)[1].split(" ", 1)[0]) for opt in trial_select.options}
     assert a["opt_trial_id"] in offered_ids
     assert b["opt_trial_id"] not in offered_ids, (
-        "pages/12_Optimization_Trials.py's trial selector offered Company B's optimization trial "
+        "views/12_Optimization_Trials.py's trial selector offered Company B's optimization trial "
         "to a Company A user"
     )
     assert "ot_sample_report_docx" in [btn.key for btn in at.download_button]
 
 
 # ---------------------------------------------------------------------------
-# 6 + 8. Report-page central widget - pages/21_Report.py computes ITS OWN
+# 6 + 8. Report-page central widget - views/21_Report.py computes ITS OWN
 # scoped id sets once at the top:
 #
 #   scoped_plant_ids = plant_ids_for_company(session, active_company_id)
@@ -565,7 +565,7 @@ def test_report_page_central_selectors_exclude_other_company_across_tabs(two_com
     offered_run_ids = {int(m) for opt in run_select.options for m in re.findall(r"Run #(\d+)", opt)}
     assert offered_run_ids & set(a["run_ids"])
     assert not (offered_run_ids & set(b["run_ids"])), (
-        "pages/21_Report.py's Batch Release / Conformance Record run selector leaked Company B's run"
+        "views/21_Report.py's Batch Release / Conformance Record run selector leaked Company B's run"
     )
 
     plant_select = next(s for s in at.selectbox if s.key == "report_period_plant")
@@ -574,14 +574,14 @@ def test_report_page_central_selectors_exclude_other_company_across_tabs(two_com
     assert a_plant_name_present
     for opt in plant_select.options:
         assert "Iso Plant B" not in opt, (
-            "pages/21_Report.py's Plant/Period Summary plant selector leaked Company B's plant name"
+            "views/21_Report.py's Plant/Period Summary plant selector leaked Company B's plant name"
         )
 
     trial_select = next(s for s in at.selectbox if s.key == "report_trial_select")
     offered_ct_ids = {int(m) for opt in trial_select.options for m in re.findall(r"#(\d+)", opt)}
     assert a["cust_trial_id"] in offered_ct_ids
     assert b["cust_trial_id"] not in offered_ct_ids, (
-        "pages/21_Report.py's Trial Closeout Report (Customer Trial) selector leaked Company B's trial"
+        "views/21_Report.py's Trial Closeout Report (Customer Trial) selector leaked Company B's trial"
     )
 
     radio = next(r for r in at.radio if r.key == "report_trial_source_type")
@@ -592,7 +592,7 @@ def test_report_page_central_selectors_exclude_other_company_across_tabs(two_com
     offered_ot_ids = {int(m) for opt in trial_select.options for m in re.findall(r"#(\d+)", opt)}
     assert a["opt_trial_id"] in offered_ot_ids
     assert b["opt_trial_id"] not in offered_ot_ids, (
-        "pages/21_Report.py's Trial Closeout Report (Optimization Trial) selector leaked Company B's trial"
+        "views/21_Report.py's Trial Closeout Report (Optimization Trial) selector leaked Company B's trial"
     )
 
     sample_select = next(s for s in at.selectbox if s.key == "report_sample_select")
@@ -602,12 +602,12 @@ def test_report_page_central_selectors_exclude_other_company_across_tabs(two_com
     assert a["ot_sample_id"] in offered_sample_ids
     for leaked in (b["sample_id"], b["ct_sample_id"], b["ot_sample_id"]):
         assert leaked not in offered_sample_ids, (
-            "pages/21_Report.py's Sample Certificate of Analysis selector leaked a Company B sample"
+            "views/21_Report.py's Sample Certificate of Analysis selector leaked a Company B sample"
         )
 
 
 # ---------------------------------------------------------------------------
-# 7 (WP3 half). pages/21_Report.py's Property Conformance Report tab -
+# 7 (WP3 half). views/21_Report.py's Property Conformance Report tab -
 # grade picker joins FoamGrade to GradeSpecification, scoped via
 # scoped_family_ids (family_ids_for_plants), and its own run picker is
 # scoped via scoped_run_ids the same way as the run tab above:
@@ -618,7 +618,7 @@ def test_report_page_central_selectors_exclude_other_company_across_tabs(two_com
 #   wp3_runs = apply_scope(session.query(ProductionRun).filter(foam_grade_id == wp3_grade.id),
 #                           ProductionRun.id, scoped_run_ids)...all()
 #
-# (pages/21_Report.py lines 439-462).
+# (views/21_Report.py lines 439-462).
 #
 # tests/test_wp3_uat_cases.py was checked directly for cross-company
 # coverage of this report before writing this test: it has no pytest
@@ -636,7 +636,7 @@ def test_report_page_wp3_tab_grade_and_run_selectors_exclude_other_company(two_c
     grade_select = next(s for s in at.selectbox if s.key == "report_wp3_grade")
     assert a["rigid_grade_name"] in grade_select.options
     assert b["rigid_grade_name"] not in grade_select.options, (
-        "pages/21_Report.py's Property Conformance Report grade selector leaked Company B's "
+        "views/21_Report.py's Property Conformance Report grade selector leaked Company B's "
         "rigid grade"
     )
 
@@ -645,7 +645,7 @@ def test_report_page_wp3_tab_grade_and_run_selectors_exclude_other_company(two_c
     offered_run_ids = {int(m) for opt in run_select.options for m in re.findall(r"Run #(\d+)", opt)}
     assert a["rigid_run_id"] in offered_run_ids
     assert b["rigid_run_id"] not in offered_run_ids, (
-        "pages/21_Report.py's Property Conformance Report run selector leaked Company B's rigid run"
+        "views/21_Report.py's Property Conformance Report run selector leaked Company B's rigid run"
     )
     assert "wp3_conformance_docx" in [btn.key for btn in at.download_button]
 
@@ -654,17 +654,17 @@ def test_report_page_wp3_tab_grade_and_run_selectors_exclude_other_company(two_c
 # 7 (grade/family half, pages 15/16/17/19). Backend proof of the shared
 # mechanism (grade_ids_for_company -> grade_ids_for_families ->
 # family_ids_for_plants -> plant_ids_for_company), plus one concrete
-# widget-level check on pages/16_Trend_Analysis.py's own "Product grade"
+# widget-level check on views/16_Trend_Analysis.py's own "Product grade"
 # selectbox (via helpers.analysis_unit_picker, shared verbatim by pages
 # 16/17/19 - see helpers.py lines 92-132), which is scoped from:
 #
 #   scoped_grade_ids = grade_ids_for_company(session, active_company_id)
 #   grades = [g for g in apply_scope(session.query(FoamGrade), FoamGrade.id, scoped_grade_ids).all() if ...]
 #
-# (pages/16_Trend_Analysis.py lines 90-98, 155-161; pages/15_Recipe_
+# (views/16_Trend_Analysis.py lines 90-98, 155-161; views/15_Recipe_
 # Optimization.py lines 89-97 use the identical scoped_grade_ids ->
 # apply_scope pattern for its own plain st.selectbox, without analysis_
-# unit_picker). Note per this file's own reading of pages/18_Root_Cause_
+# unit_picker). Note per this file's own reading of views/18_Root_Cause_
 # Assistant.py: page 18 is NOT part of this mechanism at all (it has no
 # grade selector or grade_ids_for_* call anywhere in it) - see the item-3/
 # 7b test above for its actual (run-based) mechanism and the flag in this
@@ -697,7 +697,7 @@ def test_trend_analysis_page_grade_selector_excludes_other_company_grade(two_com
     grade_select = next(s for s in at.selectbox if s.key == "trend_grade_select")
     assert a["grade_name"] in grade_select.options
     assert b["grade_name"] not in grade_select.options, (
-        "pages/16_Trend_Analysis.py's 'Product grade' selector (helpers.analysis_unit_picker, "
+        "views/16_Trend_Analysis.py's 'Product grade' selector (helpers.analysis_unit_picker, "
         "shared by pages 16/17/19) offered Company B's grade to a Company A user"
     )
     keys = [btn.key for btn in at.download_button]
@@ -705,7 +705,7 @@ def test_trend_analysis_page_grade_selector_excludes_other_company_grade(two_com
 
 
 # ---------------------------------------------------------------------------
-# 9. Expert Notes Report - pages/20_Expert_Notes.py's own scope, which is
+# 9. Expert Notes Report - views/20_Expert_Notes.py's own scope, which is
 # NOT a company_id-filtered query (ExpertNote has no company_id/plant_id
 # column at all - it's polymorphic via linked_entity_type/linked_entity_id)
 # but an application-level POST-filter against the same scoped id sets
@@ -719,7 +719,7 @@ def test_trend_analysis_page_grade_selector_excludes_other_company_grade(two_com
 #       or (n.linked_entity_type == "product_family" and n.linked_entity_id in scoped_family_id_set)
 #   ]
 #
-# (pages/20_Expert_Notes.py lines 293-303, and the identical block again
+# (views/20_Expert_Notes.py lines 293-303, and the identical block again
 # for the Edit/Delete tab's own `notes` list at lines 320-330). Proven at
 # the widget level: the Expert Notes Report tab's "Total notes" metric and
 # the Edit/Delete tab's clickable_table (rendered as st.dataframe, whose
@@ -741,7 +741,7 @@ def test_expert_notes_page_report_and_list_exclude_other_company_note(two_compan
     rendered_notes = notes_table.value["Note"].tolist()
     assert any(a["note_text"] in n for n in rendered_notes), "Company A's own note should be listed"
     assert not any(b["note_text"] in n for n in rendered_notes), (
-        "pages/20_Expert_Notes.py's Edit/Delete note list leaked Company B's note text to a "
+        "views/20_Expert_Notes.py's Edit/Delete note list leaked Company B's note text to a "
         "Company A user"
     )
 
@@ -763,7 +763,7 @@ def test_expert_notes_page_report_and_list_exclude_other_company_note(two_compan
 #
 # (ai_assistant.py lines 601-625) - documents are tagged with this same
 # company_id at push time via push_document_to_vector_store(metadata=...),
-# where callers (pages/20_Expert_Notes.py's _push_note_to_vector_store,
+# where callers (views/20_Expert_Notes.py's _push_note_to_vector_store,
 # line ~146) resolve company_id from the note's own plant via helpers.
 # company_id_for_plant(plant_id, session) (helpers.py lines 50-59), which
 # reads Plant.company_id directly off the real plant row - not something
@@ -809,7 +809,7 @@ def test_ai_assistant_file_search_filter_excludes_other_company_document(two_com
     assert helpers.company_id_for_plant(a["plant_id"], session) != b["company_id"]
 
     # A document pushed for Company A's own Expert Note (see
-    # pages/20_Expert_Notes.py's _push_note_to_vector_store) is tagged
+    # views/20_Expert_Notes.py's _push_note_to_vector_store) is tagged
     # {"company_id": a["company_id"], "shared": False}; Company B's
     # equivalent document is tagged with b["company_id"].
     doc_a_attrs = {"company_id": a["company_id"], "shared": False}

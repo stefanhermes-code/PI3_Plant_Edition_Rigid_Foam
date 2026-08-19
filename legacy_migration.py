@@ -194,12 +194,12 @@ def ensure_environment_outcome_definitions(session):
                 # Environment/Outcome measurements are recorded facts, not
                 # something planned in advance, so applicable_to_planned
                 # must be False here. (The original Phase 3 release set
-                # this True, which - combined with pages/4's
+                # this True, which - combined with views/4's
                 # tab_method_settings rendering every eligible definition
                 # without a category filter - let these measurements
                 # appear as enterable "Planned" process settings, violating
                 # "measured outcomes remain outcomes". See this module's
-                # docstring and pages/4's category filter for the other
+                # docstring and views/4's category filter for the other
                 # half of this fix.)
                 applicable_to_planned=False,
                 applicable_to_actual=True,

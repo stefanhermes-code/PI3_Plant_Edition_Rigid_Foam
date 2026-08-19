@@ -8,7 +8,7 @@ Subcategory concept at all. This batch replaces it with one controlled
 Category -> Subcategory taxonomy (RAW_MATERIAL_TAXONOMY in db.py, seeded
 into RawMaterialCategory as a self-referencing adjacency list) governing
 manual entry, the Raw Materials list, recipe components, and CSV/Excel
-import - see pages/14_Raw_Materials.py and RawMaterial.category_id/
+import - see views/14_Raw_Materials.py and RawMaterial.category_id/
 subcategory_id's own docstrings in db.py.
 
 Mirrors the established AUTH_DISABLED AppTest pattern (see
@@ -36,7 +36,7 @@ import db
 import helpers
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE14 = os.path.join(APP_DIR, "pages", "14_Raw_Materials.py")
+PAGE14 = os.path.join(APP_DIR, "views", "14_Raw_Materials.py")
 
 
 def _reset_schema():
@@ -270,7 +270,7 @@ def test_raw_material_category_label_falls_back_for_unclassified_material(seeded
 
 # ---------------------------------------------------------------------------
 # Manual entry / Edit round trips - direct DB operations mirroring
-# pages/14_Raw_Materials.py's own write path exactly.
+# views/14_Raw_Materials.py's own write path exactly.
 # ---------------------------------------------------------------------------
 def test_manual_entry_round_trip_sets_controlled_category_and_subcategory(seeded_taxonomy):
     session = db.get_session()
@@ -363,7 +363,7 @@ def test_recipe_component_reference_preserved_across_reclassification(seeded_com
 # ---------------------------------------------------------------------------
 # CSV/Excel import matching - case-insensitive exact match against the
 # controlled taxonomy, mirroring _match_taxonomy_text in
-# pages/14_Raw_Materials.py (a plain data-layer function with no
+# views/14_Raw_Materials.py (a plain data-layer function with no
 # Streamlit calls of its own, but living inside a page script that
 # executes top-to-bottom on import - see that file's own docstring for
 # why a direct import isn't used here).

@@ -1,6 +1,6 @@
 """WP7 Phase 2 Closeout Correction (2026-08-14) - direct AppTest evidence for
 Charlie's 3 Material Gaps from the WP7 Phase 2 Closeout Review, against the
-real Streamlit UI (pages/4_Production_Run_Trial_Record.py), following the
+real Streamlit UI (views/4_Production_Run_Trial_Record.py), following the
 same AppTest conventions and fixture chain as
 tests/test_wp7_phase2_production_run_ui.py (that file's own docstring/
 fixtures document the full FK chain this file reuses, rebuilt locally here
@@ -47,7 +47,7 @@ import db
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE4 = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
+PAGE4 = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
 
 
 def _clear_relevant_caches():

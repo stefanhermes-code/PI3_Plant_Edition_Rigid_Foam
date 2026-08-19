@@ -37,20 +37,20 @@ import db
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGE_OVERVIEW = os.path.join(APP_DIR, "app_rigid_foam.py")
-PAGE_PLANTS = os.path.join(APP_DIR, "pages", "1_Plant_Installation_Overview.py")
-PAGE_PRODUCTION_METHODS = os.path.join(APP_DIR, "pages", "30_Production_Methods.py")
-PAGE_PRODUCTION_EQUIPMENT = os.path.join(APP_DIR, "pages", "31_Production_Equipment.py")
+PAGE_PLANTS = os.path.join(APP_DIR, "views", "1_Plant_Installation_Overview.py")
+PAGE_PRODUCTION_METHODS = os.path.join(APP_DIR, "views", "30_Production_Methods.py")
+PAGE_PRODUCTION_EQUIPMENT = os.path.join(APP_DIR, "views", "31_Production_Equipment.py")
 # CR-10 (Split Product Families and Product Grades into Separate Pages,
 # 2026-08-12) replaced the single combined page with two direct ones - both
 # walked below so this sweep still covers the full page set.
-PAGE_PRODUCT_FAMILIES = os.path.join(APP_DIR, "pages", "2_Product_Families.py")
-PAGE_PRODUCT_GRADES = os.path.join(APP_DIR, "pages", "2_Product_Grades.py")
-PAGE_RECIPES = os.path.join(APP_DIR, "pages", "3_Recipe_Version_Record.py")
-PAGE_PRODUCTION_RUN = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
-PAGE_RAW_MATERIALS = os.path.join(APP_DIR, "pages", "14_Raw_Materials.py")
-PAGE_SAMPLES = os.path.join(APP_DIR, "pages", "9_Samples_Conditioning.py")
-PAGE_QUALITY_RESULT = os.path.join(APP_DIR, "pages", "5_Physical_Property_Result.py")
-PAGE_REPORT = os.path.join(APP_DIR, "pages", "21_Report.py")
+PAGE_PRODUCT_FAMILIES = os.path.join(APP_DIR, "views", "2_Product_Families.py")
+PAGE_PRODUCT_GRADES = os.path.join(APP_DIR, "views", "2_Product_Grades.py")
+PAGE_RECIPES = os.path.join(APP_DIR, "views", "3_Recipe_Version_Record.py")
+PAGE_PRODUCTION_RUN = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
+PAGE_RAW_MATERIALS = os.path.join(APP_DIR, "views", "14_Raw_Materials.py")
+PAGE_SAMPLES = os.path.join(APP_DIR, "views", "9_Samples_Conditioning.py")
+PAGE_QUALITY_RESULT = os.path.join(APP_DIR, "views", "5_Physical_Property_Result.py")
+PAGE_REPORT = os.path.join(APP_DIR, "views", "21_Report.py")
 
 ALL_PAGES = [
     ("Overview", PAGE_OVERVIEW),

@@ -13,7 +13,7 @@ This module is that mechanism.
 Deliberately dependency-free (no db.py, no session, no other app module)
 so every layer can import it with zero risk of a circular import -
 helpers.py already imports reports.py, so a translation helper living in
-either of those could not be imported by the other. pages/*.py,
+either of those could not be imported by the other. views/*.py,
 reports.py, and any future PI3-prompt-building code can all import this
 module directly.
 

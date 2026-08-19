@@ -7,9 +7,9 @@ CR-01's approved sidebar structure, Plant stays a pure location/identity
 concept under its own "Plant Setup" section (this page, retitled "Plants"),
 while equipment now resolves inside the selected Production Method's own
 context - moved to the new "Production Methods" section as
-pages/31_Production_Equipment.py. Production Method activation for a plant
+views/31_Production_Equipment.py. Production Method activation for a plant
 (the checkbox list that used to live here) moved to the new
-pages/30_Production_Methods.py for the same reason: it's a Production
+views/30_Production_Methods.py for the same reason: it's a Production
 Method concern, not a Plant-identity one, and the new page is where a user
 now goes to manage/select a plant's active methods.
 
@@ -23,7 +23,7 @@ followed by the browse/edit/delete table, with no CSV/Excel import at all.
 Restructured into the mandated 3 tabs (Create/Edit-Delete/Import) via
 cr11_function_tab_labels("Plant") and given a net-new Plant CSV/Excel
 import, mirroring the validation/dedupe/confirm pattern used by every other
-import in the app (see pages/14_Raw_Materials.py's _target_company/
+import in the app (see views/14_Raw_Materials.py's _target_company/
 csv_excel_uploader usage for the canonical shape).
 """
 

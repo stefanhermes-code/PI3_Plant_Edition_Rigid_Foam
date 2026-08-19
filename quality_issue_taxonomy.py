@@ -85,7 +85,7 @@ UI lets a person choose to put into it. Historical rows already in the
 database (demo data, UAT data, or anything imported before this taxonomy
 existed, or anything recorded under a name later removed here in the
 A5-08 filtering pass) that don't match any `name` below still display and
-edit fine - see pages/6_Quality_Observation.py's handling of a
+edit fine - see views/6_Quality_Observation.py's handling of a
 legacy/unmatched value.
 
 CR-22 / F22-06, F22-07 (AF22-01, 2026-08-16): two new per-entry attributes,
@@ -470,7 +470,7 @@ def active_issue_types_for_category(category, production_method_controlled_id=No
       `include_names` - this is how a picker keeps an already-recorded
       quarantined value visible/selected while editing that one row,
       without offering it as a fresh pick anywhere else (see
-      pages/6_Quality_Observation.py's _issue_type_picker()).
+      views/6_Quality_Observation.py's _issue_type_picker()).
     - A method-specific entry (`production_methods` is a non-None list)
       is excluded unless `production_method_controlled_id` is given and
       is a member of that list. A Global entry (`production_methods` is
@@ -529,7 +529,7 @@ def lookup_active_case_insensitive(name, production_method_controlled_id=None):
     STATE_QUARANTINED entry - CR-22 / F22-06 (AF22-01): "Trial behavior"
     and every other new-selection surface must never expose a quarantined
     issue type, and CSV/Excel import is a new-selection surface the same
-    as the manual entry form. Used by pages/6_Quality_Observation.py's
+    as the manual entry form. Used by views/6_Quality_Observation.py's
     import tab in place of lookup_case_insensitive().
 
     CR-22 correction (2026-08-16, Charlie's focused closeout return):

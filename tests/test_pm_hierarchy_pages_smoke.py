@@ -5,18 +5,18 @@ for_JC.docx" and Stefan's 5 resolved open decisions; flat-model redesign
 parent/child hierarchy with 7 flat PM-100..PM-700 codes) smoke test for the
 pages touched by this batch:
 
-  - pages/31_Production_Equipment.py: Machine setup's Production Method
+  - views/31_Production_Equipment.py: Machine setup's Production Method
     picker, filtered to the plant's activated methods. (Moved here from
-    pages/1_Plant_Installation_Overview.py 2026-08-10 as part of CR-01's
+    views/1_Plant_Installation_Overview.py 2026-08-10 as part of CR-01's
     UI navigation restructure - see that page's own docstring. PAGE1
     below now points at the pure Plants page and is no longer where this
     picker lives.)
-  - pages/2_Product_Grades.py: Product Grade's method picker +
+  - views/2_Product_Grades.py: Product Grade's method picker +
     many-to-many Machine-assignment multiselect, filtered by method.
-    (CR-10, 2026-08-12, split this off pages/2_Product_Family_Foam_Grade.py's
+    (CR-10, 2026-08-12, split this off views/2_Product_Family_Foam_Grade.py's
     "Product grades" tab into its own direct page - see that page's own
     docstring. PAGE2 below now points at the split-out grades page.)
-  - pages/4_Production_Run_Trial_Record.py: Machine picker filtered to the
+  - views/4_Production_Run_Trial_Record.py: Machine picker filtered to the
     grade's own assigned machines, the Plant/Method/Machine breadcrumb, and
     the immutable production_method_id snapshot set on creation.
 
@@ -58,11 +58,11 @@ from streamlit.testing.v1 import AppTest
 import db
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE1 = os.path.join(APP_DIR, "pages", "1_Plant_Installation_Overview.py")
-PAGE2 = os.path.join(APP_DIR, "pages", "2_Product_Grades.py")
-PAGE4 = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
-PAGE30 = os.path.join(APP_DIR, "pages", "30_Production_Methods.py")
-PAGE31 = os.path.join(APP_DIR, "pages", "31_Production_Equipment.py")
+PAGE1 = os.path.join(APP_DIR, "views", "1_Plant_Installation_Overview.py")
+PAGE2 = os.path.join(APP_DIR, "views", "2_Product_Grades.py")
+PAGE4 = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
+PAGE30 = os.path.join(APP_DIR, "views", "30_Production_Methods.py")
+PAGE31 = os.path.join(APP_DIR, "views", "31_Production_Equipment.py")
 
 
 def _reset_schema():
@@ -122,8 +122,8 @@ def _run(page_path):
 
 def test_add_machine_form_offers_plants_activated_method(seeded_pm_hierarchy):
     """Updated 2026-08-10 for CR-01: this picker now lives on the new
-    Production Equipment page (pages/31_Production_Equipment.py), not the
-    Plants page (pages/1_Plant_Installation_Overview.py, which no longer
+    Production Equipment page (views/31_Production_Equipment.py), not the
+    Plants page (views/1_Plant_Installation_Overview.py, which no longer
     has any Machine/equipment UI at all - see that page's docstring)."""
     ids = seeded_pm_hierarchy
     at = _run(PAGE31)
@@ -137,9 +137,9 @@ def test_add_machine_form_offers_plants_activated_method(seeded_pm_hierarchy):
 
 
 def test_plants_page_has_no_equipment_ui(seeded_pm_hierarchy):
-    """CR-01 (2026-08-10): pages/1_Plant_Installation_Overview.py is now
+    """CR-01 (2026-08-10): views/1_Plant_Installation_Overview.py is now
     Plants-only - no Machine/equipment Add form and no Production Method
-    activation checkboxes (both moved to pages/30/31). Loads clean and
+    activation checkboxes (both moved to views/30/31). Loads clean and
     still shows the seeded plant."""
     ids = seeded_pm_hierarchy
     at = _run(PAGE1)
@@ -153,7 +153,7 @@ def test_plants_page_has_no_equipment_ui(seeded_pm_hierarchy):
 
 
 def test_production_methods_page_shows_activated_method_and_counts(seeded_pm_hierarchy):
-    """New page (pages/30_Production_Methods.py, CR-01): shows the plant's
+    """New page (views/30_Production_Methods.py, CR-01): shows the plant's
     activated method with its concise Production Units/Product Grades/
     Recipes counts. The 'Set as operating context' control was removed
     2026-08-10 per CR-04 step 6 (Charlie's instruction to remove the global
@@ -216,7 +216,7 @@ def test_production_run_form_derives_method_snapshot_from_selected_machine(seede
     Method/Unit pickers live OUTSIDE st.form("add_run") since Product
     Grade's choices depend on the selected Unit and st.form widgets can't
     react to each other within one submission - see the module's own
-    comments at pages/4_Production_Run_Trial_Record.py's tab_create block.
+    comments at views/4_Production_Run_Trial_Record.py's tab_create block.
     Selecting Plant/Method/Unit before Save is still clicked works in one
     AppTest .run() because they render before the form in script order."""
     ids = seeded_pm_hierarchy

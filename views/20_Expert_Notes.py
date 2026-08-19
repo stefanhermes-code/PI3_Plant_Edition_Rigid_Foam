@@ -26,7 +26,7 @@ CSV/Excel import at all. Restructured into the mandated 3 tabs
 (Create/Edit-Delete/Import) via cr11_function_tab_labels("Expert Note"),
 with the pre-existing "Expert Notes Report" (page-specific, an aggregate
 breakdown rather than a record-creation function) retained as a 4th tab,
-same pattern as pages/9_Samples_Conditioning.py's "Sample Report" tab.
+same pattern as views/9_Samples_Conditioning.py's "Sample Report" tab.
 CSV/Excel import is net-new here: each row creates one note linked to an
 existing production run/product grade/product family/commercial trial/
 optimization trial (validated against the same scoped id sets the manual
@@ -42,9 +42,9 @@ identifiers such as the linked_entity_type value "product_family" and
 CSV import's documented accepted values are unchanged, since those are
 internal/compatibility identifiers, not customer-facing wording. Also
 added Commercial Trial (internal linked_entity_type "customer_trial",
-the existing CustomerTrial table from pages/11_Customer_Trials.py) and
+the existing CustomerTrial table from views/11_Customer_Trials.py) and
 Optimization Trial (internal linked_entity_type "optimization_trial",
-the existing OptimizationTrial table from pages/12_Optimization_Trials.py)
+the existing OptimizationTrial table from views/12_Optimization_Trials.py)
 as two new "Link to" targets, positioned after Product Family per CR-15
 section 4's required order. Neither trial page's own navigation or name
 was changed by this CR - only Expert Notes' ability to link to them."""

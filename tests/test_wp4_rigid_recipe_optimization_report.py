@@ -1,7 +1,7 @@
 """WP4 (Converged Joint Implementation Plan, section 7.5) tests for
 reports.build_rigid_recipe_optimization_report_data() - the rigid-foam
 equivalent of build_recipe_optimization_report_data(), wired into
-pages/15_Recipe_Optimization.py's "Recipe Optimization Report" section for
+views/15_Recipe_Optimization.py's "Recipe Optimization Report" section for
 a rigid-foam grade (task #561). Exercises the data assembly directly
 (achieved/not-achieved counts, operator-aware deviation-from-target %,
 UAT-only production-release note, empty-input handling) plus a real

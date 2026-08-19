@@ -7507,4 +7507,115 @@ recipe in the database and A:B ratio reporting does not function on live
 data at all.
 """
 
-APP_VERSION = "0.68.0"
+VERSION_0_69_0_NOTES = """
+v0.69.0, 2026-08-19: Rename the screen directory pages/ -> views/, closing a
+silent access-control bypass. Also: RLS drift closed on the live schema.
+
+Minor rather than patch: 30 files move and the application's directory
+layout changes. No behaviour change for a user, and no URL changes.
+
+THE DEFECT
+
+Streamlit 1.60.0 decides whether this app's entrypoint runs at all from
+whether a directory literally named "pages" sits next to it. From Streamlit's
+own source, not inferred:
+
+  runtime/pages_manager.py - uses_pages_directory is a PROCESS-WIDE class
+  attribute, set once on the first PagesManager constructed, from
+  Path(main_script_parent / "pages").exists().
+
+  runtime/scriptrunner/script_runner.py -
+      if PagesManager.uses_pages_directory: _mpa_v1(main_script_path)
+      else:                                 exec(code, module.__dict__)
+
+  commands/navigation.py - st.navigation() sets the flag False.
+
+In the legacy branch app_rigid_foam.py never executes. Streamlit globs the
+directory, sorts it, and builds its own flat navigation from raw filenames.
+Every access_control page filter is skipped, so every screen becomes
+reachable by anyone with the URL. The visible symptom is a flat sidebar with
+no logo, version or sections, which a reload appears to fix.
+
+It appears intermittent because the flag only flips once st.navigation() is
+actually reached, and it is process-wide rather than per-session: the first
+session to get that far fixes it for everyone, for the life of the process.
+So it shows on the first load after a deploy or reboot, particularly when
+deep-linking to a screen URL rather than the root.
+
+The case that is not transient, and the reason this is a defect rather than
+a cosmetic bug: if anything above st.navigation() raises, the flag never
+flips at all and the process stays in unfiltered legacy mode until it is
+restarted, with no traceback. init_db() at line 616 and get_session() at
+617 run about 35 lines before st.navigation() at 653. The Flexible edition
+hit exactly this on 18 August 2026 through a cold-start database error.
+
+Found and fixed in the Flexible edition first; verified present here before
+acting, and reproduced directly against Streamlit's own PagesManager rather
+than taken on trust.
+
+THE FIX
+
+git mv pages views - 30 files, recorded as renames so history is preserved.
+With no directory named "pages" beside the entrypoint the flag evaluates
+False at construction, so the legacy branch cannot be taken on any request,
+at any point in startup, however the entrypoint fails. This closes the
+window rather than narrowing it.
+
+29 st.Page("pages/...") declarations updated in app_rigid_foam.py, plus path
+references in comments and docstrings across 79 further modules and tests.
+
+URLs are unchanged. st.Page infers url_path from the filename, not the
+directory, so every existing bookmark and shared link still resolves.
+
+Three references deliberately still say "pages", all pointing at the
+Flexible edition, which keeps that directory name:
+tests/test_phase8_wave_a_flexible_edition_isolation.py FLEX_PAGE_QI, and
+two in tests/test_cr12_reporting_parity.py. That parity helper now takes the
+directory name as an argument instead of hard-coding it, so it compares each
+edition against the directory that edition actually has.
+
+A block comment in app_rigid_foam.py records why the directory is not called
+pages/, naming the Streamlit mechanism. The name looks like an oddity
+otherwise, and the next person to tidy the repository reintroduces the bug.
+
+TESTS
+
+New tests/test_navigation_directory_guard.py (6 tests): views/ exists and no
+pages/ directory sits beside the entrypoint; Streamlit's own PagesManager
+resolves this layout to False; Streamlit still branches on that flag, so a
+future upgrade that removes it fails here rather than silently making the
+rationale obsolete; every st.Page path resolves to a real file and none
+points at the old directory; every file in views/ is declared in the
+entrypoint, since under st.navigation nothing is auto-discovered; and the
+entrypoint still carries the explanation.
+
+Full regression: 740 passed, 6 skipped, 0 failed of 746 collected across 62
+files. Was 734 / 6 / 740 at v0.68.0, so the 6 new guard tests are the whole
+delta. The 6 skips remain the Flexible-sibling-app layout cause.
+
+LIVE SCHEMA - RLS DRIFT CLOSED, SAME RELEASE
+
+Row Level Security was enabled with no policies on 7 rigid_foam tables that
+had drifted: customers, foam_grade_machines, plant_production_methods,
+quality_issue_type_applicabilities, reference_formulation_families,
+reference_formulation_performance_results and
+reference_formulation_processing_notes. Tables created later by
+create_all() do not inherit RLS, which is how they were missed.
+
+The four _backup_units_of_measure / _backup_psd_unitlink snapshot tables
+were dropped. Wave A and the controlled UOM reconciliation are both accepted
+and closed, so the reversibility they existed for is no longer needed.
+
+rigid_foam now reads 95 tables, 95 with RLS enabled, 0 policies - matching
+the public schema's 47 / 47 / 0 exactly.
+
+Worth recording accurately: the exposure here was smaller than the Flexible
+equivalent. anon and authenticated hold no USAGE on the rigid_foam schema
+and no table grants within it, so those rows were unreachable through the
+Supabase API regardless of RLS. In public those roles do hold SELECT, which
+is why RLS was the only barrier there. This was consistency drift, not an
+open door - fixed because the pattern should hold and because a later USAGE
+grant would otherwise open it silently.
+"""
+
+APP_VERSION = "0.69.0"

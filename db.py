@@ -190,7 +190,7 @@ RAW_MATERIAL_CATEGORIES = [
 # 2026-08-11): the list above is the Flexible Foam legacy vocabulary CR-08
 # was opened against - deprecated in place (kept only so any code that
 # still reads RawMaterial.category's free text keeps working; no longer
-# read or written by the active Add/Edit/import UI - see pages/14_Raw_
+# read or written by the active Add/Edit/import UI - see views/14_Raw_
 # Materials.py and RawMaterial.category's own docstring in this file).
 #
 # RAW_MATERIAL_TAXONOMY below is CR-08's own replacement controlled table
@@ -474,7 +474,7 @@ class User(Base):
     # a platform-owner admin could accidentally narrow their OWN role out
     # from under themselves with no separate escape hatch. is_super_admin is
     # that escape hatch: a per-person flag, editable only on a platform-
-    # owner-company user (see pages/25_User_Accounts.py), that always
+    # owner-company user (see views/25_User_Accounts.py), that always
     # resolves to full access everywhere no matter what any role's
     # RolePagePermission rows say. Reserve it for the platform owner's own
     # trusted staff, not customers' admins.
@@ -485,7 +485,7 @@ class User(Base):
     # admin distributed out of the import results table. Never set by the
     # manual Create-user form (an admin setting a password there is
     # presumed to hand it to the person directly, same as before this CR) -
-    # only pages/25_User_Accounts.py's CSV/Excel import tab sets this True;
+    # only views/25_User_Accounts.py's CSV/Excel import tab sets this True;
     # auth.require_login() enforces it immediately after a successful
     # login, before any other page content renders, and clears it once the
     # user sets their own new password.
@@ -1070,7 +1070,7 @@ class RawMaterial(Base):
     # category_id above) - see RawMaterialCategory's docstring and CR-08
     # section 7 ("Subcategory has a parent Category relationship and cannot
     # be assigned outside that parent"). Parent-child validity is checked
-    # on every write path in pages/14_Raw_Materials.py (and the recipe
+    # on every write path in views/14_Raw_Materials.py (and the recipe
     # page's inline material-creation helper); there is no plain two-column
     # DB constraint that can express "subcategory_id's own parent_category_id
     # must equal category_id" without a trigger, which would be
@@ -1316,7 +1316,7 @@ class ProductionPhase(Base):
     # precedent as foam_height_mm above (a measured outcome, not a Setup
     # setting - never shown on the Setup form). Optional: when left blank,
     # the Runtime Data tab calculates it instead from conveyor_speed x the
-    # phase_start/phase_end duration - see pages/4's _compute_runtime_output().
+    # phase_start/phase_end duration - see views/4's _compute_runtime_output().
     # Combined with sidewall_width_mm and foam_height_mm this gives the
     # produced volume (m3), and with the foam grade's target_density, the
     # produced weight (kg).
@@ -1691,7 +1691,7 @@ class Customer(Base):
 # and accessible" - kept as a synced text snapshot of customer.company_name,
 # the same "text snapshot, not a live-only reference" pattern
 # RawMaterial.default_supplier already uses for Supplier. See
-# pages/11_Customer_Trials.py and cascades.backfill_trial_customers() for
+# views/11_Customer_Trials.py and cascades.backfill_trial_customers() for
 # how the two fields are kept in sync going forward and mapped for existing
 # rows respectively.
 # ---------------------------------------------------------------------------
@@ -2220,7 +2220,7 @@ class ErrorLog(Base):
 class ExportLog(Base):
     """Item 53 - recipe/report/PI3-answer export and access events.
     Logged via st.download_button's on_click callback (see
-    audit_log.log_export and its call sites in pages/21_Report.py and
+    audit_log.log_export and its call sites in views/21_Report.py and
     helpers.render_pi3_docx_download) - fires exactly when the reviewer
     actually clicks Download, not merely when the button is rendered."""
     __tablename__ = "export_logs"
@@ -2360,7 +2360,7 @@ class ProductionMethod(Base):
     2026-08-11) removed that exemption after a UAT finding showed it let
     unreleased methods get written into live plant configuration - see
     helpers.method_activatable_by_customer and
-    pages/30_Production_Methods.py."""
+    views/30_Production_Methods.py."""
 
     __tablename__ = "production_methods"
 
@@ -2760,7 +2760,7 @@ class RawMaterialCategory(Base):
     # free-text escape hatch. True only on the single Subcategory row named
     # "Other" (under the "Other" Category) - the write path requires a
     # non-blank description/notes on the RawMaterial itself whenever this
-    # specific subcategory is chosen (enforced in pages/14, not the DB,
+    # specific subcategory is chosen (enforced in views/14, not the DB,
     # matching this app's established pattern of app-level validation for
     # conditional-required rules - see GradeSpecification's duplicate-block
     # for the contrasting case where a plain DB constraint was the right
@@ -3277,7 +3277,7 @@ GRADE_SPEC_OPERATORS = ["<=", ">=", "=", "between", "class"]
 # actually evaluates and every existing/seeded row (and every test) already
 # populates that pair; GRADE_SPEC_TARGET_TYPES is a UI-facing label on top,
 # translated to the matching operator by GRADE_SPEC_TARGET_TYPE_OPERATORS
-# below whenever the new Product Grade Property Targets UI (pages/2) writes
+# below whenever the new Product Grade Property Targets UI (views/2) writes
 # a row, so older code paths that only know target_operator keep working
 # unchanged. "Maximum" and "Maximum absolute" both evaluate as "<=" - the
 # "absolute" distinction is Charlie's own specification-authoring nuance
@@ -3300,9 +3300,9 @@ class GradeSpecification(Base):
     # CR-07 acceptance criterion: "Duplicate Product Grade + Property_ID
     # combinations are blocked in both UI and write path." The UI blocks it
     # structurally (a property already on the grade drops out of the "add
-    # property target" picker - see pages/2_Product_Grades.py, CR-10
+    # property target" picker - see views/2_Product_Grades.py, CR-10
     # 2026-08-12 split this off the old combined
-    # pages/2_Product_Family_Foam_Grade.py, since deleted); this is the
+    # views/2_Product_Family_Foam_Grade.py, since deleted); this is the
     # write-path backstop. A plain (not partial) unique
     # constraint is correct here, not a WHERE-filtered index like
     # RecipeVersion's ux_recipe_version_one_active_per_grade: standard SQL
@@ -3437,7 +3437,7 @@ class QualityIssueType(Base):
     Phase 8 P8-D01 (17 Aug 2026, Charlie's binding architecture decision
     on the JC implementation plan review): this table + PossibleCause +
     IssueCauseLink become the customer-facing source for the Rigid
-    Quality Issue picker (pages/6_Quality_Observation.py), replacing
+    Quality Issue picker (views/6_Quality_Observation.py), replacing
     quality_issue_taxonomy.py's Python dict for this app. See
     quality_issue_registry.py for the read API and QualityIssueTypeApplicability
     below for the method-scoping mechanism this cutover needed.
@@ -3706,7 +3706,7 @@ class ReferenceFormulation(Base):
     basis_uom = relationship("UnitOfMeasure", foreign_keys=[basis_uom_id])
     water_uom = relationship("UnitOfMeasure", foreign_keys=[water_uom_id])
     blowing_agent_uom = relationship("UnitOfMeasure", foreign_keys=[blowing_agent_uom_id])
-    # Added 2026-08-09 (production hotfix): pages/29_Reference_Formulations.py
+    # Added 2026-08-09 (production hotfix): views/29_Reference_Formulations.py
     # reads rf.components to list each formulation's ingredient lines - this
     # relationship was missing entirely (only the reverse
     # ReferenceFormulationComponent.reference_formulation existed), causing an

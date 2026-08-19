@@ -26,8 +26,8 @@ verification":
 - A5-07 (Imports/exports): the Component Stream Reading CSV import
   accepted ANY string for flow_unit and silently defaulted to "kg/min" -
   the manual create/edit forms have always constrained this to the
-  controlled 2-value list (STREAM_FLOW_UNIT_OPTIONS on pages/4). Fixed on
-  pages/4 in the same commit as this test (constant extracted + import-path
+  controlled 2-value list (STREAM_FLOW_UNIT_OPTIONS on views/4). Fixed on
+  views/4 in the same commit as this test (constant extracted + import-path
   validation added), proven here.
 
 Usage: python -m pytest tests/test_wp7_phase5_uat_evidence.py -v
@@ -51,7 +51,7 @@ import legacy_migration as lm
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE4 = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
+PAGE4 = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
 
 
 def _reset_schema():
@@ -151,7 +151,7 @@ def test_cascade_delete_removes_all_dependent_records_including_environment_outc
     session.flush()
 
     # Direct-to-run Environment/Outcome Actual value - exactly what the new
-    # Observations block on pages/4 writes.
+    # Observations block on views/4 writes.
     session.add(db.ProcessParameterValue(
         setting_definition_id=ps078.id, production_run_id=ids["run_id"],
         snapshot_type="Actual", numeric_value=185.0, unit="mm", source="Manual entry",

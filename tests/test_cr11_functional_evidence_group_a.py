@@ -10,13 +10,13 @@ actually work end-to-end through the real UI, for every applicable page.
 This file supplies that missing direct evidence for three of CR-11's six
 net-new CSV/Excel importers:
 
-  1. pages/1_Plant_Installation_Overview.py - Plant. Pre-CR-11 this page
+  1. views/1_Plant_Installation_Overview.py - Plant. Pre-CR-11 this page
      was a single "Add plant" expander with no import at all.
-  2. pages/20_Expert_Notes.py - Expert Note. Pre-CR-11 a single "Add an
+  2. views/20_Expert_Notes.py - Expert Note. Pre-CR-11 a single "Add an
      expert note" form with no import at all. Its pre-existing "Expert
      Notes Report" 4th tab (an aggregate breakdown, not a record-creation
      function - CR-11 explicitly retained it) is untouched by this file.
-  3. pages/31_Production_Equipment.py - Production Unit / Cell. Pre-CR-11
+  3. views/31_Production_Equipment.py - Production Unit / Cell. Pre-CR-11
      a single "Add Production Unit / Cell" expander with no import at
      all. Its Create tab has a dependent-dropdown chain (Plant ->
      Production Method -> OEM -> Model) that CR-11 moved into tab context
@@ -136,9 +136,9 @@ import db
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE_PLANTS = os.path.join(APP_DIR, "pages", "1_Plant_Installation_Overview.py")
-PAGE_EXPERT_NOTES = os.path.join(APP_DIR, "pages", "20_Expert_Notes.py")
-PAGE_PRODUCTION_EQUIPMENT = os.path.join(APP_DIR, "pages", "31_Production_Equipment.py")
+PAGE_PLANTS = os.path.join(APP_DIR, "views", "1_Plant_Installation_Overview.py")
+PAGE_EXPERT_NOTES = os.path.join(APP_DIR, "views", "20_Expert_Notes.py")
+PAGE_PRODUCTION_EQUIPMENT = os.path.join(APP_DIR, "views", "31_Production_Equipment.py")
 
 
 def _clear_relevant_caches():
@@ -175,7 +175,7 @@ def _run(page_path, session_state=None):
 
 
 # ---------------------------------------------------------------------------
-# Fixtures - Plant (pages/1_Plant_Installation_Overview.py)
+# Fixtures - Plant (views/1_Plant_Installation_Overview.py)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -214,7 +214,7 @@ def seeded_one_plant():
 
 
 # ---------------------------------------------------------------------------
-# Fixtures - Expert Note (pages/20_Expert_Notes.py)
+# Fixtures - Expert Note (views/20_Expert_Notes.py)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -266,7 +266,7 @@ def seeded_one_note(seeded_one_grade):
 
 
 # ---------------------------------------------------------------------------
-# Fixtures - Production Unit / Cell (pages/31_Production_Equipment.py)
+# Fixtures - Production Unit / Cell (views/31_Production_Equipment.py)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -326,7 +326,7 @@ def seeded_one_machine(seeded_plant_with_method):
 
 
 # ===========================================================================
-# 1. Plant (pages/1_Plant_Installation_Overview.py)
+# 1. Plant (views/1_Plant_Installation_Overview.py)
 # ===========================================================================
 
 def test_plant_create_via_form(seeded_company_only):
@@ -482,7 +482,7 @@ def test_plant_csv_import_validation_rejects_invalid_row(seeded_company_only):
 
 
 # ===========================================================================
-# 2. Expert Note (pages/20_Expert_Notes.py)
+# 2. Expert Note (views/20_Expert_Notes.py)
 # ===========================================================================
 
 def test_expert_note_create_via_form(seeded_one_grade):
@@ -656,7 +656,7 @@ def test_expert_note_csv_import_validation_rejects_invalid_row(seeded_one_grade)
 
 
 # ===========================================================================
-# 3. Production Unit / Cell (pages/31_Production_Equipment.py)
+# 3. Production Unit / Cell (views/31_Production_Equipment.py)
 # ===========================================================================
 
 def test_production_unit_create_via_form(seeded_plant_with_method):
@@ -876,7 +876,7 @@ def _run_as_role(page_path, ids, session_state=None):
 def plant_view_only_role_fixture(seeded_one_plant):
     """A real company-scoped Role with an explicit RolePagePermission row
     denying *use* (can_view=True, can_use=False) on "plant_overview" -
-    confirmed directly from pages/1_Plant_Installation_Overview.py's own
+    confirmed directly from views/1_Plant_Installation_Overview.py's own
     `can_use_page("plant_overview", ...)` call, not assumed - so this
     fixture's role is denied exactly the permission that page itself
     checks."""
@@ -895,7 +895,7 @@ def plant_view_only_role_fixture(seeded_one_plant):
 @pytest.fixture()
 def expert_note_view_only_role_fixture(seeded_one_note):
     """Same shape as plant_view_only_role_fixture, for "expert_notes" -
-    confirmed directly from pages/20_Expert_Notes.py's own
+    confirmed directly from views/20_Expert_Notes.py's own
     `can_use_page("expert_notes", ...)` call."""
     ids = seeded_one_note
     session = db.get_session()
@@ -912,10 +912,10 @@ def expert_note_view_only_role_fixture(seeded_one_note):
 @pytest.fixture()
 def production_unit_view_only_role_fixture(seeded_one_machine):
     """Same shape again, for Production Equipment. IMPORTANT, confirmed
-    directly from pages/31_Production_Equipment.py's own source - it does
+    directly from views/31_Production_Equipment.py's own source - it does
     NOT check a separate "production_equipment" page_key: its page_usable
     line is `can_use_page("plant_overview", ...)`, the identical key
-    pages/1_Plant_Installation_Overview.py checks. This fixture denies
+    views/1_Plant_Installation_Overview.py checks. This fixture denies
     "use" on that same "plant_overview" key (scoped to this fixture's own
     fresh company/role, so it cannot collide with
     plant_view_only_role_fixture's separate company/role in another test)."""
@@ -937,7 +937,7 @@ def test_plant_view_only_role_cannot_delete(plant_view_only_role_fixture):
     UI. Presets the plants_table dataframe widget's own selection state to
     select the seeded plant (row selection itself is not access-gated on
     this page - only the surrounding Edit form + delete_with_confirm call
-    is, both together inside pages/1_Plant_Installation_Overview.py's own
+    is, both together inside views/1_Plant_Installation_Overview.py's own
     `if not page_usable: st.caption(...) else: ...` branch), then asserts
     the real delete confirm-checkbox (key=f"plant_{id}_confirm") and delete
     button (key=f"plant_{id}_btn") are simply absent from the rendered
@@ -978,7 +978,7 @@ def test_plant_view_only_role_cannot_delete(plant_view_only_role_fixture):
 def test_expert_note_view_only_role_cannot_delete(expert_note_view_only_role_fixture):
     """CR-11 correction v2, item 1: same direct evidence as the Plant test
     above, for a role denied "use" on expert_notes deleting an expert note.
-    pages/20_Expert_Notes.py gates its delete_with_confirm call on its own
+    views/20_Expert_Notes.py gates its delete_with_confirm call on its own
     (separately from its Edit form, whose Save button is merely disabled
     rather than hidden for a view-only role) via
     `if page_usable: delete_with_confirm(...) else: st.caption(...)` - so
@@ -1020,7 +1020,7 @@ def test_production_unit_view_only_role_cannot_delete(production_unit_view_only_
     """CR-11 correction v2, item 1: same direct evidence again, for a role
     denied "use" on Production Equipment's own page_key deleting a
     Production Unit/Cell. Confirmed directly from source above:
-    pages/31_Production_Equipment.py's page_usable check calls
+    views/31_Production_Equipment.py's page_usable check calls
     can_use_page("plant_overview", ...) - the SAME key the Plant page
     checks, not a distinct "production_equipment" key - so this fixture's
     role denies that shared key, scoped to its own fresh company/role so

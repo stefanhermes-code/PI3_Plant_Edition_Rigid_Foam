@@ -44,7 +44,7 @@ import db
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_MAIN = os.path.join(APP_DIR, "app_rigid_foam.py")
-PAGE_CUSTOMER_TRIALS = os.path.join(APP_DIR, "pages", "11_Customer_Trials.py")
+PAGE_CUSTOMER_TRIALS = os.path.join(APP_DIR, "views", "11_Customer_Trials.py")
 
 
 def _reset_schema():
@@ -76,7 +76,7 @@ def test_customers_section_contains_only_customers_page():
         f"Customers section must contain exactly one page ('customers'), "
         f"found: {page_tuples}"
     )
-    assert 'st.Page("pages/33_Customers.py"' in block
+    assert 'st.Page("views/33_Customers.py"' in block
 
 
 def test_samples_trials_section_has_three_pages_in_required_order():
@@ -95,7 +95,7 @@ def test_samples_trials_section_has_three_pages_in_required_order():
         f"Samples, then Optimization Trials & Samples, in that order - "
         f"found: {page_tuples}"
     )
-    assert 'st.Page("pages/11_Customer_Trials.py"' in block
+    assert 'st.Page("views/11_Customer_Trials.py"' in block
     assert 'title="Customer Trials & Samples"' in block
 
 

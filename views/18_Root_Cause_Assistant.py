@@ -151,7 +151,7 @@ if current["machine"] != prior["machine"]:
 # eligible_phase_setting_fields() / PHASE_SETTING_LABELS combination,
 # which read ProductionPhase directly and retain zero active-reader
 # authority under Phase 4. Scoped to parameter_category == "Process
-# Setting" only - the same Environment/Outcome exclusion pages/4's own
+# Setting" only - the same Environment/Outcome exclusion views/4's own
 # Method-Aware Process Settings tab already applies (WP7 Phase 3
 # correction) - so a measured ambient/outcome reading is never reported
 # here as a "setting that shifted", only a genuine controllable process

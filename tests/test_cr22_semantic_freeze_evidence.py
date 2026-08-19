@@ -226,7 +226,7 @@ def test_quarantined_entry_still_selectable_when_already_recorded_on_a_row():
     must never be offered as a fresh pick, but a row that already has one
     recorded must still be able to keep/display it via the include_names
     escape hatch - proving "deprecate in place, never touch history" holds
-    at the taxonomy-function level (the same guarantee pages/6's
+    at the taxonomy-function level (the same guarantee views/6's
     _issue_type_picker() relies on for its category and issue-name
     dropdowns)."""
     category = "Density, shape & dimensional"
@@ -261,8 +261,8 @@ def test_no_customer_facing_foam_scope_wording_remains():
     Quality Issues Report). This is a source-level guard against the label
     string ever reappearing verbatim."""
     for relpath in (
-        os.path.join("pages", "5_Physical_Property_Result.py"),
-        os.path.join("pages", "6_Quality_Observation.py"),
+        os.path.join("views", "5_Physical_Property_Result.py"),
+        os.path.join("views", "6_Quality_Observation.py"),
     ):
         with open(os.path.join(APP_DIR, relpath), encoding="utf-8") as f:
             source = f.read()

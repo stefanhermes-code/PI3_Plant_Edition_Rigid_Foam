@@ -3,8 +3,8 @@ executed evidence for every CR-13 acceptance criterion and regression-test
 requirement (sections 8/9 of CR13_Split_Suppliers_into_Standalone_Page.docx).
 
 Supplier management used to live as a nested "Suppliers" tab inside
-pages/14_Raw_Materials.py, sharing that page's own "raw_materials"
-access_control key. This CR moved it to pages/32_Suppliers.py with its own
+views/14_Raw_Materials.py, sharing that page's own "raw_materials"
+access_control key. This CR moved it to views/32_Suppliers.py with its own
 "suppliers" key. Every test that used to prove Supplier behavior against
 PAGE_RAWMAT (tests/test_cr11_functional_evidence_group_c.py's Group C.3b,
 plus its correction-v2 view-only-delete-block and import-validation tests)
@@ -47,8 +47,8 @@ import tenant_scope
 from helpers import cr11_function_tab_labels
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE_SUPPLIERS = os.path.join(APP_DIR, "pages", "32_Suppliers.py")
-PAGE_RAWMAT = os.path.join(APP_DIR, "pages", "14_Raw_Materials.py")
+PAGE_SUPPLIERS = os.path.join(APP_DIR, "views", "32_Suppliers.py")
+PAGE_RAWMAT = os.path.join(APP_DIR, "views", "14_Raw_Materials.py")
 
 
 def _clear_relevant_caches():
@@ -110,7 +110,7 @@ def test_suppliers_page_registered_in_nav():
     block = source[start:end]
     assert '"suppliers"' in block
     assert '"raw_materials"' in block
-    assert 'st.Page("pages/32_Suppliers.py"' in block
+    assert 'st.Page("views/32_Suppliers.py"' in block
     # Suppliers immediately follows Raw Materials, still inside Formulations.
     raw_materials_pos = block.index('"raw_materials"')
     suppliers_pos = block.index('"suppliers"')
@@ -138,7 +138,7 @@ def seeded_company_only():
 
 def test_suppliers_page_opens_directly_and_shows_cr11_triplet(seeded_company_only):
     """Acceptance criteria 1 and 3: the standalone page opens directly
-    (AppTest.from_file against pages/32_Suppliers.py, not reached through
+    (AppTest.from_file against views/32_Suppliers.py, not reached through
     Raw Materials), and exposes exactly the three CR-11-standard tabs -
     'Create Supplier', 'Edit/Delete Supplier', 'CSV/Excel import Suppliers'
     - in that exact order and wording, with no other record type's tabs
@@ -305,7 +305,7 @@ def test_supplier_rename_on_standalone_page_cascades_to_raw_material_link(seeded
 
 
 def test_raw_material_default_supplier_picker_still_resolves_after_split(seeded_supplier_with_linked_raw_material):
-    """Acceptance criteria 4, 6, 7: opens pages/14_Raw_Materials.py (not
+    """Acceptance criteria 4, 6, 7: opens views/14_Raw_Materials.py (not
     the Suppliers page) and confirms its 'Default supplier' dropdown on
     the Create tab still lists the supplier that now lives only on the
     standalone page - direct proof the picker _supplier_picker() kept on

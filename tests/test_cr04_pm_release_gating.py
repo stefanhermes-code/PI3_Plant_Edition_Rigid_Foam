@@ -26,7 +26,7 @@ Covers two things:
    scenario CR-06 fixes).
 
 Also confirms the Operating Context feature CR-04 removed (the "Set as
-operating context" button, and pages/31_Production_Equipment.py's
+operating context" button, and views/31_Production_Equipment.py's
 session-level default) is gone - see test_pm_hierarchy_pages_smoke.py's
 own updated assertion for the page-30 half of that; this file focuses on
 the release-gating behaviour.
@@ -47,7 +47,7 @@ import db
 from helpers import method_activatable_by_customer
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE30 = os.path.join(APP_DIR, "pages", "30_Production_Methods.py")
+PAGE30 = os.path.join(APP_DIR, "views", "30_Production_Methods.py")
 
 
 def _reset_schema():

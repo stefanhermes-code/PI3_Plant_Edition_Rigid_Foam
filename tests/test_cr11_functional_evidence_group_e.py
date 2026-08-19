@@ -10,9 +10,9 @@ file supplies that missing direct evidence for the two "independent
 lab-trial" pages, each of which has BOTH an outer group and a nested
 group:
 
-  pages/11_Customer_Trials.py    - outer "Trial" (CustomerTrial),
+  views/11_Customer_Trials.py    - outer "Trial" (CustomerTrial),
                                     nested "Sample" ("Manage samples").
-  pages/12_Optimization_Trials.py - outer "Trial" (OptimizationTrial),
+  views/12_Optimization_Trials.py - outer "Trial" (OptimizationTrial),
                                     nested "Sample" ("Manage samples").
 
 Per tenant_scope.py's own module docstring, both CustomerTrial and
@@ -116,8 +116,8 @@ import db
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE_CUSTOMER_TRIALS = os.path.join(APP_DIR, "pages", "11_Customer_Trials.py")
-PAGE_OPTIMIZATION_TRIALS = os.path.join(APP_DIR, "pages", "12_Optimization_Trials.py")
+PAGE_CUSTOMER_TRIALS = os.path.join(APP_DIR, "views", "11_Customer_Trials.py")
+PAGE_OPTIMIZATION_TRIALS = os.path.join(APP_DIR, "views", "12_Optimization_Trials.py")
 
 
 def _clear_relevant_caches():
@@ -410,13 +410,13 @@ def seeded_ot_trial_with_sample():
 # Both pages gate their outer Trial group's AND their nested Sample
 # group's Create/Edit/Delete write controls off the SAME single
 # `page_usable = can_use_page(<page_key>, ...)` call near the top of the
-# page (see pages/11_Customer_Trials.py's `page_usable` variable, read
+# page (see views/11_Customer_Trials.py's `page_usable` variable, read
 # once and reused by both the outer tab_edit_delete block's
 # delete_with_confirm(...) call and the nested sub_edit_delete block's own
 # delete_with_confirm(...) call) - there is no separate page_key for the
 # nested Sample group. Verified directly from source rather than assumed:
-#   pages/11_Customer_Trials.py:    can_use_page("customer_trials", ...)
-#   pages/12_Optimization_Trials.py: can_use_page("optimization_trials", ...)
+#   views/11_Customer_Trials.py:    can_use_page("customer_trials", ...)
+#   views/12_Optimization_Trials.py: can_use_page("optimization_trials", ...)
 # So one company-scoped Role per page, denied "use" (can_view=True,
 # can_use=False) on that page's own page_key, is directly reusable as
 # fixture-level evidence for BOTH that page's outer Trial delete test and
@@ -571,7 +571,7 @@ def test_customer_trial_view_only_role_cannot_delete_via_ui(view_only_ct_role_fi
     safeguards evidence for the outer Customer Trial group, page_key
     'customer_trials'. A role denied 'use' (can_view=True, can_use=False)
     via a real db.RolePagePermission row still opens the page (view-only,
-    not hidden - can_view stays True) but pages/11_Customer_Trials.py's
+    not hidden - can_view stays True) but views/11_Customer_Trials.py's
     outer tab_edit_delete block only calls delete_with_confirm(...) when
     page_usable is True; otherwise it renders the 'View-only access -
     deleting is restricted for your role.' caption instead (see that
@@ -616,7 +616,7 @@ def test_customer_trial_view_only_role_cannot_delete_via_ui(view_only_ct_role_fi
 
 
 def test_customer_trial_csv_import_validation_rejects_invalid_row(seeded_ct_grade_only):
-    """CR-11 correction v2 (item 2): pages/11_Customer_Trials.py's outer
+    """CR-11 correction v2 (item 2): views/11_Customer_Trials.py's outer
     Trial CSV/Excel importer pre-existed CR-11 (only relabeled by it, not
     one of CR-11's six net-new importers) and so far only had
     successful-import evidence (test above). Uploads one row with an
@@ -661,7 +661,7 @@ def test_customer_trial_csv_import_via_ui(seeded_ct_grade_only):
     the page's own required columns (foam_grade_id, customer_name), then
     clicks the real 'Confirm import' button (key 'confirm_ct_trial_import')
     and confirms the imported row landed in the database with status
-    forced to Open, exactly as pages/11_Customer_Trials.py's import
+    forced to Open, exactly as views/11_Customer_Trials.py's import
     branch does."""
     ids = seeded_ct_grade_only
     at = AppTest.from_file(PAGE_CUSTOMER_TRIALS, default_timeout=30)
@@ -849,7 +849,7 @@ def test_customer_trial_sample_view_only_role_cannot_delete_via_ui(view_only_ct_
 
 
 def test_customer_trial_sample_csv_import_validation_rejects_invalid_row(seeded_ct_trial):
-    """CR-11 correction v2 (item 2): pages/11_Customer_Trials.py's nested
+    """CR-11 correction v2 (item 2): views/11_Customer_Trials.py's nested
     Sample CSV/Excel importer (also pre-existing, only relabeled by
     CR-11) so far only had successful-import evidence (test below).
     Navigates into the nested group the same way the create/valid-import
@@ -1029,7 +1029,7 @@ def test_optimization_trial_view_only_role_cannot_delete_via_ui(view_only_ot_rol
     evidence for the outer Optimization Trial group, page_key
     'optimization_trials'. Mirrors
     test_customer_trial_view_only_role_cannot_delete_via_ui exactly:
-    pages/12_Optimization_Trials.py's outer tab_edit_delete block only
+    views/12_Optimization_Trials.py's outer tab_edit_delete block only
     calls delete_with_confirm(...) when page_usable (derived from
     can_use_page("optimization_trials", ...)) is True; otherwise it shows
     the view-only caption. Presets the outer Trial table's own on_select
@@ -1069,7 +1069,7 @@ def test_optimization_trial_view_only_role_cannot_delete_via_ui(view_only_ot_rol
 
 
 def test_optimization_trial_csv_import_validation_rejects_invalid_row(seeded_ot_grade_only):
-    """CR-11 correction v2 (item 2): pages/12_Optimization_Trials.py's
+    """CR-11 correction v2 (item 2): views/12_Optimization_Trials.py's
     outer Trial CSV/Excel importer also pre-existed CR-11 (relabeled only).
     Uploads one row with an out-of-scope foam_grade_id - this page's own
     bad-row check is `grade_id_val in import_grade_ids` alone (unlike
@@ -1291,7 +1291,7 @@ def test_optimization_trial_sample_view_only_role_cannot_delete_via_ui(view_only
 
 
 def test_optimization_trial_sample_csv_import_validation_rejects_invalid_row(seeded_ot_trial):
-    """CR-11 correction v2 (item 2): pages/12_Optimization_Trials.py's
+    """CR-11 correction v2 (item 2): views/12_Optimization_Trials.py's
     nested Sample CSV/Excel importer (also pre-existing, only relabeled).
     Mirrors test_customer_trial_sample_csv_import_validation_rejects_invalid_row
     exactly - navigates into the nested group (the lone seeded trial

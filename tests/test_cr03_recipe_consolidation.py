@@ -1,11 +1,11 @@
 """CR-03 (Recipe Consolidation and Pending Review Status) regression tests,
 2026-08-10.
 
-Covers the rebuilt pages/3_Recipe_Version_Record.py ("Recipes") against
+Covers the rebuilt views/3_Recipe_Version_Record.py ("Recipes") against
 Charlie's CR-03 source document:
 
   - The standalone "Reference Formulations" nav entry/page (formerly
-    pages/29) is removed entirely - no page_key, no nav registration, no
+    views/29) is removed entirely - no page_key, no nav registration, no
     file on disk.
   - Every ReferenceFormulation row (RF-*, RFREF-*) carries a real, mutable
     Approval Status (db.APPROVAL_STATUSES vocabulary), defaulting to
@@ -40,7 +40,7 @@ import db
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_MAIN = os.path.join(APP_DIR, "app_rigid_foam.py")
-PAGE3 = os.path.join(APP_DIR, "pages", "3_Recipe_Version_Record.py")
+PAGE3 = os.path.join(APP_DIR, "views", "3_Recipe_Version_Record.py")
 
 
 def _reset_schema():
@@ -99,7 +99,7 @@ def recipe_and_reference_fixture():
 
 def test_reference_formulations_page_removed_from_catalog_and_disk():
     assert "reference_formulations" not in access_control.PAGE_CATALOG
-    assert not os.path.exists(os.path.join(APP_DIR, "pages", "29_Reference_Formulations.py"))
+    assert not os.path.exists(os.path.join(APP_DIR, "views", "29_Reference_Formulations.py"))
 
 
 def test_reference_formulations_not_registered_in_nav():
@@ -121,7 +121,7 @@ def test_reference_formulation_defaults_to_pending_review(recipe_and_reference_f
     # Supabase backfill migration treats every pre-existing row): the column
     # itself is nullable, so the app must treat None as "Pending Review",
     # never as blank/approved. This mirrors _reference_formulation rendering
-    # in pages/3, not a stored default - confirmed at the ORM level here.
+    # in views/3, not a stored default - confirmed at the ORM level here.
     assert rf_patent.approval_status is None
     assert rf_exact.approval_status is None
     session.close()

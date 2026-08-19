@@ -17,10 +17,10 @@ new importer was built for any of them), so every test below is a
 regression check that the pre-existing machinery still works correctly
 under the new tab structure, not new-feature coverage:
 
-  1. pages/3_Recipe_Version_Record.py - record type Recipe.
-  2. pages/5_Physical_Property_Result.py - record type Quality Test Result.
-  3. pages/6_Quality_Observation.py - record type Quality Issue.
-  4. pages/9_Samples_Conditioning.py - record type Sample (this page also
+  1. views/3_Recipe_Version_Record.py - record type Recipe.
+  2. views/5_Physical_Property_Result.py - record type Quality Test Result.
+  3. views/6_Quality_Observation.py - record type Quality Issue.
+  4. views/9_Samples_Conditioning.py - record type Sample (this page also
      keeps a page-specific 4th "Sample Report" tab CR-11 explicitly allows
      to remain - not touched here).
 
@@ -86,10 +86,10 @@ import db
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE_RECIPE = os.path.join(APP_DIR, "pages", "3_Recipe_Version_Record.py")
-PAGE_QTR = os.path.join(APP_DIR, "pages", "5_Physical_Property_Result.py")
-PAGE_QI = os.path.join(APP_DIR, "pages", "6_Quality_Observation.py")
-PAGE_SAMPLE = os.path.join(APP_DIR, "pages", "9_Samples_Conditioning.py")
+PAGE_RECIPE = os.path.join(APP_DIR, "views", "3_Recipe_Version_Record.py")
+PAGE_QTR = os.path.join(APP_DIR, "views", "5_Physical_Property_Result.py")
+PAGE_QI = os.path.join(APP_DIR, "views", "6_Quality_Observation.py")
+PAGE_SAMPLE = os.path.join(APP_DIR, "views", "9_Samples_Conditioning.py")
 
 
 def _clear_relevant_caches():
@@ -127,7 +127,7 @@ def _run(page_path, session_state=None):
 # Shared seed helper: Company -> Plant -> ProductFamily -> FoamGrade.
 # chemistry_id deliberately left unset on the grade (None) so
 # reports._is_rigid_grade() reads it as a legacy/flexible-style grade -
-# this keeps pages/9's rigid_sample_dimension_fields() a no-op (it returns
+# this keeps views/9's rigid_sample_dimension_fields() a no-op (it returns
 # {} for a non-rigid grade), which is irrelevant to what CR-11 changed and
 # would otherwise add unrelated widgets to work around.
 # ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@ def _seed_company_plant_family_grade(session, tag):
 
 
 def _seed_shrinkage_issue_type(session, tag):
-    """Phase 8 Wave A (2026-08-17): the Quality Issue picker on pages/6 now
+    """Phase 8 Wave A (2026-08-17): the Quality Issue picker on views/6 now
     reads its controlled vocabulary from the QualityIssueType DB master
     (quality_issue_registry.py) instead of quality_issue_taxonomy.py's
     static Python dict - so a test that drives the real category/issue-type
@@ -162,7 +162,7 @@ def _seed_shrinkage_issue_type(session, tag):
 
 
 # ===========================================================================
-# 1. Recipe (pages/3_Recipe_Version_Record.py)
+# 1. Recipe (views/3_Recipe_Version_Record.py)
 # ===========================================================================
 
 @pytest.fixture()
@@ -344,7 +344,7 @@ def test_recipe_csv_import_via_ui(seeded_grade_no_recipe):
 
 
 # ===========================================================================
-# 2. Quality Test Result (pages/5_Physical_Property_Result.py) - record
+# 2. Quality Test Result (views/5_Physical_Property_Result.py) - record
 # type "Quality Test Result" (customer-facing title "Test Results" since
 # CR-01's label-only rename; backend model PhysicalPropertyResult).
 # ===========================================================================
@@ -564,7 +564,7 @@ def test_quality_test_result_csv_import_via_ui(seeded_run_with_property):
 
 
 # ===========================================================================
-# 3. Quality Issue (pages/6_Quality_Observation.py) - record type "Quality
+# 3. Quality Issue (views/6_Quality_Observation.py) - record type "Quality
 # Issue" (backend model QualityObservation, unchanged per CR-01's
 # label-only rename).
 # ===========================================================================
@@ -769,7 +769,7 @@ def test_quality_issue_csv_import_via_ui(seeded_run_for_quality_issue):
 
 
 # ===========================================================================
-# 4. Sample (pages/9_Samples_Conditioning.py) - record type "Sample".
+# 4. Sample (views/9_Samples_Conditioning.py) - record type "Sample".
 # This page also keeps a page-specific 4th "Sample Report" tab, which
 # CR-11 explicitly allows to remain beyond the standard 3 - not touched by
 # any test below, per this correction's scope.
@@ -992,7 +992,7 @@ def _run_as_role(page_path, ids, session_state=None):
 # Gap 1.1 - Recipe (page_key "recipes"). The "Edit details / delete this
 # recipe version" expander gates delete_with_confirm() itself behind
 # `if not page_usable: caption else: ... delete_with_confirm(...)` (see
-# pages/3_Recipe_Version_Record.py) - the "Recipe versions" list itself
+# views/3_Recipe_Version_Record.py) - the "Recipe versions" list itself
 # (and its row selection) is NOT gated on page_usable, so a view-only role
 # can still select and view a row, just not delete it.
 # ---------------------------------------------------------------------------
@@ -1003,7 +1003,7 @@ def view_only_role_fixture_recipe():
     as seeded_active_recipe_version above), plus a real Role with an
     explicit RolePagePermission row denying use on page_key "recipes"
     (can_view=True, can_use=False) - direct evidence against the real
-    can_use_page()/RolePagePermission plumbing pages/3 actually calls, not
+    can_use_page()/RolePagePermission plumbing views/3 actually calls, not
     a hypothetical role."""
     db.init_db()
     _reset_schema()
@@ -1071,7 +1071,7 @@ def test_recipe_view_only_role_cannot_delete(view_only_role_fixture_recipe):
 
 # ---------------------------------------------------------------------------
 # Gap 1.2 - Quality Test Result (page_key "quality_test_result").
-# pages/5_Physical_Property_Result.py gates delete_with_confirm() behind
+# views/5_Physical_Property_Result.py gates delete_with_confirm() behind
 # `if page_usable: delete_with_confirm(...) else: st.caption(...)` inside
 # the Edit/Delete tab's selected-row branch - the browsable results table
 # and row selection above it are not gated.
@@ -1158,7 +1158,7 @@ def test_quality_test_result_view_only_role_cannot_delete(view_only_role_fixture
 
 # ---------------------------------------------------------------------------
 # Gap 1.3 - Quality Issue (page_key "quality_issue"). Same delete gating
-# pattern as Quality Test Result, on pages/6_Quality_Observation.py.
+# pattern as Quality Test Result, on views/6_Quality_Observation.py.
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -1238,7 +1238,7 @@ def test_quality_issue_view_only_role_cannot_delete(view_only_role_fixture_qi):
 # Gap 1.4 - Sample (page_key "samples_conditioning" - unchanged identity in
 # the User Roles matrix per this page's own module docstring, even though
 # its title/scope changed). Same delete gating pattern, on
-# pages/9_Samples_Conditioning.py.
+# views/9_Samples_Conditioning.py.
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -1314,7 +1314,7 @@ def test_sample_view_only_role_cannot_delete(view_only_role_fixture_sample):
 
 
 # ---------------------------------------------------------------------------
-# Gap 2.1 - Recipe CSV import validation. Bad-row check (pages/3_Recipe_
+# Gap 2.1 - Recipe CSV import validation. Bad-row check (views/3_Recipe_
 # Version_Record.py, "CSV / Excel import" tab): `row.get("foam_grade_id")
 # in valid_grade_ids and str(row.get("version_label", "")).strip()`.
 # ---------------------------------------------------------------------------
@@ -1359,7 +1359,7 @@ def test_recipe_csv_import_validation_rejects_invalid_row(seeded_grade_no_recipe
 
 # ---------------------------------------------------------------------------
 # Gap 2.2 - Quality Test Result CSV import validation. Bad-row check
-# (pages/5_Physical_Property_Result.py, tab_import): a row is only "ok" if
+# (views/5_Physical_Property_Result.py, tab_import): a row is only "ok" if
 # property_name resolves against the property master list (case-
 # insensitively), exactly one of the three parent FKs is in-scope, any
 # sample_id given is in-scope, and test_method/unit/actual_value are all
@@ -1406,7 +1406,7 @@ def test_quality_test_result_csv_import_validation_rejects_invalid_row(seeded_ru
 
 
 # ---------------------------------------------------------------------------
-# Gap 2.3 - Quality Issue CSV import validation. Bad-row check (pages/6_
+# Gap 2.3 - Quality Issue CSV import validation. Bad-row check (views/6_
 # Quality_Observation.py, tab_import): a row is only "ok" if exactly one
 # parent FK is in-scope AND observation_type matches the controlled
 # taxonomy case-insensitively (quality_issue_taxonomy.lookup_case_
@@ -1451,7 +1451,7 @@ def test_quality_issue_csv_import_validation_rejects_invalid_row(seeded_run_for_
 
 
 # ---------------------------------------------------------------------------
-# Gap 2.4 - Sample CSV import validation. Bad-row check (pages/9_Samples_
+# Gap 2.4 - Sample CSV import validation. Bad-row check (views/9_Samples_
 # Conditioning.py, tab_import): `run_id_val in import_run_ids and
 # str(row.get("zone_label", "")).strip()`. This test isolates the
 # out-of-scope production_run_id check.

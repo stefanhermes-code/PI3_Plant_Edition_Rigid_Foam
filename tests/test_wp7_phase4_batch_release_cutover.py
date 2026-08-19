@@ -55,7 +55,7 @@ import db
 import reports
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REPORT_PAGE = os.path.join(APP_DIR, "pages", "21_Report.py")
+REPORT_PAGE = os.path.join(APP_DIR, "views", "21_Report.py")
 
 
 def _reset_schema():

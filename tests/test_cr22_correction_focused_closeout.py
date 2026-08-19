@@ -19,7 +19,7 @@ closeout correction") required beyond a helper-function truth table:
     test_cr22_semantic_freeze_evidence.py already proves at the
     report-builder-dict level.
   Section 6 (universal import wording): confirms the pre-existing
-    pages/4_Production_Run_Trial_Record.py CSV-import-tab caption naming
+    views/4_Production_Run_Trial_Record.py CSV-import-tab caption naming
     "block_reference (PM-500 only)" is actually rendered (implementation
     already existed before this correction; only evidence was missing).
   Section 7 (Customer/Optimization Trial Quality Issue direct tests): both
@@ -68,9 +68,9 @@ import quality_issue_taxonomy as qit
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE_QI = os.path.join(APP_DIR, "pages", "6_Quality_Observation.py")
-PAGE_RUN = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
-PAGE_QTR = os.path.join(APP_DIR, "pages", "5_Physical_Property_Result.py")
+PAGE_QI = os.path.join(APP_DIR, "views", "6_Quality_Observation.py")
+PAGE_RUN = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
+PAGE_QTR = os.path.join(APP_DIR, "views", "5_Physical_Property_Result.py")
 
 EXPECTED_QUARANTINED = {
     "Bottom cavitation", "Bottom skin densification", "Gross splits", "Heavy skin",
@@ -81,7 +81,7 @@ EXPECTED_QUARANTINED = {
 
 
 def _seed_full_taxonomy_into_db(session):
-    """Phase 8 Wave A (2026-08-17): the Quality Issue picker on pages/6 now
+    """Phase 8 Wave A (2026-08-17): the Quality Issue picker on views/6 now
     reads its controlled vocabulary from the QualityIssueType DB master
     (quality_issue_registry.py) instead of quality_issue_taxonomy.py's
     static Python dict, so this file's driven-widget tests need real DB
@@ -262,7 +262,7 @@ def synthetic_pm500_only_issue(three_method_run_and_trial_chain):
     fixture proves now lives in QualityIssueType/QualityIssueTypeApplicability
     DB rows (quality_issue_registry.py, per Charlie's P8-D01), not
     quality_issue_taxonomy.py's module-level dict - mutating qit's Python
-    structures no longer affects the live DB-backed picker at all (pages/6
+    structures no longer affects the live DB-backed picker at all (views/6
     stopped reading that module). Inserts one real STATE_ACTIVE
     QualityIssueType row in an existing active category, plus one
     QualityIssueTypeApplicability row restricting it to the real PM-500
@@ -380,7 +380,7 @@ def test_f22_06_synthetic_pm500_only_issue_absent_for_both_trial_paths(
 
 # ===========================================================================
 # Part 2 - direct PM-100/500/800 block_reference UI/import evidence
-# (Charlie's Section 5), on pages/4_Production_Run_Trial_Record.py.
+# (Charlie's Section 5), on views/4_Production_Run_Trial_Record.py.
 # ===========================================================================
 
 def _select_plant_method_machine(at, plant_name, method_name, machine_name):
@@ -401,7 +401,7 @@ def _select_plant_method_machine(at, plant_name, method_name, machine_name):
 def test_block_reference_add_form_field_present_only_for_pm500(three_method_run_and_trial_chain):
     """Drives the real Create Production Run form's Plant/Production
     Method/Production Unit or Cell pickers (all outside the st.form, same
-    reactive-dependent-dropdown reasoning as pages/6's issue-type picker)
+    reactive-dependent-dropdown reasoning as views/6's issue-type picker)
     for each of the three seeded methods and confirms the unkeyed 'Block
     reference' text_input inside the form is present only when the
     selected machine resolves to PM-500 (F22-04)."""
@@ -507,7 +507,7 @@ def test_mixed_method_overview_shows_empty_marker_for_non_pm500(three_method_run
 
 
 def test_csv_import_tab_shows_universal_block_reference_wording(three_method_run_and_trial_chain):
-    """Confirms the pre-existing pages/4 CSV-import-tab caption naming the
+    """Confirms the pre-existing views/4 CSV-import-tab caption naming the
     block_reference PM-500-only rule is actually rendered (Charlie's
     Section 6) - the implementation itself predates this correction; only
     direct evidence that it renders was missing."""
@@ -578,7 +578,7 @@ def test_block_reference_csv_import_accepts_pm500_rejects_others(three_method_ru
 # Part 2b - rendered UI evidence for the Product scope radio's frozen order
 # (Charlie's Section 5 standard applied to F22-01/F22-02): the existing
 # test_cr18_product_family_terminology.py::test_quality_pages_product_scope_
-# control_says_product_family only reads pages/5 and pages/6's SOURCE CODE
+# control_says_product_family only reads views/5 and views/6's SOURCE CODE
 # for the exact options-list string - a helper/source-text check, not
 # genuine rendered-widget evidence. These two tests drive the real
 # st.radio widget and read its actual rendered .options.

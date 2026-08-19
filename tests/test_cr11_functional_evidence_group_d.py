@@ -7,7 +7,7 @@ helpers.cr11_function_tab_labels()) - no DIRECT, EXECUTED evidence that
 Create / Edit / Delete / CSV-Excel-import actually work through the real UI
 for each standardized record group. Charlie's return explicitly named "the
 five Production Run record groups" as the ones this evidence must cover, by
-name. Those five groups all live on ONE page, pages/4_Production_Run_Trial_
+name. Those five groups all live on ONE page, views/4_Production_Run_Trial_
 Record.py, each behind its own independent st.tabs(cr11_function_tab_labels(
 ...)) call site:
 
@@ -20,7 +20,7 @@ Record.py, each behind its own independent st.tabs(cr11_function_tab_labels(
 This file adds that missing direct evidence, at least one
 create/edit-delete/import test per group (15 tests minimum).
 
-PAGE STRUCTURE (read directly from pages/4_Production_Run_Trial_Record.py
+PAGE STRUCTURE (read directly from views/4_Production_Run_Trial_Record.py
 before writing anything here, per instruction):
 
 - All 5 top-level tabs are rendered on every single script run - Streamlit's
@@ -74,7 +74,7 @@ before writing anything here, per instruction):
   Production Run with dependents can always be deleted; the page only shows
   a WARNING listing what else will be deleted (production_run_dependency_
   counts()), never a hard block. Setup Data's and Runtime Data's own delete
-  (pages/4's local _delete_phase_cascade()) is the same story: it always
+  (views/4's local _delete_phase_cascade()) is the same story: it always
   proceeds, deleting that phase's stream readings/fall-plate positions and
   UNLINKING (not deleting) any Production Events that referenced it. So
   every delete test below exercises a real, unblocked delete - there is no
@@ -125,7 +125,7 @@ import db
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE4 = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
+PAGE4 = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
 
 
 def _clear_relevant_caches():
@@ -137,7 +137,7 @@ def _clear_relevant_caches():
     @st.cache_data'd on small-int keys (company_id/plant_ids/role_id) that
     repeat across tests/files once ids restart. run_ids_for_plants is
     especially relevant here since it's directly in this file's dependency
-    chain (pages/4 calls plant_ids_for_company/grade_ids_for_company on
+    chain (views/4 calls plant_ids_for_company/grade_ids_for_company on
     every load, and every one of the 5 record groups ultimately hangs off
     apply_scope(..., plant_ids)/apply_scope(..., grade_ids))."""
     tenant_scope.plant_ids_for_company.clear()
@@ -292,7 +292,7 @@ def seeded_finalized_phase(seeded_run):
     recorded for that run - i.e. a Runtime Data row. This is the extra FK
     hop Stream Reading actually depends on (ComponentStreamReading.
     production_phase_id only ever points at a Finalized phase - see
-    tab_streams' own gate in pages/4, which shows nothing but an info box
+    tab_streams' own gate in views/4, which shows nothing but an info box
     until this exists), so it's the prerequisite fixture for every Stream
     Reading test below. It doubles as Runtime Data's own Edit/Delete
     prerequisite too - a Finalized phase IS a Runtime Data row; they are
@@ -536,7 +536,7 @@ def test_setup_data_selection_edit_and_delete_via_ui(seeded_setup_phase):
     form renders directly once seeded_setup_phase's one Setup row exists.
     Edits Conveyor speed through that real form and confirms it persisted,
     then deletes it through the real confirm-checkbox + delete-button flow
-    (pages/4's local _delete_phase_cascade, unblocked - see module
+    (views/4's local _delete_phase_cascade, unblocked - see module
     docstring) and confirms the row is gone."""
     ids = seeded_setup_phase
     at = _run()
@@ -1005,7 +1005,7 @@ def test_runtime_data_csv_import_via_ui(seeded_run):
 # Item 1 (Delete permission/safeguards): the first correction round never
 # directly verified the permission-denied/view-only Delete behavior for any
 # of these 5 record groups' real page key. Verified directly from the page
-# source (line ~299 of pages/4_Production_Run_Trial_Record.py):
+# source (line ~299 of views/4_Production_Run_Trial_Record.py):
 #   page_usable = can_use_page("production_run", role_id=user["role_id"],
 #                               session=session, is_super_admin=user["is_super_admin"])
 # is computed ONCE and reused, unmodified, as the gate for every one of the
@@ -1033,7 +1033,7 @@ def view_only_role_fixture(seeded_setup_phase, seeded_stream_reading, seeded_eve
     """A real company-scoped Role with an explicit RolePagePermission row
     denying *use* (can_view=True, can_use=False - access_control.py's "View
     only" state) on page_key="production_run" - direct evidence against the
-    real can_use_page()/RolePagePermission plumbing pages/4 actually calls,
+    real can_use_page()/RolePagePermission plumbing views/4 actually calls,
     not a hypothetical role. See the section docstring above for why one
     page_key/one role covers every one of the 5 groups' Delete-permission
     tests.
@@ -1246,7 +1246,7 @@ def test_runtime_data_view_only_role_cannot_delete(view_only_role_fixture):
 # --- Item 2: Import validation handling, one test per record group ---
 
 def test_production_run_csv_import_validation_rejects_invalid_row(seeded_grade_chain):
-    """Production Run's own bad-row check (pages/4, tab_import under
+    """Production Run's own bad-row check (views/4, tab_import under
     tab_runs): `ok = bool(grade_row and version_row and
     version_row.foam_grade_id == grade_row.id and machine_ok)`. This row
     supplies a real foam_grade_id but a recipe_version_id that does not
@@ -1282,7 +1282,7 @@ def test_production_run_csv_import_validation_rejects_invalid_row(seeded_grade_c
 
 
 def test_setup_data_csv_import_validation_rejects_invalid_row(seeded_run):
-    """Setup Data's own bad-row check (pages/4, tab_import under
+    """Setup Data's own bad-row check (views/4, tab_import under
     tab_setup): `if row.get("production_run_id") in valid_run_ids`. This
     row's required column is present, but its value is a production_run_id
     that does not exist, so it is flagged/rejected rather than silently
@@ -1315,7 +1315,7 @@ def test_setup_data_csv_import_validation_rejects_invalid_row(seeded_run):
 
 
 def test_stream_reading_csv_import_validation_rejects_invalid_row(seeded_finalized_phase):
-    """Stream Reading's own bad-row check (pages/4, tab_import under
+    """Stream Reading's own bad-row check (views/4, tab_import under
     tab_streams). WP7 Phase 1/2 (2026-08-13/14, per Charlie's decoupling
     decision): a stream reading no longer requires the target run to have a
     Finalized phase first - `production_run_id` just needs to reference a
@@ -1356,7 +1356,7 @@ def test_stream_reading_csv_import_validation_rejects_invalid_row(seeded_finaliz
 
 
 def test_production_event_csv_import_validation_rejects_invalid_row(seeded_run):
-    """Production Event's own bad-row check (pages/4, tab_import under
+    """Production Event's own bad-row check (views/4, tab_import under
     tab_events): `if run_ok and row.get("event_type") in EVENT_TYPES and ts
     is not None`. This row has a valid production_run_id and a parseable
     event_ts, but an event_type outside the controlled EVENT_TYPES list, so
@@ -1391,7 +1391,7 @@ def test_production_event_csv_import_validation_rejects_invalid_row(seeded_run):
 
 
 def test_runtime_data_csv_import_validation_rejects_invalid_row(seeded_run):
-    """Runtime Data's own bad-row check (pages/4, tab_import under
+    """Runtime Data's own bad-row check (views/4, tab_import under
     tab_runtime): `if row.get("production_run_id") in valid_run_ids` -
     identical shape to Setup Data's own check above (same required-columns
     contract, RUNTIME_REQUIRED_COLUMNS = ["production_run_id"]). This row's

@@ -2,7 +2,7 @@
 regression tests.
 
 WP7 Production Run Domain Redesign section 6's Phase 0 scope, as narrowed
-during design (see pages/4_Production_Run_Trial_Record.py's module
+during design (see views/4_Production_Run_Trial_Record.py's module
 docstring for the full record): remove ACTIVE UI rendering, CSV/Excel
 import parsing, report generation, and analytics ranking for exactly 3
 inherited Flexible Foam/slabstock concepts -
@@ -25,10 +25,10 @@ This file proves both halves of that constraint with direct, executed
 evidence:
 
   A. Source-grep tests (CR-18 repo-wide-scan pattern) - the 4 surfaces
-     that were edited (pages/4, analytics.py, reports.py, pages/21) no
+     that were edited (views/4, analytics.py, reports.py, views/21) no
      longer contain ACTIVE code references to the 3 in-scope concepts,
      while confirming the deliberately-kept exceptions (db.py schema,
-     pages/4's _delete_phase_cascade FallplateSectionPosition cleanup)
+     views/4's _delete_phase_cascade FallplateSectionPosition cleanup)
      are exactly what's left.
   B. AppTest UI tests - Setup Data and Runtime Data each render with only
      3 tabs (Create/Edit-Delete/Import - the 4th "Tool Geometry and Fill
@@ -77,8 +77,8 @@ import reports
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE4 = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
-PAGE21 = os.path.join(APP_DIR, "pages", "21_Report.py")
+PAGE4 = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
+PAGE21 = os.path.join(APP_DIR, "views", "21_Report.py")
 ANALYTICS_PY = os.path.join(APP_DIR, "analytics.py")
 REPORTS_PY = os.path.join(APP_DIR, "reports.py")
 
@@ -252,7 +252,7 @@ def _active_code_hits(path):
 
 
 def test_page4_no_active_fallplate_or_foaming_mode_ui_code():
-    """pages/4's module docstring is allowed to mention every retired
+    """views/4's module docstring is allowed to mention every retired
     token (it explains the removal in prose) - everything below the
     docstring's closing triple-quote must be clean except the one
     legitimate exception: _delete_phase_cascade's FallplateSectionPosition
@@ -264,7 +264,7 @@ def test_page4_no_active_fallplate_or_foaming_mode_ui_code():
     # Find the module docstring's span (first triple-quoted block).
     text = "".join(lines)
     doc_match = re.search(r'"""', text)
-    assert doc_match, "pages/4 has no module docstring to skip past"
+    assert doc_match, "views/4 has no module docstring to skip past"
     doc_end = text.index('"""', doc_match.end())
     doc_end_line = text[:doc_end].count("\n") + 1
 
@@ -278,7 +278,7 @@ def test_page4_no_active_fallplate_or_foaming_mode_ui_code():
     ]
     assert not non_fallplate_hits, (
         f"Unexpected active foaming_mode/top_flat_system_used/FOAMING_MODES code "
-        f"outside the module docstring in pages/4: {non_fallplate_hits}"
+        f"outside the module docstring in views/4: {non_fallplate_hits}"
     )
     assert 1 <= len(hits_after_docstring) <= 4, (
         "Expected only _delete_phase_cascade's FallplateSectionPosition import + "
@@ -292,7 +292,7 @@ def test_page4_setup_and_runtime_tabs_have_no_fallplate_subtab():
     the tabs() unpacking must now be exactly 3 names (tab_create, tab_
     edit_delete, tab_import) for Setup Data and Runtime Data."""
     text = open(PAGE4, encoding="utf-8").read()
-    assert "sub_fallplate" not in text, "sub_fallplate 4th-tab reference still present in pages/4"
+    assert "sub_fallplate" not in text, "sub_fallplate 4th-tab reference still present in views/4"
     # Allow the st.tabs(...) call to wrap onto the next line (it does, in
     # the real file, since the argument list is long) - match across
     # whitespace/newlines rather than requiring one physical line.
@@ -346,7 +346,7 @@ def test_reports_no_active_fallplate_or_foaming_mode_code():
     non_comment = [(n, l) for n, l in fallplate_lines if not l.lstrip().startswith("#")]
     assert not non_comment, (
         f"reports.py has a live (non-comment) FallplateSectionPosition reference: {non_comment} "
-        "(unlike pages/4, reports.py has no cascade-delete responsibility, so it should have none)"
+        "(unlike views/4, reports.py has no cascade-delete responsibility, so it should have none)"
     )
     text = "".join(lines)
     assert "def _fallplate_deviations" not in text

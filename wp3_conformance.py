@@ -436,7 +436,7 @@ def compute_conformance_report(
 def compute_grade_achievement_summary(session, foam_grade_id, production_run_ids):
     """WP4 (Converged Joint Implementation Plan, section 7.5) rigid-foam
     equivalent of the flexible app's "Does the current recipe meet target?"
-    table (pages/15_Recipe_Optimization.py's expectation_summary, built on
+    table (views/15_Recipe_Optimization.py's expectation_summary, built on
     analytics.property_results_dataframe + quality_standards.compute_pass_fail).
 
     That flexible logic can't be reused as-is for a rigid-foam grade: it
@@ -449,7 +449,7 @@ def compute_grade_achievement_summary(session, foam_grade_id, production_run_ids
     aggregation step on top of that: one row per GradeSpecification that
     had at least one matched, complete result across the given set of
     production runs (typically every run made under a grade's current
-    recipe version - see pages/15_Recipe_Optimization.py), with:
+    recipe version - see views/15_Recipe_Optimization.py), with:
 
     - avg_actual: mean of the (already unit-converted, see
       resolve_actual_value) evaluated actual value across every Pass/Fail

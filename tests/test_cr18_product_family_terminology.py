@@ -5,11 +5,11 @@ Charlie's CR found that "Foam Family"/"Foam family"/"foam family" - a
 Flexible Foam Edition term - had leaked into several customer-facing
 surfaces of the Rigid Foam app, most visibly the shared "Analyze by:
 Product Grade / Foam Family" control (helpers.analysis_unit_picker(),
-consumed verbatim by pages/16_Trend_Analysis.py, pages/
-17_Process_Property_Correlation.py, and pages/
+consumed verbatim by views/16_Trend_Analysis.py, views/
+17_Process_Property_Correlation.py, and views/
 19_Machine_Settings_Optimization.py), each of those three pages' own
 action text and pooling captions, the same "Foam scope" pattern on
-pages/5_Physical_Property_Result.py and pages/6_Quality_Observation.py,
+views/5_Physical_Property_Result.py and views/6_Quality_Observation.py,
 the PI3-subject-context `subject_desc` string duplicated in those three
 pages AND three report-building functions in reports.py, and a report
 link-type label dict in reports.py's Expert Notes aggregate report. The
@@ -44,7 +44,7 @@ covers, in order:
      report's link-type label) - the PI3-subject-context `subject_desc`
      string and the link-type label are both clean of "Foam Family".
 
-Deliberately NOT re-scanned here: pages/20_Expert_Notes.py's own
+Deliberately NOT re-scanned here: views/20_Expert_Notes.py's own
 customer-facing text, which CR-15 already fixed and this CR's inventory
 confirmed has no new leaks (its 3 remaining "foam family" mentions are
 all comments/docstrings documenting CR-15's own completed fix).
@@ -70,11 +70,11 @@ import reports
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE16 = os.path.join(APP_DIR, "pages", "16_Trend_Analysis.py")
-PAGE17 = os.path.join(APP_DIR, "pages", "17_Process_Property_Correlation.py")
-PAGE19 = os.path.join(APP_DIR, "pages", "19_Machine_Settings_Optimization.py")
-PAGE5 = os.path.join(APP_DIR, "pages", "5_Physical_Property_Result.py")
-PAGE6 = os.path.join(APP_DIR, "pages", "6_Quality_Observation.py")
+PAGE16 = os.path.join(APP_DIR, "views", "16_Trend_Analysis.py")
+PAGE17 = os.path.join(APP_DIR, "views", "17_Process_Property_Correlation.py")
+PAGE19 = os.path.join(APP_DIR, "views", "19_Machine_Settings_Optimization.py")
+PAGE5 = os.path.join(APP_DIR, "views", "5_Physical_Property_Result.py")
+PAGE6 = os.path.join(APP_DIR, "views", "6_Quality_Observation.py")
 
 
 def _reset_schema():
@@ -164,7 +164,7 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # docstring legitimately uses the same established "(a pooled foam
     # family) - see _grade_id_list" phrasing as every other foam_grade_id
     # docstring in this file (new hit, analytics.py:652), and every later
-    # pre-existing hit shifted down by the ~130 new lines. pages/
+    # pre-existing hit shifted down by the ~130 new lines. views/
     # 16_Trend_Analysis.py also gained ~110 lines (the new "What to trend"
     # radio branch and its setup-section restructuring), shifting its own
     # two pre-existing hits down in turn.
@@ -194,16 +194,16 @@ ALLOWED_FOAM_FAMILY_HITS = {
     ("analytics.py", 1181), ("analytics.py", 1702), ("analytics.py", 1877),
     ("db.py", 2046),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
-    ("pages/16_Trend_Analysis.py", 228), ("pages/16_Trend_Analysis.py", 411),
-    ("pages/17_Process_Property_Correlation.py", 109),
-    ("pages/19_Machine_Settings_Optimization.py", 105),
-    ("pages/20_Expert_Notes.py", 6), ("pages/20_Expert_Notes.py", 38),
-    ("pages/20_Expert_Notes.py", 146),
+    ("views/16_Trend_Analysis.py", 228), ("views/16_Trend_Analysis.py", 411),
+    ("views/17_Process_Property_Correlation.py", 109),
+    ("views/19_Machine_Settings_Optimization.py", 105),
+    ("views/20_Expert_Notes.py", 6), ("views/20_Expert_Notes.py", 38),
+    ("views/20_Expert_Notes.py", 146),
     # Line numbers shifted again by the CR-22 / F22-01, F22-02 Product
     # scope rename + reorder edits, and again by the CR-22 focused closeout
     # correction (2026-08-16) which added an explanatory comment above
     # render_function_action_intro() on this page.
-    ("pages/5_Physical_Property_Result.py", 641),
+    ("views/5_Physical_Property_Result.py", 641),
     # Line number shifted by the CR-22 correction (2026-08-16, Charlie's
     # focused closeout return on F22-06): "Record against" was reordered
     # before the issue-type picker and a production_method_controlled_id
@@ -213,7 +213,7 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # "Breakdown by issue" chart, which replaced a single-line taxonomy
     # lookup with a multi-line quality_issue_registry.lookup() call above
     # this comment.
-    ("pages/6_Quality_Observation.py", 630),
+    ("views/6_Quality_Observation.py", 630),
 }
 
 # A hit whose line contains any of these is a live customer-facing string
@@ -327,7 +327,7 @@ def test_process_parameter_optimization_action_text_and_radio_say_product_family
 
 
 def test_quality_pages_product_scope_control_says_product_family():
-    """pages/5 and pages/6's "Product scope" radio (renamed from "Foam
+    """views/5 and views/6's "Product scope" radio (renamed from "Foam
     scope" and reordered per CR-22 / F22-01, F22-02, AF22-01) has options
     'All product grades / Product family / Product grade' - Product family
     before Product grade, matching the hierarchy order used everywhere else

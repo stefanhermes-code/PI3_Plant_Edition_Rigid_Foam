@@ -11,7 +11,7 @@ usage correlation, analytics.rank_component_actual_correlations()) still
 located each run's Finalized ProductionPhase first and only read
 ComponentStreamReading rows linked to that phase - the exact same class of
 live ProductionPhase dependency Item 1.3 already removed from Batch
-Release's build_batch_release_record_data(). Since pages/4's Material
+Release's build_batch_release_record_data(). Since views/4's Material
 Metering capture UI was decoupled from ProductionPhase back in WP7 Phase 2
 ("a Finalized phase is no longer required first"), any run metered under
 the current architecture with no Finalized ProductionPhase ever created for
@@ -29,23 +29,23 @@ direct ProductionPhase model read found (grep -n "ProductionPhase" across
 the repo, not just PHASE_SETTING_FIELDS/LABELS) is a legitimate, in-scope
 use classified as follows and left unchanged:
   - analytics.run_settings_dataframe(): still queries ProductionPhase for
-    PHASE_SETTING_FIELDS values, but its only 2 live callers (pages/18's
+    PHASE_SETTING_FIELDS values, but its only 2 live callers (views/18's
     identity-only lookup, analytics.merged_run_property_dataframe()'s
     identity-only lookup) never consume those value columns - zero
     setting-value leakage into any active consumer, documented pre-existing
     state.
-  - pages/4_Production_Run_Trial_Record.py: the active authoring/write path
+  - views/4_Production_Run_Trial_Record.py: the active authoring/write path
     for ProductionPhase itself (Setup/Finalized capture) - ProductionPhase
     is not retired as an entity in Phase 4, only as an active-reader source
     for other consumers.
-  - pages/9_Samples_Conditioning.py: reads ProductionPhase.phase_start only
+  - views/9_Samples_Conditioning.py: reads ProductionPhase.phase_start only
     for a sample-timestamp sanity bound (not a process-setting value).
   - cascades.py: cascade-delete cleanup (referential integrity), not a
     settings/facts reader.
   - legacy_migration.py: the intentional migration/backfill tool.
   - demo_data.py, gen_uat015_019_live_pages.py: seed-data writers, not
     consumers.
-  - db.py, reports.py (comment-only), pages/11, pages/12, pages/18
+  - db.py, reports.py (comment-only), views/11, views/12, views/18
     (comment-only), version.py (changelog-only): no live read.
 
 Usage: python -m pytest tests/test_wp7_phase4_targeted_closure.py -v

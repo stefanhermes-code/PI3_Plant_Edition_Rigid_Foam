@@ -2,9 +2,9 @@
 
 CR-10 (Split Product Families and Product Grades into Separate Pages,
 Charlie's instruction, 2026-08-12): this page is the Product Grades half
-of what used to be one combined page (pages/2_Product_Family_Foam_Grade.py,
+of what used to be one combined page (views/2_Product_Family_Foam_Grade.py,
 "Product Families & Product Grades", two tabs) - see
-pages/2_Product_Families.py for the other half and the shared design notes
+views/2_Product_Families.py for the other half and the shared design notes
 (context handoff, access_control page_key retirement) that apply to both.
 
 Every Product Grade read/write/cascade-delete behavior below - manual add,

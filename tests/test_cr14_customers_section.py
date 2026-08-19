@@ -8,10 +8,10 @@ customer_name column on CustomerTrial - no master record, no permission
 gate of its own, no validation beyond "not blank". This CR added a
 lightweight db.Customer master (company_id, company_name, contact_person,
 contact_email, customer_type) with its own "customers" page_key and its
-own standalone page (pages/33_Customers.py), moved into a brand-new
+own standalone page (views/33_Customers.py), moved into a brand-new
 "Customers" sidebar section together with Customer Trials & Samples
 (which moved out of "Samples & Trials"), and rewired
-pages/11_Customer_Trials.py's Create/Edit/Import flows to select a
+views/11_Customer_Trials.py's Create/Edit/Import flows to select a
 Customer from that master via the new CustomerTrial.customer_id FK -
 customer_name is kept as a synced display-only text snapshot (see both
 pages' own module docstrings) so every existing reader of customer_name
@@ -70,8 +70,8 @@ import tenant_scope
 from helpers import cr11_function_tab_labels, is_valid_email
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE_CUSTOMERS = os.path.join(APP_DIR, "pages", "33_Customers.py")
-PAGE_CUSTOMER_TRIALS = os.path.join(APP_DIR, "pages", "11_Customer_Trials.py")
+PAGE_CUSTOMERS = os.path.join(APP_DIR, "views", "33_Customers.py")
+PAGE_CUSTOMER_TRIALS = os.path.join(APP_DIR, "views", "11_Customer_Trials.py")
 
 
 def _clear_relevant_caches():
@@ -122,7 +122,7 @@ def test_customers_section_registered_in_nav_with_correct_order():
     after Customers. This test's assertions were updated for CR-17, which
     reversed that specific placement per Stefan's direction - Customers now
     contains only the Customers master page, and Customer Trials & Samples
-    is back in experiment_pages/"Samples & Trials" (between Production
+    is back in experiment_views/"Samples & Trials" (between Production
     Samples and Optimization Trials & Samples). CR-14's own dedicated
     "Customers" nav section, its "customers" page_key, and the
     CustomerTrial->Customer relationship are otherwise untouched - see
@@ -142,7 +142,7 @@ def test_customers_section_registered_in_nav_with_correct_order():
     end = source.index("]", start)
     block = source[start:end]
     assert '"customers"' in block
-    assert 'st.Page("pages/33_Customers.py"' in block
+    assert 'st.Page("views/33_Customers.py"' in block
     assert '"customer_trials"' not in block, (
         "CR-17: Customer Trials & Samples must no longer live in customer_pages"
     )
@@ -155,7 +155,7 @@ def test_customers_section_registered_in_nav_with_correct_order():
     assert '"samples_conditioning"' in exp_block
     assert '"customer_trials"' in exp_block
     assert '"optimization_trials"' in exp_block
-    assert 'st.Page("pages/11_Customer_Trials.py"' in exp_block
+    assert 'st.Page("views/11_Customer_Trials.py"' in exp_block
     samples_pos = exp_block.index('"samples_conditioning"')
     customer_trials_pos = exp_block.index('"customer_trials"')
     optimization_pos = exp_block.index('"optimization_trials"')
@@ -196,7 +196,7 @@ def seeded_company_only():
 
 def test_customers_page_opens_directly_and_shows_cr11_triplet(seeded_company_only):
     """Acceptance criteria 3, 5: the standalone Customers page opens
-    directly (AppTest.from_file against pages/33_Customers.py) and exposes
+    directly (AppTest.from_file against views/33_Customers.py) and exposes
     exactly the three CR-11-standard tabs - 'Create Customer',
     'Edit/Delete Customer', 'CSV/Excel import Customers' - in that order
     and wording."""
@@ -642,7 +642,7 @@ def test_customer_view_only_role_cannot_delete_via_ui(view_only_role_fixture):
 def seeded_grade_and_customer():
     """One Company + Plant + ProductFamily + FoamGrade + Customer - the
     minimum to exercise the Create Trial tab's new Customer selectbox on
-    pages/11_Customer_Trials.py."""
+    views/11_Customer_Trials.py."""
     db.init_db()
     _reset_schema()
     u = uuid.uuid4().hex[:8]
@@ -671,7 +671,7 @@ def seeded_grade_and_customer():
 
 
 def test_customer_trials_page_opens_directly_under_new_section(seeded_grade_and_customer):
-    """Acceptance criterion 8: pages/11_Customer_Trials.py opens directly
+    """Acceptance criterion 8: views/11_Customer_Trials.py opens directly
     and without error, independent of any change to its own section
     placement (nav-section membership is proven separately by
     test_customers_section_registered_in_nav_with_correct_order)."""

@@ -8,13 +8,13 @@ legacy PHASE_SETTING_FIELDS/PHASE_SETTING_LABELS/eligible_phase_setting_
 fields() combination, which retain zero active-reader authority under
 Phase 4.
 
-pages/18_Root_Cause_Assistant.py's run-vs-prior-run "What was different"
+views/18_Root_Cause_Assistant.py's run-vs-prior-run "What was different"
 diff previously built its Finalized-phase settings comparison from
 analytics.run_settings_dataframe()'s PHASE_SETTING_FIELDS columns (backed
 by ProductionPhase). This cutover replaces that one loop with
 analytics.production_run_parameter_dataframe(session, [run_id, prior_id]),
 scoped to parameter_category == "Process Setting" only (the same
-Environment/Outcome exclusion pages/4's own Method-Aware Process Settings
+Environment/Outcome exclusion views/4's own Method-Aware Process Settings
 tab already applies, per the WP7 Phase 3 correction) - run_settings_
 dataframe() itself is still used for identity/candidate-selection columns
 (run_id, run_date, recipe_version, machine, production_method), which was
@@ -67,7 +67,7 @@ import reports
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE18 = os.path.join(APP_DIR, "pages", "18_Root_Cause_Assistant.py")
+PAGE18 = os.path.join(APP_DIR, "views", "18_Root_Cause_Assistant.py")
 
 
 def _clear_relevant_caches():
@@ -482,7 +482,7 @@ def test_investigation_facts_shown_on_page_separated_from_pi3_hypothesis(two_run
     # Confirms the dedicated Root-Cause Comparison Report section (the
     # page's own deterministic report, distinct from PI3's free-form
     # hypothesis) still renders cleanly alongside the new facts section -
-    # source order in pages/18 itself places Investigation facts first,
+    # source order in views/18 itself places Investigation facts first,
     # per this batch's edit (facts before the Report divider, which is
     # itself before the "Use PI3" button/hypothesis section).
     report_subheaders = [s for s in at.subheader if s.value == "Root-Cause Comparison Report"]

@@ -11,7 +11,7 @@ Customer Type. Advanced CRM functions (multiple contacts, sales pipeline,
 commercial history, customer-category governance) are explicitly out of
 scope (CR-14 section 6).
 
-Customer Trials & Samples (pages/11_Customer_Trials.py) now sources its
+Customer Trials & Samples (views/11_Customer_Trials.py) now sources its
 customer selection from this master via CustomerTrial.customer_id - see
 that page's own module docstring, and cascades.backfill_trial_customers()
 for how pre-CR-14 customer_name text values are mapped onto Customer

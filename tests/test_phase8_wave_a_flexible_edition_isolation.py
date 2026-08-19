@@ -5,7 +5,7 @@ IssueCauseLink from the database, with the Flexible edition still using
 its approved path... Add regression coverage for both edition paths."
 
 test_phase8_wave_a_quality_issue_cutover.py already proves the Rigid side
-(pages/6_Quality_Observation.py and reports.py import quality_issue_registry,
+(views/6_Quality_Observation.py and reports.py import quality_issue_registry,
 a database-backed module, and no longer import quality_issue_taxonomy at
 all). This file adds the other half: proof the Flexible edition
 (PI3_Plant_Edition_App, a separate codebase/app living alongside this repo
@@ -106,7 +106,7 @@ def test_flexible_app_has_no_database_registry_module():
 # ---------------------------------------------------------------------------
 
 def test_rigid_quality_observation_page_uses_database_registry_only():
-    page_path = os.path.join(RIGID_APP_DIR, "pages", "6_Quality_Observation.py")
+    page_path = os.path.join(RIGID_APP_DIR, "views", "6_Quality_Observation.py")
     with open(page_path, encoding="utf-8") as f:
         src = f.read()
     assert "import quality_issue_registry" in src

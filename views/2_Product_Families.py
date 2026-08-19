@@ -2,10 +2,10 @@
 
 CR-10 (Split Product Families and Product Grades into Separate Pages,
 Charlie's instruction, 2026-08-12): this page is the Product Families half
-of what used to be one combined page (pages/2_Product_Family_Foam_Grade.py,
+of what used to be one combined page (views/2_Product_Family_Foam_Grade.py,
 "Product Families & Product Grades", two tabs). Charlie's CR gives each
 data domain its own direct sidebar entry and removes the extra in-page tab
-click - see pages/2_Product_Grades.py for the other half.
+click - see views/2_Product_Grades.py for the other half.
 
 Every Product Family read/write/cascade-delete behavior below is carried
 over unchanged from the old combined page's "Product families" tab - this
@@ -18,7 +18,7 @@ relationship needed to change to split the UI in two.
 Context handoff to Product Grades (CR-10 acceptance criteria 10/11): the
 "Open this family's Product Grades" button below stashes the selected
 family's id in st.session_state["pfg_family_context_id"] and switches page.
-pages/2_Product_Grades.py pops that key on its next run and uses it to
+views/2_Product_Grades.py pops that key on its next run and uses it to
 seed its own family-filter selectbox's initial value - a one-time
 inheritance, not a permanent link, so the user lands straight on the right
 family's grades without repeating the selection, but can still change the
@@ -29,7 +29,7 @@ access_control page_key: this page is new plumbing over an existing
 CRUD surface, but CR-10 splits ONE page into TWO independent ones, so a
 single shared key could no longer describe "can this role see/use this
 screen" correctly for both. A fresh key ("product_families") is used
-here; see pages/2_Product_Grades.py for its own new key
+here; see views/2_Product_Grades.py for its own new key
 ("product_grades"). The old combined key ("product_family_foam_grade") is
 retired from access_control.PAGE_CATALOG entirely (2026-08-12 live-data
 check found zero role_page_permissions rows referencing it, so - same as
@@ -218,7 +218,7 @@ with tab_edit_delete:
                 key=f"family_to_grades_{selected_family.id}",
             ):
                 st.session_state["pfg_family_context_id"] = selected_family.id
-                st.switch_page("pages/2_Product_Grades.py")
+                st.switch_page("views/2_Product_Grades.py")
 
             if not page_usable:
                 st.caption("View-only access - editing and deleting is restricted for your role.")

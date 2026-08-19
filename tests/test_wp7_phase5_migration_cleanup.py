@@ -20,7 +20,7 @@ ProductionPhase"):
 2. legacy_migration.py's reconciliation utilities (D5-08: MIGRATION
    SUPPORT, RETAIN) still function correctly after the Phase 5 active-code
    retirement batch (analytics.py's run_settings_dataframe() simplification
-   and pages/4's widget removal) - proven by re-running the exact
+   and views/4's widget removal) - proven by re-running the exact
    reconciliation path against synthetic legacy data and getting the same
    correct result test_wp7_phase3_reconciliation.py already established.
    This module does not duplicate that file's ~20 assertions; it adds the
@@ -156,13 +156,13 @@ def test_production_phase_and_dependents_still_physically_present():
 
 # ---------------------------------------------------------------------------
 # D5-08: legacy_migration.py still functions correctly after the Phase 5
-# active-code-retirement batch (analytics.py / pages/4 changes).
+# active-code-retirement batch (analytics.py / views/4 changes).
 # ---------------------------------------------------------------------------
 
 def test_migration_utility_unaffected_by_active_code_retirement(seeded_run):
     """legacy_migration.py reads ProductionPhase columns directly via the
     ORM - it does not go through analytics.run_settings_dataframe() or any
-    pages/4 widget. Proves that is actually true post-retirement: seed one
+    views/4 widget. Proves that is actually true post-retirement: seed one
     legacy Finalized phase with all 4 migratable fields plus one deferred
     and one quarantined field set, run the real reconciliation path, and
     confirm the migrated/deferred/quarantined counts are exactly what

@@ -152,7 +152,7 @@ def seed():
 
 def run_page(page_filename):
     path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "pages", page_filename
+        os.path.dirname(os.path.abspath(__file__)), "views", page_filename
     )
     at = AppTest.from_file(path, default_timeout=60)
     at.secrets["AUTH_DISABLED"] = True

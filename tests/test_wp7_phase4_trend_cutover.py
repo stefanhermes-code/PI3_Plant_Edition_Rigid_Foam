@@ -62,7 +62,7 @@ import db
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE16 = os.path.join(APP_DIR, "pages", "16_Trend_Analysis.py")
+PAGE16 = os.path.join(APP_DIR, "views", "16_Trend_Analysis.py")
 
 
 def _clear_relevant_caches():

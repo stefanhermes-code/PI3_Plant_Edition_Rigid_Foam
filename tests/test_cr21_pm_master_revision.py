@@ -36,7 +36,7 @@ Covers:
   - F21-01/CR-06: PM-100 and PM-800 are both activatable via
     helpers.method_activatable_by_customer() post-migration; an
     untouched, not-yet-released method (PM-200) is not.
-  - Direct UI/AppTest evidence: pages/30_Production_Methods.py renders
+  - Direct UI/AppTest evidence: views/30_Production_Methods.py renders
     PM-100 and PM-800 as enabled (activatable) checkboxes for a real plant
     after migration, with no code change to that page (F21-09).
 
@@ -66,7 +66,7 @@ from cr21_pm_migration import (
 from helpers import method_activatable_by_customer
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE30 = os.path.join(APP_DIR, "pages", "30_Production_Methods.py")
+PAGE30 = os.path.join(APP_DIR, "views", "30_Production_Methods.py")
 
 # Pre-CR-21 legacy names/descriptions, matching the live catalogue exactly
 # as JC found it at challenge time (see the JC engineering challenge

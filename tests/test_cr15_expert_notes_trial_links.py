@@ -4,7 +4,7 @@ criterion and regression-test requirement (sections 8/9 of
 CR15_Standardize_Expert_Notes_Product_Family_Terminology_and_Add_Trial_
 Links.docx).
 
-Covers, against the real pages/20_Expert_Notes.py through AppTest (not a
+Covers, against the real views/20_Expert_Notes.py through AppTest (not a
 stand-in for the page's own logic):
   1. The "Link to *" selector offers exactly 5 options, in the required
      order: Production Run, Product Grade, Product Family, Commercial
@@ -94,7 +94,7 @@ from helpers import (
 )
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE_EXPERT_NOTES = os.path.join(APP_DIR, "pages", "20_Expert_Notes.py")
+PAGE_EXPERT_NOTES = os.path.join(APP_DIR, "views", "20_Expert_Notes.py")
 
 REQUIRED_LINK_ORDER = [
     "Production Run",
@@ -620,7 +620,7 @@ def test_helper_functions_resolve_plant_company_grade_for_both_trial_types(seede
     helper functions that resolve WHICH plant/company/grade a trial-linked
     note belongs to for PI3's is_enabled_for_plant() gate and vector-store
     metadata tagging - the exact same functions _push_note_to_vector_store
-    in pages/20_Expert_Notes.py calls before ever reaching the PI3 call."""
+    in views/20_Expert_Notes.py calls before ever reaching the PI3 call."""
     ids = seeded_two_trial_targets
     session = db.get_session()
 

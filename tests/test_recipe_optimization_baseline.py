@@ -154,7 +154,7 @@ def _seed_run_with_metered_streams(session, grade, plant, machine, recipe, run_d
     # analytics.actual_usage_dataframe() now reads ComponentStreamReading
     # exclusively by production_run_id (the same ProductionPhase-free
     # pattern Item 1.3 already applied to Batch Release), matching what
-    # pages/4's own Material Metering capture UI actually writes today.
+    # views/4's own Material Metering capture UI actually writes today.
     # The ProductionPhase row above is still seeded/kept for realism (a
     # Finalized phase legitimately coexists with metering on a real run)
     # but is no longer what makes these readings findable.

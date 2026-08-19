@@ -243,7 +243,7 @@ def _target_company(key):
 # the "Suppliers" tab that used to live here (a second, independent record
 # type sharing this page and its "raw_materials" permission gate) has been
 # removed - Supplier management now lives on its own page,
-# pages/32_Suppliers.py, with its own "suppliers" access_control key. The
+# views/32_Suppliers.py, with its own "suppliers" access_control key. The
 # _supplier_picker/_supplier_names/_ensure_supplier_exists helpers above
 # stay on THIS page unchanged, since the "Default supplier" dropdown on
 # every Raw Material Create/Edit/TDS form below still needs to read/write

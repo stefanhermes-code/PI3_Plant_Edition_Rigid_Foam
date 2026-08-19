@@ -3,7 +3,7 @@ Functions, 2026-08-12) - forced-password-reset gate for CSV/Excel-imported
 User Accounts.
 
 Per user direction on this specific page (security-sensitive, bulk account
-creation): an account created through pages/25_User_Accounts.py's CSV/Excel
+creation): an account created through views/25_User_Accounts.py's CSV/Excel
 import tab gets a system-generated temporary password and
 User.must_reset_password=True, and auth.require_login() must block that
 account from reaching any page content until it sets its own password -
@@ -32,7 +32,7 @@ import auth
 import db
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE1 = os.path.join(APP_DIR, "pages", "1_Plant_Installation_Overview.py")
+PAGE1 = os.path.join(APP_DIR, "views", "1_Plant_Installation_Overview.py")
 
 
 def _reset_schema():
@@ -44,7 +44,7 @@ def _reset_schema():
 def seeded_user():
     """One company + one built-in-shaped custom role + one User, with
     must_reset_password=True and a known temporary password hash - exactly
-    the shape pages/25_User_Accounts.py's CSV/Excel import tab leaves
+    the shape views/25_User_Accounts.py's CSV/Excel import tab leaves
     behind for an imported account."""
     db.init_db()
     _reset_schema()
@@ -100,7 +100,7 @@ def _authenticated_session_state(at, seeded, must_reset):
 
 
 def test_must_reset_password_defaults_false_for_a_manually_created_user(seeded_user):
-    """The manual Create-user path (pages/25_User_Accounts.py's Create tab)
+    """The manual Create-user path (views/25_User_Accounts.py's Create tab)
     never passes must_reset_password - confirms the column's default (see
     db.py) leaves ordinary accounts unaffected, so this gate is specific to
     CSV/Excel-imported accounts, not every new account."""
@@ -134,7 +134,7 @@ def test_forced_reset_gate_blocks_page_content_and_shows_reset_form(seeded_user)
     title_texts = [t.value for t in at.title]
     assert "Plants" not in title_texts
     # The forced-reset form's own two password fields are present; nothing
-    # from pages/1's Create/Edit-Delete/Import tabs is.
+    # from views/1's Create/Edit-Delete/Import tabs is.
     assert len(at.text_input) == 2
 
 
@@ -143,7 +143,7 @@ def test_setting_a_new_password_clears_the_flag_and_unblocks_the_page(seeded_use
     stored hash, clears must_reset_password on both the DB row and
     session_state, and a subsequent run of the same page reaches real page
     content (CR-11's own 'Create Plant/Edit-Delete Plant/CSV-Excel import
-    Plants' tab labels, confirming pages/1's restructuring from earlier in
+    Plants' tab labels, confirming views/1's restructuring from earlier in
     this CR is still intact end-to-end)."""
     at = AppTest.from_file(PAGE1, default_timeout=30)
     _authenticated_session_state(at, seeded_user, must_reset=True)

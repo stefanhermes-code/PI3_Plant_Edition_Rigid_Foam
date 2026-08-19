@@ -6,17 +6,17 @@ numbers, WP identifiers, UAT/synthetic-dataset terminology, and raw
 maturity_status/production_release codes - had leaked into customer-facing
 screens, generated Word reports, and PI3 prompt construction:
 
-  - pages/30_Production_Methods.py: a caption showing the raw
+  - views/30_Production_Methods.py: a caption showing the raw
     maturity_status value and literally saying "Phase 1 offers Production
     Method PM-100 only."
-  - pages/21_Report.py: help text and a tab label naming "WP3" (a
+  - views/21_Report.py: help text and a tab label naming "WP3" (a
     development work-package identifier).
   - reports.py: a Word report subtitle reading "Synthetic UAT / Reference
     Dataset" verbatim; a Note column and PI3 prompt text carrying
     wp3_conformance.production_release_status()'s raw internal code
     ("UAT_PASS_NO_RELEASE"); a Word report title naming "WP3"; a Word
     report table row showing FoamGrade.status's raw "UAT_ONLY" code.
-  - pages/15_Recipe_Optimization.py: the same Note-column and PI3-prompt
+  - views/15_Recipe_Optimization.py: the same Note-column and PI3-prompt
     leaks as reports.py's Recipe Optimization Word report, plus a static
     prompt instruction saying "(UAT-only)".
 
@@ -56,8 +56,8 @@ import reports
 import wp3_conformance
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE30 = os.path.join(APP_DIR, "pages", "30_Production_Methods.py")
-PAGE21 = os.path.join(APP_DIR, "pages", "21_Report.py")
+PAGE30 = os.path.join(APP_DIR, "views", "30_Production_Methods.py")
+PAGE21 = os.path.join(APP_DIR, "views", "21_Report.py")
 
 # CR-09 section 9's marker list. "Phase" is checked as "Phase 1"/"Phase 2"
 # etc (word-boundary-ish, via a dedicated helper below) so it doesn't
@@ -145,7 +145,7 @@ def test_grade_status_label_translates_uat_only_with_no_leak():
 
 
 # ---------------------------------------------------------------------------
-# 2. pages/30_Production_Methods.py - live-rendered Streamlit page scan
+# 2. views/30_Production_Methods.py - live-rendered Streamlit page scan
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -191,7 +191,7 @@ def test_production_methods_page_has_no_leak_and_shows_safe_caption(gated_method
 
 
 # ---------------------------------------------------------------------------
-# 3. pages/21_Report.py - live-rendered Streamlit page scan (tab labels +
+# 3. views/21_Report.py - live-rendered Streamlit page scan (tab labels +
 #    help text, no data selected - the leaks CR-09 found here were both in
 #    static copy, not data-driven)
 # ---------------------------------------------------------------------------
@@ -357,7 +357,7 @@ def test_period_summary_report_docx_translates_synthetic_dataset_flag(wp3_sessio
 
 
 # ---------------------------------------------------------------------------
-# 5. pages/15_Recipe_Optimization.py's PI3 prompt construction - captured
+# 5. views/15_Recipe_Optimization.py's PI3 prompt construction - captured
 #    via a monkeypatched ai_assistant.ask_assistant() during a live AppTest
 #    run, the same technique used to prove report/UI text is clean, applied
 #    to the one customer-facing surface that isn't rendered UI or a Word
@@ -389,7 +389,7 @@ def test_recipe_optimization_pi3_prompt_has_no_leak(wp3_session, monkeypatch):
     import ai_assistant
     monkeypatch.setattr(ai_assistant, "ask_assistant", _fake_ask_assistant)
 
-    PAGE15 = os.path.join(APP_DIR, "pages", "15_Recipe_Optimization.py")
+    PAGE15 = os.path.join(APP_DIR, "views", "15_Recipe_Optimization.py")
     at = AppTest.from_file(PAGE15, default_timeout=30)
     at.secrets["AUTH_DISABLED"] = True
     # Fake secrets so ai_assistant.is_configured() passes and the "Get PI3
@@ -403,7 +403,7 @@ def test_recipe_optimization_pi3_prompt_has_no_leak(wp3_session, monkeypatch):
     # CR-09 closeout correction (2026-08-12, per Charlie's "Return to JC for
     # Completion" review): this used to pytest.skip() here on the grounds that
     # a dtype TypeError elsewhere on this page (expectation_summary["avg_target"]
-    # .round(2) on an object-dtype column - see pages/15_Recipe_Optimization.py's
+    # .round(2) on an object-dtype column - see views/15_Recipe_Optimization.py's
     # own comment at that line) was "an unrelated pre-existing edge case," and
     # relied on the WP3 conformance report test above as indirect proof this
     # customer-facing path was clean. Charlie's review rejected that: the CR

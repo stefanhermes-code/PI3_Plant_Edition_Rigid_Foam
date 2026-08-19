@@ -9,7 +9,7 @@ cr11_function_tab_labels()'s own docstring for the canonical spec. This
 file does not re-test each page's CRUD/import behavior (already covered by
 that page's own test file, e.g. test_cr11_forced_password_reset.py for
 User Accounts) - it only confirms the wording/order contract itself holds,
-for every one of the 15 pages/tab-groups identified by CR-11's inventory
+for every one of the 15 views/tab-groups identified by CR-11's inventory
 (task #813) that call cr11_function_tab_labels().
 
 Uses the AUTH_DISABLED dev bypass (see auth.py's require_login docstring)
@@ -60,7 +60,7 @@ import tenant_scope
 from helpers import cr11_function_tab_labels
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGES_DIR = os.path.join(APP_DIR, "pages")
+PAGES_DIR = os.path.join(APP_DIR, "views")
 
 
 def _page(name):
@@ -98,7 +98,7 @@ def _reset_schema():
 def full_chain():
     """One company/plant/product-family/foam-grade/active-recipe/production-
     run(with a Finalized phase)/customer-trial/optimization-trial chain -
-    enough for every one of this file's 15 target pages/groups to clear
+    enough for every one of this file's 15 target views/groups to clear
     its own st.stop() guard and render its CR-11 tabs (see each page's own
     'Add a plant/product grade/production run first' guard, inventoried
     while building this file). Session-scoped (not per-test) since this
@@ -264,7 +264,7 @@ def test_optimization_trials_tabs(full_chain):
 
 def test_raw_materials_tabs(full_chain):
     """CR-13 (Split Suppliers into a Standalone Page), implemented
-    2026-08-12: pages/14_Raw_Materials.py no longer has a nested "Suppliers"
+    2026-08-12: views/14_Raw_Materials.py no longer has a nested "Suppliers"
     tab or Supplier sub-triplet - Supplier management moved to its own page
     (see test_raw_materials_no_suppliers_tab below and
     tests/test_cr13_suppliers_standalone_page.py for the moved page's own

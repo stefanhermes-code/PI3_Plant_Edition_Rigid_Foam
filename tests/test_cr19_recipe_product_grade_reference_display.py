@@ -1,7 +1,7 @@
 """CR-19 (Correct Recipe Version, Product Grade, and Reference Formulation
 Display) regression tests, 2026-08-13.
 
-Covers pages/3_Recipe_Version_Record.py's ("Recipes") combined "Recipe
+Covers views/3_Recipe_Version_Record.py's ("Recipes") combined "Recipe
 versions" table against Charlie's CR-19 source document:
 
   - The table now carries separate Type, Product Grade, and Reference
@@ -40,7 +40,7 @@ from streamlit.testing.v1 import AppTest
 import db
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE3 = os.path.join(APP_DIR, "pages", "3_Recipe_Version_Record.py")
+PAGE3 = os.path.join(APP_DIR, "views", "3_Recipe_Version_Record.py")
 
 
 def _reset_schema():

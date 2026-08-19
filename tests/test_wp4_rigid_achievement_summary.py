@@ -1,7 +1,7 @@
 """WP4 (Converged Joint Implementation Plan, section 7.5) tests for
 wp3_conformance.compute_grade_achievement_summary() - the rigid-foam
 equivalent of the flexible app's "Does the current recipe meet target?"
-expectation_summary (pages/15_Recipe_Optimization.py).
+expectation_summary (views/15_Recipe_Optimization.py).
 
 Seeds a UAT-only thermal-conductivity grade spec (<= 0.024 W/(m.K), same
 reference chain as test_wp4_unit_conversion.py) across three production

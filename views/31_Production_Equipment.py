@@ -2,7 +2,7 @@
 Terminology for UAT, implemented 2026-08-10).
 
 Moved here from the old "Plant & Foam Equipment Overview" page (see
-pages/1_Plant_Installation_Overview.py's docstring) per CR-01's approved
+views/1_Plant_Installation_Overview.py's docstring) per CR-01's approved
 sidebar structure: Production Equipment now resolves inside the selected
 Production Method's own context, under the new "Production Methods" nav
 section, rather than sitting under Plant Setup.
@@ -16,7 +16,7 @@ name may stay" guidance for this exact rename.
 REMOVED 2026-08-10 (CR-04 step 6, per Charlie's instruction to remove the
 global Operating Context concept entirely): this page used to default its
 Plant/Production Method pickers to the session-level context set on
-pages/30_Production_Methods.py. That cross-page session state is gone -
+views/30_Production_Methods.py. That cross-page session state is gone -
 pickers here now default plainly to the first plant/method in the list.
 
 CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import

@@ -11,13 +11,13 @@ production runs actually span two Production Methods:
   - analytics.py: production_methods_used() + the production_method_id
     isolation filter threaded through property_results_dataframe() -
     the shared data layer behind pages 15-19 (Industrial Intelligence).
-  - pages/16_Trend_Analysis.py: the Production Method filter widget only
+  - views/16_Trend_Analysis.py: the Production Method filter widget only
     appears once a grade/family's runs actually span more than one method,
     and both method names are offered.
-  - pages/18_Root_Cause_Assistant.py: the run-vs-prior-run comparison never
+  - views/18_Root_Cause_Assistant.py: the run-vs-prior-run comparison never
     crosses a Production Method boundary, even when an earlier run of the
     same grade exists under a different method.
-  - pages/21_Report.py: the Batch Release / Conformance Record surfaces the
+  - views/21_Report.py: the Batch Release / Conformance Record surfaces the
     RUN's own immutable Production Method snapshot (not the grade's or
     machine's current one).
 
@@ -46,9 +46,9 @@ import tenant_scope
 from helpers import production_method_label
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE16 = os.path.join(APP_DIR, "pages", "16_Trend_Analysis.py")
-PAGE18 = os.path.join(APP_DIR, "pages", "18_Root_Cause_Assistant.py")
-PAGE21 = os.path.join(APP_DIR, "pages", "21_Report.py")
+PAGE16 = os.path.join(APP_DIR, "views", "16_Trend_Analysis.py")
+PAGE18 = os.path.join(APP_DIR, "views", "18_Root_Cause_Assistant.py")
+PAGE21 = os.path.join(APP_DIR, "views", "21_Report.py")
 
 
 def _clear_relevant_caches():

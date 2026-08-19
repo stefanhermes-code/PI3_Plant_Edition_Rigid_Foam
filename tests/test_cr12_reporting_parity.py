@@ -28,7 +28,7 @@ therefore sufficient proof of "successfully generates" for every
 auto-rendering report on this page - no simulated click is needed or
 would prove anything a real click doesn't already cover here.
 
-Two reports on pages/3_Recipe_Version_Record.py (Recipe Formulation
+Two reports on views/3_Recipe_Version_Record.py (Recipe Formulation
 Record, Where Used Report) are the only ones in the whole inventory NOT
 reached by a plain page load - they're gated behind a custom
 `clickable_table` row-selection widget backed by st.session_state, which
@@ -70,7 +70,7 @@ import db
 import reports
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGES_DIR = os.path.join(APP_DIR, "pages")
+PAGES_DIR = os.path.join(APP_DIR, "views")
 
 
 def _page(name):
@@ -529,8 +529,16 @@ RIGID_ONLY_REPORT_FUNCTIONS = {
 }
 
 
-def _pages_with_download_button(app_dir):
-    pages_dir = os.path.join(app_dir, "pages")
+def _pages_with_download_button(app_dir, pages_dirname):
+    """pages_dirname differs per edition and must be passed explicitly.
+
+    Rigid Foam renamed its page directory to "views" in v0.69.0 so that
+    Streamlit's legacy auto-discovered-pages mode can never engage - see the
+    block comment in app_rigid_foam.py. The Flexible edition still uses
+    "pages". Hard-coding either name here would silently compare one
+    edition's pages against a directory the other does not have.
+    """
+    pages_dir = os.path.join(app_dir, pages_dirname)
     found = set()
     for fname in os.listdir(pages_dir):
         if not fname.endswith(".py"):
@@ -549,8 +557,8 @@ def _report_function_names(app_dir):
 
 @pytest.mark.skipif(not os.path.isdir(FLEX_APP_DIR), reason="Flexible Foam sibling app not present in this checkout")
 def test_on_page_download_locations_match_flexible_app():
-    rigid_pages = _pages_with_download_button(RIGID_APP_DIR)
-    flex_pages = _pages_with_download_button(FLEX_APP_DIR)
+    rigid_pages = _pages_with_download_button(RIGID_APP_DIR, "views")
+    flex_pages = _pages_with_download_button(FLEX_APP_DIR, "pages")
     assert rigid_pages == flex_pages, (
         "Rigid Foam's on-page Word-download locations no longer match Flexible Foam's - "
         f"rigid-only: {rigid_pages - flex_pages}, flexible-only: {flex_pages - rigid_pages}. "

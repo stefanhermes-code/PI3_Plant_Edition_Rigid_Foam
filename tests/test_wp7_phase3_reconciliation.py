@@ -41,7 +41,7 @@ import legacy_migration as lm
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE4 = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
+PAGE4 = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
 
 
 def _reset_schema():
@@ -57,7 +57,7 @@ def _reset_schema():
 
 
 def _run_page4(session_state=None):
-    """AppTest runner for pages/4, matching
+    """AppTest runner for views/4, matching
     test_wp7_phase2_production_run_ui.py's own _run() convention exactly -
     used here only for the WP7 Phase 3 correction's UI-exclusion evidence
     (Charlie's acceptance criterion #2)."""
@@ -496,7 +496,7 @@ def test_runtime_tab_observations_section_renders_environment_outcome_but_not_pr
     tab only, per the sibling test above). This is the closure of the gap
     left by v0.59.0's legacy ProductionPhase widget removal combined with
     the pre-existing WP7 Phase 3 correction's Environment/Outcome exclusion
-    from the Method-Aware tab - see pages/4's own comment above this
+    from the Method-Aware tab - see views/4's own comment above this
     block and Decision Ledger D5-06 in the Phase 5 contract."""
     ids = seeded_env_outcome_and_process_setting
     at = _run_page4({"pr_selected_run_id": ids["run_id"]})

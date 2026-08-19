@@ -3,3 +3,6 @@ pi3_local.db
 __pycache__/
 *.pyc
 .venv/
+
+# Sessions on the device bridge cannot delete files, only move them aside.
+_to_delete/

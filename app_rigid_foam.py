@@ -8,6 +8,54 @@ as PI3 - Rigid Foam Intelligence.
 This file sets page config, sidebar branding, and global styling once (it
 always runs first, on every page view, under st.navigation), then routes to
 the individual screens.
+
+WHY THE SCREEN DIRECTORY IS CALLED "views" AND NOT "pages"
+----------------------------------------------------------
+Do not rename it back. The name is load-bearing, and the reason is in
+Streamlit's own source rather than in anything this app does.
+
+streamlit/runtime/pages_manager.py sets a PROCESS-WIDE class attribute the
+first time a PagesManager is constructed:
+
+    class PagesManager:
+        uses_pages_directory: bool | None = None
+        def __init__(self, main_script_path, ...):
+            if PagesManager.uses_pages_directory is None:
+                PagesManager.uses_pages_directory = Path(
+                    self.main_script_parent / "pages").exists()
+
+A directory literally named "pages" next to this file makes that True. And
+streamlit/runtime/scriptrunner/script_runner.py then branches on it:
+
+    if PagesManager.uses_pages_directory:
+        _mpa_v1(self._main_script_path)   # legacy auto-discovered pages
+    else:
+        exec(code, module.__dict__)       # this file
+
+In the legacy branch THIS FILE NEVER RUNS. Streamlit globs the directory,
+sorts it, and builds its own flat navigation from raw filenames. Everything
+here is skipped - including every access_control page filter - so every
+screen in the directory becomes reachable by anyone with the URL.
+
+st.navigation() is what sets the flag back to False, but it only does so
+once it is actually reached, and the flag is process-wide rather than
+per-session. So with a "pages" directory present, every request between
+process start and the first script run that gets this far is served by the
+legacy path. That is the intermittent flat sidebar with no logo or version
+that a reload appears to "fix".
+
+The case that is not transient: if anything above st.navigation() raises -
+init_db() and get_session() run roughly 35 lines earlier - the flag never
+flips, and the app stays in legacy, unfiltered mode until the process is
+restarted. No traceback surfaces. The Flexible edition hit exactly this on
+18 August 2026 via a cold-start database error.
+
+Naming the directory "views" makes the flag evaluate False at construction,
+so the legacy branch cannot be taken on any request, at any point in
+startup, however this file fails. URLs are unaffected: st.Page infers
+url_path from the filename, not the directory.
+
+tests/test_navigation_directory_guard.py pins this.
 """
 
 import datetime as dt
@@ -421,7 +469,7 @@ def render_overview():
     t4.metric("Open customer/optimization trials", active_trials)
 
 overview_page = st.Page(render_overview, title="Overview", icon="🏠", default=True)
-report_page = st.Page("pages/21_Report.py", title="Reports", icon="🖨️")
+report_page = st.Page("views/21_Report.py", title="Reports", icon="🖨️")
 
 # CR-01 (UI Navigation and Rigid-Foam Terminology for UAT), implemented
 # 2026-08-10: sidebar restructured to Charlie's approved target structure -
@@ -431,26 +479,26 @@ report_page = st.Page("pages/21_Report.py", title="Reports", icon="🖨️")
 # Grades, since equipment and grades both resolve inside a Production
 # Method's context per CR-01). Formulations (Raw Materials, Recipes,
 # Reference Formulations) stays its own section, reused as-is - CR-01
-# treats these as shared/context-independent. See pages/1, 30, and 31's own
+# treats these as shared/context-independent. See views/1, 30, and 31's own
 # docstrings for the page-level split rationale.
 #
 # CR-10 (Split Product Families and Product Grades into Separate Pages),
 # implemented 2026-08-12: the single "Product Families & Product Grades"
-# entry (formerly pages/2_Product_Family_Foam_Grade.py, two tabs) is
+# entry (formerly views/2_Product_Family_Foam_Grade.py, two tabs) is
 # replaced by two direct entries, in the exact order CR-10 section 3
 # mandates (Production Methods, Production Equipment, Product Families,
-# Product Grades) - see pages/2_Product_Families.py and
-# pages/2_Product_Grades.py for the split page-level rationale, including
+# Product Grades) - see views/2_Product_Families.py and
+# views/2_Product_Grades.py for the split page-level rationale, including
 # the context handoff between them and the access_control key change.
 plant_setup_pages = [
-    ("plant_overview", st.Page("pages/1_Plant_Installation_Overview.py", title="Plants", icon="📍")),
+    ("plant_overview", st.Page("views/1_Plant_Installation_Overview.py", title="Plants", icon="📍")),
 ]
 
 production_method_pages = [
-    ("production_methods", st.Page("pages/30_Production_Methods.py", title="Production Methods", icon="🧭")),
-    ("plant_overview", st.Page("pages/31_Production_Equipment.py", title="Production Equipment", icon="🏭")),
-    ("product_families", st.Page("pages/2_Product_Families.py", title="Product Families", icon="🧬")),
-    ("product_grades", st.Page("pages/2_Product_Grades.py", title="Product Grades", icon="🏷️")),
+    ("production_methods", st.Page("views/30_Production_Methods.py", title="Production Methods", icon="🧭")),
+    ("plant_overview", st.Page("views/31_Production_Equipment.py", title="Production Equipment", icon="🏭")),
+    ("product_families", st.Page("views/2_Product_Families.py", title="Product Families", icon="🧬")),
+    ("product_grades", st.Page("views/2_Product_Grades.py", title="Product Grades", icon="🏷️")),
 ]
 
 # CR-13 (Split Suppliers into a Standalone Page), implemented 2026-08-12:
@@ -458,24 +506,24 @@ production_method_pages = [
 # Materials and still inside this same "Formulations" section - CR-13
 # section 7 explicitly keeps the current section label unchanged for this
 # CR, deferring any broader section rename/regroup to a later navigation
-# decision. See pages/32_Suppliers.py's own module docstring for what
-# moved out of pages/14_Raw_Materials.py and what (the supplier picker)
+# decision. See views/32_Suppliers.py's own module docstring for what
+# moved out of views/14_Raw_Materials.py and what (the supplier picker)
 # deliberately stayed.
 formulation_pages = [
-    ("raw_materials", st.Page("pages/14_Raw_Materials.py", title="Raw Materials", icon="🧴")),
-    ("suppliers", st.Page("pages/32_Suppliers.py", title="Suppliers", icon="🚚")),
+    ("raw_materials", st.Page("views/14_Raw_Materials.py", title="Raw Materials", icon="🧴")),
+    ("suppliers", st.Page("views/32_Suppliers.py", title="Suppliers", icon="🚚")),
     # CR-03 (Recipe Consolidation and Pending Review Status), implemented
     # 2026-08-10: the separate "Reference Formulations" nav entry/page is
     # removed per CR-03's target navigation table - imported scientific
     # formulations (RF-*, RFREF-*) now appear directly in the Recipes list
     # below, tagged with Approval Status = Pending Review, rather than
-    # living behind their own sidebar item. See pages/3_Recipe_Version_
+    # living behind their own sidebar item. See views/3_Recipe_Version_
     # Record.py's own module docstring for the combined-list design.
-    ("recipes", st.Page("pages/3_Recipe_Version_Record.py", title="Recipes", icon="📋")),
+    ("recipes", st.Page("views/3_Recipe_Version_Record.py", title="Recipes", icon="📋")),
 ]
 
 production_pages = [
-    ("production_run", st.Page("pages/4_Production_Run_Trial_Record.py", title="Production Runs", icon="⚙️")),
+    ("production_run", st.Page("views/4_Production_Run_Trial_Record.py", title="Production Runs", icon="⚙️")),
 ]
 
 # CR-17 (Restore Customer Trials & Samples to Samples & Trials Navigation,
@@ -487,11 +535,11 @@ production_pages = [
 # its access-control behavior, and every CR-14 Customer-relationship
 # behavior (customer selection, customer_id linkage, customer_name
 # synchronization, CSV/Excel import auto-create) are unchanged - see
-# pages/11_Customer_Trials.py itself, which was not touched by this CR.
+# views/11_Customer_Trials.py itself, which was not touched by this CR.
 experiment_pages = [
-    ("samples_conditioning", st.Page("pages/9_Samples_Conditioning.py", title="Production Samples", icon="🧊")),
-    ("customer_trials", st.Page("pages/11_Customer_Trials.py", title="Customer Trials & Samples", icon="🤝")),
-    ("optimization_trials", st.Page("pages/12_Optimization_Trials.py", title="Optimization Trials & Samples", icon="🚀")),
+    ("samples_conditioning", st.Page("views/9_Samples_Conditioning.py", title="Production Samples", icon="🧊")),
+    ("customer_trials", st.Page("views/11_Customer_Trials.py", title="Customer Trials & Samples", icon="🤝")),
+    ("optimization_trials", st.Page("views/12_Optimization_Trials.py", title="Optimization Trials & Samples", icon="🚀")),
 ]
 
 # CR-14 (Create Customers Section and Lightweight Customer Master),
@@ -504,7 +552,7 @@ experiment_pages = [
 # and its relationship to Customer Trial records are otherwise completely
 # unaffected by this navigation correction.
 customer_pages = [
-    ("customers", st.Page("pages/33_Customers.py", title="Customers", icon="🧾")),
+    ("customers", st.Page("views/33_Customers.py", title="Customers", icon="🧾")),
 ]
 
 # Split out from Production 2026-08-04 per user direction (segregation of
@@ -517,8 +565,8 @@ customer_pages = [
 # Issues" - plural menu wording; page content may still say the singular
 # term where it refers to one specific record).
 quality_pages = [
-    ("quality_test_result", st.Page("pages/5_Physical_Property_Result.py", title="Test Results", icon="📏")),
-    ("quality_issue", st.Page("pages/6_Quality_Observation.py", title="Quality Issues", icon="🔍")),
+    ("quality_test_result", st.Page("views/5_Physical_Property_Result.py", title="Test Results", icon="📏")),
+    ("quality_issue", st.Page("views/6_Quality_Observation.py", title="Quality Issues", icon="🔍")),
 ]
 
 # The value of PI3 Plant Edition is the join that already exists in the
@@ -532,33 +580,33 @@ quality_pages = [
 # as-is otherwise ("retain existing pages with PM context/filtering as
 # already built") - no restructuring here beyond the title changes.
 industrial_intelligence_pages = [
-    ("recipe_optimization", st.Page("pages/15_Recipe_Optimization.py", title="Recipe Optimization", icon="🧪")),
-    ("trend_analysis", st.Page("pages/16_Trend_Analysis.py", title="Trend Analysis", icon="📈")),
+    ("recipe_optimization", st.Page("views/15_Recipe_Optimization.py", title="Recipe Optimization", icon="🧪")),
+    ("trend_analysis", st.Page("views/16_Trend_Analysis.py", title="Trend Analysis", icon="📈")),
     (
         "machine_settings_correlation",
         st.Page(
-            "pages/17_Process_Property_Correlation.py",
+            "views/17_Process_Property_Correlation.py",
             title="Process Parameters vs Product Properties Correlation",
             icon="🔗",
         ),
     ),
-    ("root_cause_assistant", st.Page("pages/18_Root_Cause_Assistant.py", title="Root-Cause Assistant", icon="🩺")),
-    ("machine_settings_optimization", st.Page("pages/19_Machine_Settings_Optimization.py", title="Process Parameter Optimization", icon="⚙️")),
-    ("expert_notes", st.Page("pages/20_Expert_Notes.py", title="Expert Notes", icon="🧠")),
+    ("root_cause_assistant", st.Page("views/18_Root_Cause_Assistant.py", title="Root-Cause Assistant", icon="🩺")),
+    ("machine_settings_optimization", st.Page("views/19_Machine_Settings_Optimization.py", title="Process Parameter Optimization", icon="⚙️")),
+    ("expert_notes", st.Page("views/20_Expert_Notes.py", title="Expert Notes", icon="🧠")),
 ]
 
 admin_pages = [
-    ("user_roles_admin", st.Page("pages/24_User_Roles.py", title="User Roles", icon="🔑")),
+    ("user_roles_admin", st.Page("views/24_User_Roles.py", title="User Roles", icon="🔑")),
 ]
 
 platform_admin_pages = [
-    ("companies_admin", st.Page("pages/23_Companies.py", title="Companies", icon="🏢")),
-    ("subscription_types_admin", st.Page("pages/22_Subscription_Types.py", title="Subscription Types", icon="🎟️")),
-    ("default_user_roles_admin", st.Page("pages/26_Default_User_Roles.py", title="Default User Roles", icon="🗝️")),
-    ("user_accounts_admin", st.Page("pages/25_User_Accounts.py", title="User Accounts", icon="👤")),
-    ("pi3_ai_connectivity", st.Page("pages/10_PI3_AI_Connectivity.py", title="PI3 Connectivity", icon="🤖")),
-    ("performance_admin", st.Page("pages/27_Performance.py", title="Performance", icon="⚡")),
-    ("pilot_analysis_admin", st.Page("pages/28_Pilot_Analysis.py", title="Company Analysis", icon="🔬")),
+    ("companies_admin", st.Page("views/23_Companies.py", title="Companies", icon="🏢")),
+    ("subscription_types_admin", st.Page("views/22_Subscription_Types.py", title="Subscription Types", icon="🎟️")),
+    ("default_user_roles_admin", st.Page("views/26_Default_User_Roles.py", title="Default User Roles", icon="🗝️")),
+    ("user_accounts_admin", st.Page("views/25_User_Accounts.py", title="User Accounts", icon="👤")),
+    ("pi3_ai_connectivity", st.Page("views/10_PI3_AI_Connectivity.py", title="PI3 Connectivity", icon="🤖")),
+    ("performance_admin", st.Page("views/27_Performance.py", title="Performance", icon="⚡")),
+    ("pilot_analysis_admin", st.Page("views/28_Pilot_Analysis.py", title="Company Analysis", icon="🔬")),
 ]
 
 # CR-01 target sidebar structure (2026-08-10): Overview (Overview, Reports
@@ -584,7 +632,7 @@ platform_admin_pages = [
 # clarified the trial page belongs with the application's trial/sample
 # workflows, not the Customers master section, so CR-17 restores it to
 # Samples & Trials in its pre-CR-14 position - between Production Samples
-# and Optimization Trials & Samples (see experiment_pages/customer_pages
+# and Optimization Trials & Samples (see experiment_views/customer_pages
 # above). Customers now contains only the Customers master page itself.
 #
 # CR-05 (Default User Role Inheritance and Platform Admin Separation),

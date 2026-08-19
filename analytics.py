@@ -68,7 +68,7 @@ from quality_standards import compute_pass_fail
 # Final UAT Execution Contract, Scope Item 4: "Remove universal
 # compute_runtime_output authority and any obsolete geometry-based output
 # logic from active code"). Its sole remaining active call site was
-# pages/4_Production_Run_Trial_Record.py's Runtime Data "Calculated
+# views/4_Production_Run_Trial_Record.py's Runtime Data "Calculated
 # output" display, reading ProductionPhase.conveyor_speed/sidewall_width_
 # mm/foam_height_mm/meters_produced - a formula architecturally
 # inapplicable to Rigid Foam's discontinuous (press-foamed/molded)
@@ -182,7 +182,7 @@ def _grade_id_list(foam_grade_id):
 # setting" drill-down dropdowns and the correlation/optimization rankings
 # on pages 17 and 19 as if it were a machine setting - a user correctly
 # flagged this on 2026-08-05. It's still fully available as a recipe
-# property wherever that's the right frame (pages/3_Recipe_Version_
+# property wherever that's the right frame (views/3_Recipe_Version_
 # Record.py, and the Recipe report sections in reports.py) - just not
 # ranked here as a lever an operator can "optimize" on a given run.
 #
@@ -805,7 +805,7 @@ def run_settings_dataframe(_session, foam_grade_id=None, production_method_id=No
     Engineering Challenge Response) - previously eager-loaded every run's
     ProductionPhase rows and populated a PHASE_SETTING_FIELDS column on
     every row, but both live callers (this module's own
-    merged_run_property_dataframe, and pages/18 Root Cause Assistant) only
+    merged_run_property_dataframe, and views/18 Root Cause Assistant) only
     ever consumed the identity columns below; the actual method-aware
     process-setting values come from the ProcessSettingDefinition/
     ProcessParameterValue EAV schema via production_run_process_parameters()
@@ -1099,7 +1099,7 @@ def merged_run_property_dataframe(
     controllable == True, and analytics_eligible == True - a String
     setting has no numeric meaning for a correlation or a Low/Medium/High
     quantile split, Environment/Outcome definitions are excluded the same
-    way pages/4's own Method-Aware Process Settings tab excludes them
+    way views/4's own Method-Aware Process Settings tab excludes them
     (WP7 Phase 3 correction), and the controllable/analytics_eligible
     filter is section 3 of the execution instruction's explicit
     requirement for both Process-Property Correlation ("Actual
@@ -1709,7 +1709,7 @@ def actual_usage_dataframe(_session, foam_grade_id=None, production_method_id=No
     rows linked to that phase (production_phase_id) - a direct
     ProductionPhase model read that the original Item-1/fixed-symbol scan
     missed because it doesn't touch PHASE_SETTING_FIELDS/PHASE_SETTING_
-    LABELS at all. pages/4_Production_Run_Trial_Record.py's Material
+    LABELS at all. views/4_Production_Run_Trial_Record.py's Material
     Metering capture UI was decoupled from ProductionPhase back in WP7
     Phase 2 ("a Finalized phase is no longer required first" - see that
     page's stream-import tab caption) and always writes production_run_id
@@ -2224,7 +2224,7 @@ def trend_test(series_df, min_points=5, alpha=0.05):
        curves or changes pace, which the linear test's R² would otherwise
        under-credit and risk being read as noise. mk_significant usually
        agrees with `significant`; when it doesn't, that disagreement
-       itself is the useful signal (see pages/16_Trend_Analysis.py's
+       itself is the useful signal (see views/16_Trend_Analysis.py's
        cross-check message) - it means the drift likely isn't a straight
        line.
 

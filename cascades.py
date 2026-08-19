@@ -600,7 +600,7 @@ def unlink_machine_dependents(session, machine_id):
 # has pre-CR-14 trial rows (customer_id is NULL). NOT part of the delete-
 # cascade family above - included here because it is the same kind of
 # cross-cutting relationship-maintenance logic, and because
-# pages/11_Customer_Trials.py's own module docstring already points here.
+# views/11_Customer_Trials.py's own module docstring already points here.
 # ---------------------------------------------------------------------------
 
 def backfill_trial_customers(session):

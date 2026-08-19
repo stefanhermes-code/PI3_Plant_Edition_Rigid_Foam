@@ -1,5 +1,5 @@
 """WP7 Phase 2 ("Rebuild Production Run UI", 2026-08-14) - direct UI
-evidence for the new/changed pages/4_Production_Run_Trial_Record.py
+evidence for the new/changed views/4_Production_Run_Trial_Record.py
 surfaces, following the same AppTest conventions and fixture chain as
 tests/test_cr11_functional_evidence_group_d.py (that file's module
 docstring documents the full FK chain / session_state quirks this file
@@ -47,7 +47,7 @@ import db
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE4 = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
+PAGE4 = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
 
 
 def _clear_relevant_caches():

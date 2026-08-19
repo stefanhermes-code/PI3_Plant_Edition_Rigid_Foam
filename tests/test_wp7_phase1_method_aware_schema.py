@@ -70,11 +70,11 @@ import db
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE4 = os.path.join(APP_DIR, "pages", "4_Production_Run_Trial_Record.py")
+PAGE4 = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
 REPORTS_PY = os.path.join(APP_DIR, "reports.py")
 INTELLIGENCE_PAGES = [
-    os.path.join(APP_DIR, "pages", f)
-    for f in os.listdir(os.path.join(APP_DIR, "pages"))
+    os.path.join(APP_DIR, "views", f)
+    for f in os.listdir(os.path.join(APP_DIR, "views"))
     if f.startswith(("15_", "16_", "17_", "18_", "19_"))
 ]
 
@@ -473,7 +473,7 @@ def test_production_event_optional_context_links_and_legacy_behavior_unchanged(s
 # 8. No Report/Intelligence cutover in Phase 1
 #
 # WP7 Phase 2 (2026-08-14) legitimately wired this Phase 1 schema into
-# pages/4 (the Method-Aware Process Settings tab calls
+# views/4 (the Method-Aware Process Settings tab calls
 # analytics.eligible_process_settings(); the Production Output and
 # Disposition tab uses ProductionOutputSummary/PRODUCTION_OUTPUT_
 # DISPOSITIONS) - that is exactly the Phase 2 scope per the WP7 governing

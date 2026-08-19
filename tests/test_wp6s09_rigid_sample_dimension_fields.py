@@ -1,7 +1,7 @@
 """WP6-S09 smoke test (2026-08-09, per Charlie's WP6 sequence item 2,
 "implement the correct test-specimen data handling for properties that
 genuinely require dimensions") for helpers.rigid_sample_dimension_fields()
-and its wiring into pages/9_Samples_Conditioning.py's Create Sample form.
+and its wiring into views/9_Samples_Conditioning.py's Create Sample form.
 
 Before this batch, Sample.orientation_id/location_id/sample_scope/
 thickness_mm/age_hours (added WP3, 2026-08-06) had no capture UI anywhere
@@ -31,7 +31,7 @@ from streamlit.testing.v1 import AppTest
 import db
 
 PAGE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pages", "9_Samples_Conditioning.py"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "views", "9_Samples_Conditioning.py"
 )
 
 

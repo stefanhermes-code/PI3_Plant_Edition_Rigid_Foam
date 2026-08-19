@@ -11,7 +11,7 @@ Rigid) list inside it.
 Every function here mirrors quality_issue_taxonomy.py's contract
 (categories / active_categories / active_issue_types_for_category /
 lookup / lookup_case_insensitive / lookup_active_case_insensitive /
-OTHER_ISSUE_NAME) so pages/6_Quality_Observation.py's call sites only
+OTHER_ISSUE_NAME) so views/6_Quality_Observation.py's call sites only
 needed a `session` argument threaded through, not a behavior redesign -
 content now lives in the DB, so every function takes the SQLAlchemy
 `session` as its first argument instead of reading a module-level

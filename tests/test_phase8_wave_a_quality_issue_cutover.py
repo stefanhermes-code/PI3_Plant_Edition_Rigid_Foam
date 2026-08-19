@@ -17,7 +17,7 @@ Covers:
      matching AF22-01's "absence means Global" convention), the "Other"
      escape hatch, and typical_causes text built from real
      IssueCauseLink -> PossibleCause rows.
-  3. pages/6_Quality_Observation.py no longer imports quality_issue_taxonomy
+  3. views/6_Quality_Observation.py no longer imports quality_issue_taxonomy
      at all (the live NameError risk this Wave A work fixed) and loads
      cleanly via AppTest against a registry-backed taxonomy.
   4. reports.py's build_quality_issue_report_data "Issue category" grouping
@@ -48,7 +48,7 @@ import tenant_scope
 import access_control
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE_QI = os.path.join(APP_DIR, "pages", "6_Quality_Observation.py")
+PAGE_QI = os.path.join(APP_DIR, "views", "6_Quality_Observation.py")
 
 
 def _clear_relevant_caches():
@@ -255,7 +255,7 @@ def test_all_issue_names(registry_fixture):
 
 
 # ---------------------------------------------------------------------------
-# 3. pages/6_Quality_Observation.py: no residual quality_issue_taxonomy
+# 3. views/6_Quality_Observation.py: no residual quality_issue_taxonomy
 #    import (the NameError risk this Wave A work fixed), page loads clean.
 # ---------------------------------------------------------------------------
 

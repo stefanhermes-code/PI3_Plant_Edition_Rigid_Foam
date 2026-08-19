@@ -5,7 +5,7 @@ parameters, and (elsewhere) the quality results it produced. This is
 routine, everyday data entry - it does NOT require framing a run as an
 experiment. A deliberate trial/change investigation is captured as its own
 independent Customer Trial or Optimization Trial record instead (see
-pages/11_Customer_Trials.py / pages/12_Optimization_Trials.py) - the old
+views/11_Customer_Trials.py / views/12_Optimization_Trials.py) - the old
 "Trial / Experiment" flag on a production run itself, and the standalone
 Trial / Experiment page, were removed along with TrialRecord/
 AdjustmentConclusion/ApprovalRecord (see cascades.py/db.py history).
@@ -81,7 +81,7 @@ schema/table changes: FallplateSectionPosition rows, and the foaming_mode/
 top_flat_system_used columns on ProductionPhase, remain in the database
 and historical data stays readable; only the active UI, CSV import parsing,
 report generation, and analytics ranking surfaces were removed. See
-analytics.py/reports.py/pages/21_Report.py for the matching changes, and
+analytics.py/reports.py/views/21_Report.py for the matching changes, and
 db.py for why FOAMING_MODES/FallplateSectionPosition/
 expected_fallplate_section_count remain defined but are no longer
 referenced from this page (FallplateSectionPosition itself is still

@@ -1,4 +1,4 @@
-"""Regression test for a production incident (2026-08-16): pages/
+"""Regression test for a production incident (2026-08-16): views/
 15_Recipe_Optimization.py crashed with
 
     TypeError: '<' not supported between instances of 'NoneType' and
@@ -43,7 +43,7 @@ from streamlit.testing.v1 import AppTest
 
 import db
 
-PAGE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pages", "15_Recipe_Optimization.py")
+PAGE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "views", "15_Recipe_Optimization.py")
 
 
 def _reset_schema():
@@ -109,7 +109,7 @@ def test_page_loads_cleanly_when_recipe_version_created_at_is_null(seeded_grade_
 
 def test_sort_key_matches_pages15_none_safe_fallback():
     """Direct-evidence companion to the AppTest above: proves the specific
-    sort expression pages/15 and ai_assistant.py now both use doesn't raise
+    sort expression views/15 and ai_assistant.py now both use doesn't raise
     on a mixed None/datetime list, and orders the None entry first (oldest)
     - the same interpretation as an unknown creation time everywhere else
     on the page treats a missing value."""

@@ -7,7 +7,7 @@ This page:
 
 1. Shows the Production Methods activated for a selected plant (moved here
    from the old "Plant & Foam Equipment Overview" page - see
-   pages/1_Plant_Installation_Overview.py's docstring for why: activation is
+   views/1_Plant_Installation_Overview.py's docstring for why: activation is
    a Production Method concern, not a Plant-identity one).
 2. Shows concise counts per activated method: Production Units (Machines at
    this plant tagged with this method), Product Grades (grades whose
@@ -32,7 +32,7 @@ remove the global Operating Context concept from the application
 entirely, not merely stop persisting it): this page used to let a user
 "Set as operating context" one activated method for the browser tab
 (st.session_state["pm_context_plant_id"]/["pm_context_method_id"]), which
-pages/31_Production_Equipment.py read back to default its own Plant/
+views/31_Production_Equipment.py read back to default its own Plant/
 Production Method pickers. That session-level soft default is gone -
 every page's pickers now default plainly (first plant/method in the list)
 with no cross-page session state at all. This resolves the ambiguity

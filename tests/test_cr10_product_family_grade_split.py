@@ -73,8 +73,8 @@ import db
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE_FAMILIES = os.path.join(APP_DIR, "pages", "2_Product_Families.py")
-PAGE_GRADES = os.path.join(APP_DIR, "pages", "2_Product_Grades.py")
+PAGE_FAMILIES = os.path.join(APP_DIR, "views", "2_Product_Families.py")
+PAGE_GRADES = os.path.join(APP_DIR, "views", "2_Product_Grades.py")
 
 
 def _clear_relevant_caches():
@@ -156,7 +156,7 @@ def test_combined_page_file_and_key_are_gone():
     entry is removed.' - the old file no longer exists, and neither
     PAGE_CATALOG nor the old page_key show up anywhere access_control
     checks."""
-    old_page_path = os.path.join(APP_DIR, "pages", "2_Product_Family_Foam_Grade.py")
+    old_page_path = os.path.join(APP_DIR, "views", "2_Product_Family_Foam_Grade.py")
     assert not os.path.exists(old_page_path), "Old combined page file should have been deleted"
     assert "product_family_foam_grade" not in access_control.PAGE_CATALOG
 
@@ -229,7 +229,7 @@ def test_family_context_seeds_grades_filter_and_narrows_table(seeded_two_familie
     """AC10/AC11 together: a family selected on the Families page carries
     into the Grades page's own filter - proven here by presetting
     session_state["pfg_family_context_id"] exactly as
-    pages/2_Product_Families.py's 'Open Product Grades for ...' button
+    views/2_Product_Families.py's 'Open Product Grades for ...' button
     does right before st.switch_page(), then loading the Grades page fresh
     and checking BOTH that the filter selectbox picked it up AND that the
     grade table actually narrowed to that family's own grade."""
@@ -377,8 +377,8 @@ def test_active_page_highlighting_available_to_both_new_pages():
     with open(os.path.join(APP_DIR, "app_rigid_foam.py"), encoding="utf-8") as f:
         source = f.read()
 
-    assert 'st.Page("pages/2_Product_Families.py", title="Product Families"' in source
-    assert 'st.Page("pages/2_Product_Grades.py", title="Product Grades"' in source
+    assert 'st.Page("views/2_Product_Families.py", title="Product Families"' in source
+    assert 'st.Page("views/2_Product_Grades.py", title="Product Grades"' in source
 
     # The one render loop every nav section's pages (including this pair's
     # own "Production Methods" section) go through - whitespace-agnostic,
@@ -622,7 +622,7 @@ def test_product_family_csv_import_validation_rejects_invalid_row(seeded_two_fam
 
     # The bad row alone should have produced zero good_rows - the
     # "Confirm import" button only renders when good_rows is non-empty
-    # (see pages/2_Product_Families.py's `if good_rows and st.button(...)`
+    # (see views/2_Product_Families.py's `if good_rows and st.button(...)`
     # guard), so its absence here is direct proof the row was rejected,
     # not silently accepted.
     assert not any(b.key == "confirm_family_import" for b in at.button), (
@@ -736,7 +736,7 @@ def test_product_families_view_only_role_cannot_use_write_controls(view_only_rol
 
 
 def test_product_grades_view_only_role_cannot_use_write_controls(view_only_role_fixture):
-    """Same evidence as above, for product_grades / pages/2_Product_Grades.py."""
+    """Same evidence as above, for product_grades / views/2_Product_Grades.py."""
     ids = view_only_role_fixture
     session = db.get_session()
     assert not access_control.can_use_page("product_grades", role_id=ids["role_id"], session=session, is_super_admin=False)
@@ -788,7 +788,7 @@ def test_product_families_full_access_role_can_use_write_controls(seeded_one_fam
 def test_product_family_create_validation_rejects_blank_name(seeded_one_family):
     """Submitting the Create form with a blank name shows the real inline
     error and does not insert a row - the actual validation branch in
-    pages/2_Product_Families.py's 'add_family' form, not an assumption
+    views/2_Product_Families.py's 'add_family' form, not an assumption
     that it exists."""
     ids = seeded_one_family
     session = db.get_session()
@@ -947,7 +947,7 @@ def test_customer_facing_scan_has_no_old_combined_naming():
     # Structural facts already pinned earlier in this file, restated here
     # since they too are part of the customer-facing naming sweep Charlie's
     # item 6 asked for.
-    old_page_path = os.path.join(APP_DIR, "pages", "2_Product_Family_Foam_Grade.py")
+    old_page_path = os.path.join(APP_DIR, "views", "2_Product_Family_Foam_Grade.py")
     assert not os.path.exists(old_page_path)
     assert "product_family_foam_grade" not in access_control.PAGE_CATALOG
 
@@ -959,8 +959,8 @@ def test_customer_facing_scan_has_no_old_combined_naming():
 # test_product_grades_view_only_role_cannot_use_write_controls (above)
 # prove the Create form and CSV/Excel uploader don't render for a
 # view-only role, but neither one selects an existing row and checks the
-# Delete path itself. Both pages' own source (pages/2_Product_Families.py
-# and pages/2_Product_Grades.py) gate the entire Edit form AND the
+# Delete path itself. Both pages' own source (views/2_Product_Families.py
+# and views/2_Product_Grades.py) gate the entire Edit form AND the
 # delete_with_confirm() block behind the same `if not page_usable:` branch
 # that already renders the "View-only access - editing and deleting is
 # restricted for your role." caption - so these two tests preset the
@@ -1033,7 +1033,7 @@ def test_product_family_view_only_role_cannot_delete_via_ui(view_only_role_fixtu
 
 
 def test_product_grade_view_only_role_cannot_delete_via_ui(view_only_role_fixture_with_grade):
-    """Same evidence as above, for pages/2_Product_Grades.py - selects the
+    """Same evidence as above, for views/2_Product_Grades.py - selects the
     seeded grade through grades_table's own on_select state, runs as the
     view-only role, and confirms the real delete confirm-checkbox (key
     f"grade_{id}_confirm") and delete button (key f"grade_{id}_btn") are

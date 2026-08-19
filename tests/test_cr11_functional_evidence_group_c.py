@@ -7,16 +7,16 @@ only had wording/order tests (that the three tabs are named and ordered
 "Create <record>" / "Edit/Delete <record>" / "CSV/Excel import <records>"
 per helpers.cr11_function_tab_labels()) - not direct, executed evidence
 that Create/Edit/Delete/Import actually work through the real UI. This file
-supplies that evidence for three pages/record groups Charlie specifically
+supplies that evidence for three views/record groups Charlie specifically
 called out:
 
-  1. pages/24_User_Roles.py - record type Role. One of CR-11's six net-new
+  1. views/24_User_Roles.py - record type Role. One of CR-11's six net-new
      CSV/Excel importers (there was previously only an "Add role"
      expander, no import at all).
-  2. pages/25_User_Accounts.py - record type User. Also one of the six
+  2. views/25_User_Accounts.py - record type User. Also one of the six
      net-new importers, and security-sensitive (temporary passwords,
      forced password reset, one-admin-per-company, subscription user-cap).
-  3. pages/14_Raw_Materials.py - TWO record groups on one page: the outer
+  3. views/14_Raw_Materials.py - TWO record groups on one page: the outer
      "Raw Material" group (pre-existing Create/Edit/Delete/Import, CR-11
      only relabeled it) and the nested "Supplier" group inside the
      "Suppliers" tab (also pre-existing, also just relabeled).
@@ -54,7 +54,7 @@ must_reset_password=True and a real, shown-once temporary password, but do
 not re-test the login gate itself.
 
 Deviation note (page bug found, not fixed - out of scope for this
-correction): pages/25_User_Accounts.py's CSV/Excel import tab calls
+correction): views/25_User_Accounts.py's CSV/Excel import tab calls
 parse_bool_cell(row.get("active")) at the "active" column branch, but only
 parse_bool (not parse_bool_cell) is defined in helpers.py - a real
 NameError latent bug, but only reachable when an uploaded file's "active"
@@ -83,17 +83,17 @@ that further evidence, one item per numbered gap in that document:
 
 Second deviation note (a real, structural gap found while building item 1's
 evidence, not fixed here - out of scope for a test-only correction, flagged
-for Charlie/JC): pages/24_User_Roles.py and pages/25_User_Accounts.py are
+for Charlie/JC): views/24_User_Roles.py and views/25_User_Accounts.py are
 the two exceptions, of this file's four record types, whose write controls
 (Create/Edit/Delete/Import tabs) are NOT gated by
 access_control.can_use_page(<their own page_key>, ...) at all - verified by
 reading both files in full, start to finish. Every other page this file (and
 CR-10's own correction file) touches computes a `page_usable =
 can_use_page("<page_key>", ...)` boolean and wraps its write controls in it
-(see pages/14_Raw_Materials.py's single `page_usable` variable, which
+(see views/14_Raw_Materials.py's single `page_usable` variable, which
 gates BOTH the outer Raw Material group and the nested Supplier group off
-the SAME "raw_materials" page_key). pages/24_User_Roles.py and
-pages/25_User_Accounts.py instead call only auth.require_role("Company
+the SAME "raw_materials" page_key). views/24_User_Roles.py and
+views/25_User_Accounts.py instead call only auth.require_role("Company
 Admin", "Platform Admin") - a check against the session's role NAME
 string - and never reference access_control.can_use_page or
 usable_page_keys_denied anywhere in their own source. Practically: the
@@ -130,9 +130,9 @@ import db
 import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE_ROLES = os.path.join(APP_DIR, "pages", "24_User_Roles.py")
-PAGE_USERS = os.path.join(APP_DIR, "pages", "25_User_Accounts.py")
-PAGE_RAWMAT = os.path.join(APP_DIR, "pages", "14_Raw_Materials.py")
+PAGE_ROLES = os.path.join(APP_DIR, "views", "24_User_Roles.py")
+PAGE_USERS = os.path.join(APP_DIR, "views", "25_User_Accounts.py")
+PAGE_RAWMAT = os.path.join(APP_DIR, "views", "14_Raw_Materials.py")
 
 
 def _clear_relevant_caches():
@@ -181,7 +181,7 @@ def _table_cells_from_markdown(markdown_value):
 
 
 def _extract_temp_password_from_markdown(at, email):
-    """pages/25_User_Accounts.py's Import tab shows each imported
+    """views/25_User_Accounts.py's Import tab shows each imported
     account's system-generated temporary password exactly once, right
     after a successful import, via helpers.render_data_table on
     st.session_state.pop("user_import_credentials", ...) - a real HTML
@@ -199,7 +199,7 @@ def _extract_temp_password_from_markdown(at, email):
 
 
 # ---------------------------------------------------------------------------
-# Group C.1 - pages/24_User_Roles.py, record type Role
+# Group C.1 - views/24_User_Roles.py, record type Role
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -381,7 +381,7 @@ def test_role_csv_import_via_ui(seeded_company_for_role_import):
 def test_role_csv_import_validation_rejects_invalid_row(seeded_company_for_role_import):
     """Role is one of CR-11's six net-new importers, so its own row
     validation is new code, not a relabeling - this exercises it directly.
-    Per the page's own logic (pages/24_User_Roles.py's tab_import block):
+    Per the page's own logic (views/24_User_Roles.py's tab_import block):
     for a platform owner (the AUTH_DISABLED dev-bypass identity used
     throughout this file), each row's company_id must resolve to a real
     row in the companies table, checked against valid_company_ids built
@@ -437,7 +437,7 @@ def test_role_csv_import_validation_rejects_invalid_row(seeded_company_for_role_
 
 
 # ---------------------------------------------------------------------------
-# Group C.2 - pages/25_User_Accounts.py, record type User
+# Group C.2 - views/25_User_Accounts.py, record type User
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -749,7 +749,7 @@ def test_user_csv_import_enforces_one_admin_per_company_within_batch(seeded_comp
 
 
 # ---------------------------------------------------------------------------
-# Group C.3a - pages/14_Raw_Materials.py, OUTER record type Raw Material
+# Group C.3a - views/14_Raw_Materials.py, OUTER record type Raw Material
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
@@ -955,8 +955,8 @@ def test_raw_material_csv_import_via_ui(seeded_company_with_taxonomy):
 # Group C.3b - Supplier (formerly the nested "Suppliers" tab on THIS page)
 #
 # CR-13 (Split Suppliers into a Standalone Page), implemented 2026-08-12:
-# Supplier management moved off pages/14_Raw_Materials.py entirely, onto
-# its own pages/32_Suppliers.py with its own "suppliers" access_control
+# Supplier management moved off views/14_Raw_Materials.py entirely, onto
+# its own views/32_Suppliers.py with its own "suppliers" access_control
 # key. Every Supplier-specific test that used to live in this section
 # (create/edit/delete/import, view-only delete-block, invalid-row-
 # rejection) has moved to tests/test_cr13_suppliers_standalone_page.py,
@@ -981,7 +981,7 @@ def seeded_role_for_edit_delete_and_denied_actor(seeded_role_for_edit_delete):
     auth.require_role("Company Admin", "Platform Admin")'s two allowed
     names - see this file's module docstring "Second deviation note" for
     why role-NAME matching, not access_control.can_use_page, is the actual
-    (and only) permission gate pages/24_User_Roles.py has today."""
+    (and only) permission gate views/24_User_Roles.py has today."""
     ids = seeded_role_for_edit_delete
     session = db.get_session()
     denied_role = db.Role(company_id=ids["company_id"], name="CR11c Plant Operator", is_builtin=False)
@@ -1055,7 +1055,7 @@ def seeded_user_for_edit_delete_and_denied_actor(seeded_user_for_edit_delete):
 
 def test_user_permission_denied_role_cannot_delete_via_ui(seeded_user_for_edit_delete_and_denied_actor):
     """CR-11 correction v2, item 1 (User): same evidence and reasoning as
-    the Role test above, against pages/25_User_Accounts.py - which has the
+    the Role test above, against views/25_User_Accounts.py - which has the
     identical require_role()-only gate (see module docstring)."""
     ids = seeded_user_for_edit_delete_and_denied_actor
     at = _run(
@@ -1090,7 +1090,7 @@ def view_only_role_fixture_for_rawmat(seeded_raw_material):
     denying *use* (can_view=True, can_use=False - access_control.py's
     "View only" state) on page_key "raw_materials" - direct evidence
     against the real can_use_page()/RolePagePermission plumbing
-    pages/14_Raw_Materials.py actually calls (a single `page_usable`
+    views/14_Raw_Materials.py actually calls (a single `page_usable`
     variable, computed once, that gates BOTH the outer Raw Material group
     below and the nested Supplier group's own Edit/Delete section - see
     view_only_role_fixture_for_supplier below, which reuses the exact same
@@ -1176,7 +1176,7 @@ def test_raw_material_csv_import_validation_rejects_invalid_row(seeded_company_w
     was never one of the six net-new importers - but Charlie's return
     asked for direct invalid-row evidence on every remaining import
     surface, not just the net-new ones. Per the page's own logic
-    (pages/14_Raw_Materials.py's tab_import block): each row's free-text
+    (views/14_Raw_Materials.py's tab_import block): each row's free-text
     category/subcategory columns are matched, case-insensitively, against
     the live CR-08 controlled taxonomy via _match_taxonomy_text() - a row
     that matches neither is bucketed into review_rows and never imported,

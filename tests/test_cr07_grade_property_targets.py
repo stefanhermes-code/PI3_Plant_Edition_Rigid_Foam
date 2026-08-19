@@ -19,7 +19,7 @@ Mirrors the established AUTH_DISABLED AppTest pattern (see
 test_pm_hierarchy_pages_smoke.py). That file's own docstring documents why
 this suite tests the Add-flow via AppTest but the Edit/property-target
 flow (Save/Remove/Add a property target) directly against the database
-instead: all of it sits behind pages/2's clickable_table row-selection,
+instead: all of it sits behind views/2's clickable_table row-selection,
 which AppTest has no way to simulate (session_state presets get wiped by
 clickable_table's own "no click event yet -> pop the selection" branch on
 every run). The database-level assertions below exercise the exact same
@@ -28,8 +28,8 @@ same session, same commit - so they verify the real persistence behavior,
 not a mock of it.
 
 CR-10 (Split Product Families and Product Grades into Separate Pages,
-2026-08-12) split pages/2_Product_Family_Foam_Grade.py's "Product grades"
-tab into its own direct page, pages/2_Product_Grades.py - the Add Product
+2026-08-12) split views/2_Product_Family_Foam_Grade.py's "Product grades"
+tab into its own direct page, views/2_Product_Grades.py - the Add Product
 Grade form this suite's one AppTest-based test exercises lives there now.
 
 Usage: python -m pytest tests/test_cr07_grade_property_targets.py
@@ -51,7 +51,7 @@ import db
 import wp3_conformance as wc
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PAGE2 = os.path.join(APP_DIR, "pages", "2_Product_Grades.py")
+PAGE2 = os.path.join(APP_DIR, "views", "2_Product_Grades.py")
 
 
 def _reset_schema():
@@ -230,7 +230,7 @@ def test_duplicate_property_target_blocked_at_db_level(seeded_grade):
 
 
 def test_available_properties_excludes_used_and_readmits_after_removal(seeded_grade):
-    """Mirrors pages/2_Product_Grades.py's own 'used_property_ids
+    """Mirrors views/2_Product_Grades.py's own 'used_property_ids
     / available_properties' computation exactly - CR-07: 'A property already
     selected on the Product Grade is absent from subsequent property
     selectors until removed,' and readmitted once it is."""

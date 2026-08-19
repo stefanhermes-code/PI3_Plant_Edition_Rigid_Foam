@@ -1,5 +1,5 @@
 """WP4 (Converged Joint Implementation Plan, section 7.5) smoke test for
-pages/15_Recipe_Optimization.py's rigid/flexible branch (task #560), using
+views/15_Recipe_Optimization.py's rigid/flexible branch (task #560), using
 Streamlit's AppTest to actually run the page - not just the underlying
 analytics/wp3_conformance functions (already covered by test_recipe_
 optimization_baseline.py, test_wp4_rigid_achievement_summary.py, and
@@ -35,7 +35,7 @@ from streamlit.testing.v1 import AppTest
 
 import db
 
-PAGE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pages", "15_Recipe_Optimization.py")
+PAGE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "views", "15_Recipe_Optimization.py")
 
 
 def _reset_schema():
@@ -98,7 +98,7 @@ def seeded_flexible_only():
     # production_run_id set directly (WP7 Phase 4 targeted-completion
     # correction, 2026-08-14): analytics.actual_usage_dataframe() now reads
     # ComponentStreamReading exclusively by production_run_id, never via a
-    # located ProductionPhase - matching pages/4's actual write path.
+    # located ProductionPhase - matching views/4's actual write path.
     session.add(db.ComponentStreamReading(production_run_id=run.id, production_phase_id=phase.id, stream_name="Polyol A", flow_total_qty=100.0))
     session.add(db.ComponentStreamReading(production_run_id=run.id, production_phase_id=phase.id, stream_name="Additive X", flow_total_qty=5.0))
     session.add(db.PhysicalPropertyResult(production_run_id=run.id, property_name="Density", target_value=25.0, actual_value=25.5, unit="kg/m3"))

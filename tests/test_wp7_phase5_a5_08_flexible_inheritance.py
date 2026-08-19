@@ -13,7 +13,7 @@ LLM-facing paths still carried inherited Flexible Foam/slabstock content -
      PLANT_QUERY_SYSTEM_PROMPT, plus one prompt each in pages 15-19) that
      framed PI3 as helping a reviewer "at a flexible slabstock foam
      manufacturer".
-  2. pages/6_Quality_Observation.py's Quality Issue "Add" caption, which
+  2. views/6_Quality_Observation.py's Quality Issue "Add" caption, which
      told the person logging an issue that the controlled list came from
      "Laader Berg's slabstock foaming troubleshooting guide".
   3. quality_issue_taxonomy.py's active QUALITY_ISSUE_TAXONOMY content,
@@ -71,14 +71,14 @@ import quality_issue_taxonomy as qit
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AI_ASSISTANT_PY = os.path.join(APP_DIR, "ai_assistant.py")
-PAGE6 = os.path.join(APP_DIR, "pages", "6_Quality_Observation.py")
+PAGE6 = os.path.join(APP_DIR, "views", "6_Quality_Observation.py")
 TAXONOMY_PY = os.path.join(APP_DIR, "quality_issue_taxonomy.py")
 PI3_PAGES = [
-    os.path.join(APP_DIR, "pages", "15_Recipe_Optimization.py"),
-    os.path.join(APP_DIR, "pages", "16_Trend_Analysis.py"),
-    os.path.join(APP_DIR, "pages", "17_Process_Property_Correlation.py"),
-    os.path.join(APP_DIR, "pages", "18_Root_Cause_Assistant.py"),
-    os.path.join(APP_DIR, "pages", "19_Machine_Settings_Optimization.py"),
+    os.path.join(APP_DIR, "views", "15_Recipe_Optimization.py"),
+    os.path.join(APP_DIR, "views", "16_Trend_Analysis.py"),
+    os.path.join(APP_DIR, "views", "17_Process_Property_Correlation.py"),
+    os.path.join(APP_DIR, "views", "18_Root_Cause_Assistant.py"),
+    os.path.join(APP_DIR, "views", "19_Machine_Settings_Optimization.py"),
 ]
 
 # The 12 taxonomy entries removed under this correction because the fault
@@ -139,7 +139,7 @@ def test_ai_prompts_now_use_rigid_framing():
 
 
 # ---------------------------------------------------------------------------
-# 2. Quality Issues customer-facing caption (pages/6) - item 3.2
+# 2. Quality Issues customer-facing caption (views/6) - item 3.2
 # ---------------------------------------------------------------------------
 
 def test_quality_issue_page_caption_has_no_slabstock_guide_attribution():

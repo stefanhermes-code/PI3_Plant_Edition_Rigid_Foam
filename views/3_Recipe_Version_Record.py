@@ -17,7 +17,7 @@ Post-G5 exact scientific reference recipes - 18 rows total) alongside real
 plant RecipeVersion rows, tagged with Approval Status = "Pending Review"
 until a plant-authorized review changes it via the same "Edit details"
 control real recipes already use. The standalone Reference Formulations
-page/nav entry (formerly pages/29) is removed entirely per CR-03's target
+page/nav entry (formerly views/29) is removed entirely per CR-03's target
 navigation - this is now the only place those rows are visible in the app.
 
 Deliberately scoped WIDER than CR-03's own literal "eight formulations, 52

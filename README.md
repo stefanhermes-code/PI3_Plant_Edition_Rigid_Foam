@@ -39,7 +39,17 @@ is exactly what's scheduled to change.
 ## Structure
 
 - `app_rigid_foam.py` — Dashboard (Screen 1, entry point)
-- `pages/` — the remaining screens (see below)
+- `views/` — the remaining screens (see below)
+
+> **The screen directory is `views/`, not `pages/`, and must stay that way.**
+> Streamlit decides whether `app_rigid_foam.py` runs at all from whether a
+> directory literally named `pages` sits beside it. If one does, Streamlit
+> builds its own flat navigation and the entrypoint never executes — which
+> means `access_control` filtering never runs and every screen is reachable
+> by URL. Renaming the directory closes that path completely. The full
+> mechanism is documented in the `app_rigid_foam.py` module docstring and
+> pinned by `tests/test_navigation_directory_guard.py`. Page URLs are
+> unaffected: `st.Page` infers them from the filename, not the directory.
 - `db.py` — SQLAlchemy models: the flexible-foam operational schema, plus
   the multi-tenant layer (`Company`, `SubscriptionType`, `Role`,
   `RolePagePermission`, `User`) — the multi-tenant layer is expected to
@@ -79,8 +89,8 @@ these.
 A quality test result or quality issue always belongs to exactly one of
 three parents: a Production Run, a Customer Trial, or an Optimization
 Trial (`db.SAMPLE_SOURCE_TYPES`). Customer Trials and Optimization Trials
-are their own independent lab-trial flows (`pages/11_Customer_Trials.py`,
-`pages/12_Optimization_Trials.py`) — they don't hang off a Production Run.
+are their own independent lab-trial flows (`views/11_Customer_Trials.py`,
+`views/12_Optimization_Trials.py`) — they don't hang off a Production Run.
 Whether this same shape fits rigid foam's sample/trial patterns is one of
 the open questions in the technical research plan.
 

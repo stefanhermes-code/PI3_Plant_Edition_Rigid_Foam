@@ -2,7 +2,7 @@
 
 CR-13 (Split Suppliers into a Standalone Page), implemented 2026-08-12:
 Supplier management used to live as a nested "Suppliers" tab inside
-pages/14_Raw_Materials.py (its own Create/Edit-Delete/Import sub-tabs,
+views/14_Raw_Materials.py (its own Create/Edit-Delete/Import sub-tabs,
 gated by the SAME `page_usable` boolean as the outer Raw Material group,
 since both record types shared the single "raw_materials" page_key).
 Suppliers are their own record domain, so CR-13 moves that Create/Edit/
@@ -12,7 +12,7 @@ navigation section ("Formulations") Raw Materials already lives in - per
 CR-13 section 7, the broader section-label/grouping decision is deferred
 to a later navigation CR and is independent of this split.
 
-What did NOT move: pages/14_Raw_Materials.py keeps its own
+What did NOT move: views/14_Raw_Materials.py keeps its own
 _supplier_picker/_supplier_names/_ensure_supplier_exists helpers and its
 "Default supplier" dropdown on every Raw Material Create/Edit/TDS form -
 those read/write the same db.Supplier rows this page manages, by name

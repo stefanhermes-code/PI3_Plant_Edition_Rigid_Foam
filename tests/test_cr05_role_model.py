@@ -47,7 +47,7 @@ def _reset_schema():
 @pytest.fixture()
 def seeded_four_templates():
     """The 4 approved Default Company Role templates (company_id=NULL,
-    is_builtin=True) - mirrors what pages/26_Default_User_Roles.py lets the
+    is_builtin=True) - mirrors what views/26_Default_User_Roles.py lets the
     platform owner build, and what CR-05 requires Supabase's real template
     set to contain."""
     db.init_db()
@@ -78,7 +78,7 @@ def test_default_templates_are_exactly_the_four_approved_roles(seeded_four_templ
 def test_new_company_creation_clones_exactly_the_four_approved_roles(seeded_four_templates):
     """Acceptance criterion 4/13: creating a company clones exactly the 4
     Default Company Roles - the same inheritance path
-    pages/23_Companies.py's "Add company" flow calls."""
+    views/23_Companies.py's "Add company" flow calls."""
     session = seeded_four_templates
     u = uuid.uuid4().hex[:8]
     company = db.Company(name=f"CR-05 Inheritance Co {u}", is_platform_owner=False)
