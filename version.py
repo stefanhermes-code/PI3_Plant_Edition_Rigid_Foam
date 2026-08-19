@@ -7945,6 +7945,110 @@ document builders carries no internal vocabulary.
 Full regression: 789 passed, 6 skipped, 0 failed of 795 collected across 66
 files. Was 786 / 6 / 792 at v0.71.0, so the 3 new tests are the whole delta. No
 existing test needed changing - the rewritten captions kept their meaning.
+
+v0.71.2, 2026-08-19: st.stop() no longer costs the end-of-rerun clean-up. Every
+unauthenticated render of the login screen was leaking a database transaction.
+
+WHERE THIS CAME FROM
+
+A defect note from the Flexible Foam edition, "st.stop() Deadlocks the Whole
+Browser Session", found and fixed there at v2.12.2. The two editions share the
+same navigation and session-handling design, so the note asked this edition to
+check two things: whether the finally block around pg.run() releases its lock
+unconditionally, and which pages call st.stop() on an ordinary render.
+
+THE MECHANISM
+
+st.stop() raises StopException AND leaves Streamlit's stop flag set. Every later
+st.* call re-checks that flag inside its own enqueue and re-raises - including
+calls made outside the page script, from app_rigid_foam.py's own finally block.
+
+That finally opened with an st.session_state read. So on any page ending via
+st.stop(), the read threw straight back out of the finally and
+close_out_session() never ran.
+
+WHAT THIS EDITION ACTUALLY HAD
+
+Not Flexible's symptom. Flexible held a per-browser-session RLock across
+pg.run() and released it in that same finally, so the release was skipped and
+every subsequent click spun forever. This edition has no such lock - checked,
+there is no threading lock anywhere in the source - so nothing deadlocked and
+nothing looked wrong.
+
+What it had instead was silent. The page's read transaction was left open with
+its connection still checked out: the exact idle-in-transaction failure mode
+close_out_session()'s own docstring records as having blocked a schema migration
+for eighteen hours.
+
+And the worst affected path was the login screen. auth.require_login() queries
+for existing user accounts and then calls st.stop(), so EVERY render for an
+unauthenticated visitor leaked a transaction. That is the most-visited path in
+the application, and it had no symptom at all until something else went looking
+for a lock.
+
+REPRODUCED BEFORE IT WAS FIXED
+
+Not inferred from the note. The application was run under AppTest against a
+SQLite copy on the pinned streamlit 1.60.0, with the finally instrumented to a
+FILE rather than stderr - stderr writes made after a script run ends are
+discarded, which is the trap the Flexible session documented. Result, before the
+fix:
+
+  finally: entered
+  finally: session_state read RAISED StopException
+  session.in_transaction(): True
+  connection still checked out: True
+
+After the fix, in_transaction() is False on the first render and stays False
+across reruns.
+
+THE FIX
+
+app_rigid_foam.py - the page title is read into a local before pg.run(); whether
+the cached session was discarded is tracked by a local flag set in the recovery
+branch rather than read back out of session_state; the remaining session_state
+read is wrapped and falls back to "still ours", which is the correct answer for
+a stopped page since only the recovery branch discards; the page-load timing
+write is wrapped so a failed metric cannot take out the cleanup below it.
+
+db.py - close_out_session(session=None) accepts the session explicitly, so the
+close-out path never has to read st.session_state to find it. Every remaining
+st.* access on that path goes through the new _safe_session_state_get(), and the
+discard branch's session_state.pop() is guarded too.
+
+Every guard catches BaseException, not Exception. StopException derives from
+BaseException, so "except Exception" misses it entirely - there is a test
+pinning that fact so nobody narrows one back.
+
+NO PAGE RESTRUCTURING WAS NEEDED
+
+41 st.stop() call sites were inventoried. Apart from the login screen they are
+all "no data yet" guards - add a plant first, add a product grade first - which
+fire on a fresh tenant and stop firing once data exists. Every one of them sits
+after queries that have already opened a transaction, so every one leaked, but
+none stops unconditionally on every render the way the Flexible page did. The
+application-level fix covers all 41 without touching a page.
+
+The rule going forward, from the Flexible note and adopted here: prefer if/else
+or an early return so the script reaches its end. Reserve st.stop() for a
+genuine exit an ordinary session does not hit - and it is only safe even then
+because app_rigid_foam.py is now hardened against it.
+
+TESTS
+
+New tests/test_st_stop_transaction_leak.py (9 tests). The mechanism is asserted
+against the pinned Streamlit rather than taken on trust, so if a future
+Streamlit changes it we find out why the rest of the file stopped being
+necessary. The headline regression renders the real application unauthenticated
+and asserts no open transaction, then does it three times over. The individual
+guards are pinned separately so a refactor cannot remove one and still pass by
+accident. A last test asserts this edition still has no page lock, and says what
+to do if one is ever introduced.
+
+Both regression tests were verified to FAIL against the pre-fix finally block.
+
+Full regression: 798 passed, 6 skipped, 0 failed of 804 collected across 67
+files. Was 789 / 6 / 795 at v0.71.1, so the 9 new tests are the whole delta.
 """
 
-APP_VERSION = "0.71.1"
+APP_VERSION = "0.71.2"

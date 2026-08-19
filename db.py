@@ -4779,10 +4779,33 @@ def get_session():
     return st.session_state["_sa_session"]
 
 
-def close_out_session():
+def _safe_session_state_get(key, default=None):
+    """st.session_state.get() that cannot raise.
+
+    After a page calls st.stop(), Streamlit leaves its stop flag set and every
+    subsequent st.* access re-raises StopException - including from inside a
+    finally block that is trying to clean up. Anything on the close-out path
+    reads through here so that a stopped page cannot cost us an open
+    transaction.
+    """
+    try:
+        return st.session_state.get(key, default)
+    except BaseException:
+        return default
+
+
+def close_out_session(session=None):
     """Commit (or roll back, on failure) whatever transaction the page that
     just ran opened, so no Streamlit rerun ever ends with an open, idle
     transaction left sitting on the database.
+
+    Pass `session` explicitly when the caller must not touch st.session_state.
+    That is not a convenience: after a page ends via st.stop(), Streamlit's
+    stop flag stays set and st.session_state reads re-raise StopException, so
+    a close-out that had to look the session up would be skipped exactly when
+    it matters - see app_rigid_foam.py's finally block and the defect note
+    "st.stop() Deadlocks the Whole Browser Session" (19 August 2026). Every
+    st.* access below is guarded for the same reason.
 
     Why this exists: get_session() deliberately reuses ONE session per
     browser tab across every rerun (see its docstring), and every read
@@ -4813,7 +4836,13 @@ def close_out_session():
     consistent state, whether that's a page's own prior commit or just the
     read-only queries a view-only page issued.
     """
-    session = st.session_state.get("_sa_session")
+    if session is None:
+        # No session handed in: look it up, but never let a StopException
+        # from a stopped page turn "close the transaction" into "leak it".
+        try:
+            session = st.session_state.get("_sa_session")
+        except BaseException:
+            return
     if session is None:
         return
     try:
@@ -4835,7 +4864,14 @@ def close_out_session():
                 session.close()
             except Exception:
                 pass
-            st.session_state.pop("_sa_session", None)
+            try:
+                st.session_state.pop("_sa_session", None)
+            except BaseException:
+                # Stopped page: the cache cannot be cleared from here. The
+                # connection is already closed above, which is the part that
+                # matters; the next rerun's get_session() finds a dead
+                # Session and rebuilds it through its own recovery path.
+                pass
             discarded = True
 
         # Item 52 (Gate 6) - this is one of the two highest-value error
@@ -4857,10 +4893,10 @@ def close_out_session():
                 log_session,
                 error_message="Database transaction commit failed" + (" (session discarded)" if discarded else " (rolled back)"),
                 exc=commit_exc,
-                user_id=st.session_state.get("user_id"),
-                company_id=st.session_state.get("company_id"),
-                page_name=st.session_state.get("_current_page_title"),
+                user_id=_safe_session_state_get("user_id"),
+                company_id=_safe_session_state_get("company_id"),
+                page_name=_safe_session_state_get("_current_page_title"),
             )
             log_session.commit()
-        except Exception:
+        except BaseException:
             pass

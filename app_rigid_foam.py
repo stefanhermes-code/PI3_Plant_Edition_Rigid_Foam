@@ -729,6 +729,42 @@ with st.sidebar:
         for page in pages:
             st.page_link(page)
 
+# ---------------------------------------------------------------------------
+# THE FINALLY BLOCK BELOW MUST SURVIVE st.stop().
+#
+# Defect note "st.stop() Deadlocks the Whole Browser Session" (Flexible Foam,
+# 19 August 2026), reproduced against this edition on 2026-08-19 before this
+# fix: st.stop() raises StopException AND leaves Streamlit's stop flag set, so
+# every later st.* call - including calls made here, outside the page script -
+# re-raises StopException from inside its own enqueue. The finally used to open
+# with an st.session_state read, so on any page ending via st.stop() that read
+# threw straight back out of the finally and close_out_session() never ran. The
+# page's read transaction was then left open, which is the exact
+# idle-in-transaction failure mode that once blocked a schema migration for 18
+# hours.
+#
+# Verified here on the LOGIN SCREEN, which is the worst possible place for it:
+# auth.require_login() queries for existing users and then st.stop()s, so every
+# render for an unauthenticated visitor leaked a transaction with its connection
+# still checked out.
+#
+# Two consequences for anything written below:
+#   - the page title is read into a local BEFORE pg.run();
+#   - whether the cached session is still ours is tracked by a local flag, and
+#     any st.session_state read on this path is wrapped, so a stopped page can
+#     never skip the close-out.
+#
+# Flexible Foam additionally had a per-session RLock to release here and
+# deadlocked outright. This edition has no such lock (checked: no threading
+# lock anywhere in the source), so it never showed the "spins forever" symptom
+# - only the silent transaction leak.
+#
+# When writing a page: prefer if/else or an early return so the script reaches
+# its end. Reserve st.stop() for a genuine exit an ordinary session does not
+# hit.
+# ---------------------------------------------------------------------------
+_nav_page_title = pg.title
+_nav_session_discarded = False
 _page_load_t0 = time.perf_counter()
 try:
     pg.run()
@@ -770,6 +806,10 @@ except sa_exc.InvalidRequestError:
     if attempts < _MAX_SESSION_RECOVERY_ATTEMPTS:
         st.session_state["_sa_session_recovery_attempts"] = attempts + 1
         st.session_state.pop("_sa_session", None)
+        # Recorded as a local as well: st.rerun() raises immediately, so the
+        # finally below runs next and must know the session was discarded
+        # without having to read it back out of session_state.
+        _nav_session_discarded = True
         st.rerun()
     raise
 finally:
@@ -777,7 +817,22 @@ finally:
     # started with - if the except branch above discarded it, there is no
     # transaction left to time/close, and touching the (broken, discarded)
     # local reference again would just recreate the same failure.
-    if st.session_state.get("_sa_session") is _nav_session:
+    if _nav_session_discarded:
+        # The except branch above already threw this session away; there is no
+        # transaction left to time or close, and touching the broken local
+        # reference again would just reproduce the same failure.
+        _close_out_this_rerun = False
+    else:
+        try:
+            _close_out_this_rerun = st.session_state.get("_sa_session") is _nav_session
+        except BaseException:
+            # StopException from a page that ended via st.stop(). The session
+            # was NOT discarded (that only happens in the except branch, which
+            # sets the flag above), so it is still ours and still holding an
+            # open transaction. Close it out - that is the whole point.
+            _close_out_this_rerun = True
+
+    if _close_out_this_rerun:
         # Page-load timing (added 2026-08-05, v2.0 performance audit): pg.run()
         # is the single choke point every page's script executes through, on
         # both a fresh navigation and every widget-triggered rerun - timing
@@ -790,7 +845,17 @@ finally:
         # call so this still works even if the routed page's own script raised
         # partway through (the finally still runs) and left that session's
         # transaction in a state a NEW session wouldn't share.
-        audit_log.log_page_load(_nav_session, pg.title, (time.perf_counter() - _page_load_t0) * 1000)
+        # Timing is nice to have; closing the transaction is not. If this
+        # write fails for any reason - including a StopException raised inside
+        # it by a stopped page - swallow it so close_out_session() below still
+        # runs. Letting a metric take out the cleanup would be the wrong way
+        # round.
+        try:
+            audit_log.log_page_load(
+                _nav_session, _nav_page_title, (time.perf_counter() - _page_load_t0) * 1000
+            )
+        except BaseException:
+            pass
         # See db.py close_out_session(): every rerun of every page must end
         # with no open transaction left on the database, or a read-only page
         # view (Trend Analysis, Recipe Optimization, ...) leaves one sitting
@@ -798,4 +863,7 @@ finally:
         # caused a real production incident (an 18-hour-old idle transaction
         # blocking a schema migration). The try/finally ensures this still
         # runs even if the routed page's script raised an exception.
-        close_out_session()
+        # Session passed explicitly: close_out_session() must not have to read
+        # st.session_state to find it, because on a stopped page that read
+        # raises and the close-out would be skipped.
+        close_out_session(session=_nav_session)
