@@ -30,7 +30,16 @@ way the manual Create tab's pickers narrow: the method must be one this
 row's plant has actually activated - see activated_methods_for_plant) -
 importing bulk equipment is still subject to the same plant/method
 prerequisite the manual form enforces, just expressed as numeric ids
-instead of two dependent dropdowns."""
+instead of two dependent dropdowns.
+
+Phase 8 Decision 2 (Machine-Stream Configuration, 2026-08-19): this page
+gained the controlled A/B-stream editor. It sits inside the Edit/Delete
+tab under the selected Production Unit / Cell rather than as a fourth
+CR-11 tab, because a configuration has no meaning without a machine - it
+is a versioned attribute of one machine, not a record type of its own.
+See the block comment above _render_machine_stream_configuration."""
+
+import datetime as dt
 
 import pandas as pd
 import streamlit as st
@@ -38,7 +47,18 @@ import streamlit as st
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
 from cascades import unlink_machine_dependents
-from db import MACHINE_OEMS, MAXFOAM_MODELS, OTHER_LAADER_BERG_MODEL, Machine, Plant, ProductionRun, get_session, init_db
+from db import (
+    MACHINE_OEMS,
+    MAXFOAM_MODELS,
+    OTHER_LAADER_BERG_MODEL,
+    Machine,
+    MachineStreamAssignment,
+    MachineStreamConfiguration,
+    Plant,
+    ProductionRun,
+    get_session,
+    init_db,
+)
 from helpers import (
     activated_methods_for_plant,
     clickable_table,
@@ -54,6 +74,7 @@ from helpers import (
     show_pending_banner,
     view_only_notice,
 )
+import machine_stream as ms
 from tenant_scope import apply_scope, company_picker, plant_ids_for_company
 
 MACHINE_REQUIRED_COLUMNS = ["plant_id", "production_method_id", "name"]
@@ -117,6 +138,267 @@ def _machine_model_picker(oem, current_model, key_prefix):
             return st.text_input("Model (specify)", value=other_default, key=f"{key_prefix}_model_other")
         return choice
     return st.text_input("Model", value=current_model or "", key=f"{key_prefix}_model_text")
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 Decision 2: machine-stream configuration (2026-08-19)
+#
+# Charlie's ruling put the A/B-to-chemical-role mapping on the MACHINE, not on
+# the plant and not on the recipe, because it is a property of how one machine
+# is plumbed. There is no plant-wide rule that stream A carries isocyanate -
+# two machines in the same plant can run opposite conventions, and a machine
+# can be re-plumbed, which is why the mapping is versioned with a validity
+# period instead of being a single column on machines.
+#
+# The control rules live in machine_stream.py, not here. This section is the
+# editor: it collects values, calls that module, and renders what it says. A
+# Draft may be incomplete; everything is checked at activation (ruling R6).
+# Active and Superseded revisions are frozen - a change is a new revision,
+# which is what keeps a production run's stamp meaning what it meant on the
+# day it was stamped.
+# ---------------------------------------------------------------------------
+
+_MSC_UNSET = "— not set —"
+
+
+def _msc_label(configuration):
+    period = (
+        f"{configuration.effective_from:%Y-%m-%d %H:%M} → "
+        f"{configuration.effective_to:%Y-%m-%d %H:%M}"
+        if configuration.effective_to
+        else f"{configuration.effective_from:%Y-%m-%d %H:%M} → open-ended"
+    )
+    return f"Rev {configuration.revision} · {configuration.status} · {period}"
+
+
+def _msc_readonly_summary(configuration):
+    st.write(
+        f"Stream **A** carries: **{ms.role_for_stream(configuration, 'A') or _MSC_UNSET}**  \n"
+        f"Stream **B** carries: **{ms.role_for_stream(configuration, 'B') or _MSC_UNSET}**"
+    )
+    st.caption(
+        f"{configuration.controlled_id or '—'} · revision {configuration.revision} · "
+        f"{configuration.status} · valid from {configuration.effective_from} to "
+        f"{configuration.effective_to or 'open-ended'} (UTC)  \n"
+        f"Source reference: {configuration.source_reference or '—'} · "
+        f"Approved by: {configuration.approved_by or '—'} · "
+        f"Approved at: {configuration.approved_at or '—'}"
+    )
+    if configuration.notes:
+        st.caption(f"Notes: {configuration.notes}")
+
+
+def _msc_apply_assignments(session, configuration, role_a, role_b):
+    """Rewrite both stream assignments in one pass.
+
+    Deliberately clears both before inserting either: swapping A and B would
+    otherwise trip the one-role-per-configuration unique constraint halfway
+    through, because the old A row still holds the role the new B row wants.
+    """
+    configuration.assignments.clear()
+    session.flush()
+    for stream_label, chemical_role in (("A", role_a), ("B", role_b)):
+        if chemical_role:
+            configuration.assignments.append(
+                MachineStreamAssignment(stream_label=stream_label, chemical_role=chemical_role)
+            )
+    session.flush()
+
+
+def _render_machine_stream_configuration(session, machine, page_usable):
+    st.divider()
+    st.markdown("**Machine-stream configuration (A/B streams to chemical roles)**")
+    st.caption(
+        "Which physical stream on this Production Unit / Cell carries which chemical role. "
+        "This is a property of the machine's plumbing, not of the formulation, and it is not "
+        "the same on every machine — so it is recorded per machine and per validity period, "
+        "and a production run is stamped with the revision that applied when it started. "
+        "All times are UTC."
+    )
+
+    configurations = (
+        session.query(MachineStreamConfiguration)
+        .filter(MachineStreamConfiguration.machine_id == machine.id)
+        .order_by(MachineStreamConfiguration.revision.desc())
+        .all()
+    )
+
+    if configurations:
+        render_data_table(
+            pd.DataFrame(
+                [
+                    {
+                        "Configuration": c.controlled_id or "—",
+                        "Rev": c.revision,
+                        "Status": c.status,
+                        "Effective from (UTC)": c.effective_from,
+                        "Effective to (UTC)": c.effective_to or "open-ended",
+                        "Stream A carries": ms.role_for_stream(c, "A") or "—",
+                        "Stream B carries": ms.role_for_stream(c, "B") or "—",
+                        "Source reference": c.source_reference or "—",
+                        "Approved by": c.approved_by or "—",
+                    }
+                    for c in configurations
+                ]
+            ),
+            max_height="260px",
+        )
+    else:
+        st.info(
+            "No machine-stream configuration recorded for this Production Unit / Cell yet. "
+            "Production runs on it read as Unresolved, and no A:B ratio is derived for them, "
+            "until a configuration is activated."
+        )
+
+    if not page_usable:
+        st.caption("View-only access — creating and activating configurations is restricted for your role.")
+        return
+
+    if st.button("New draft revision", key=f"msc_new_{machine.id}"):
+        now = dt.datetime.utcnow().replace(microsecond=0)
+        draft = MachineStreamConfiguration(
+            controlled_id=ms.next_controlled_id(session),
+            machine_id=machine.id,
+            revision=ms.next_revision(session, machine.id),
+            effective_from=now,
+            status=ms.STATUS_DRAFT,
+        )
+        session.add(draft)
+        session.commit()
+        st.session_state[f"msc_selected_{machine.id}"] = draft.id
+        st.rerun()
+
+    if not configurations:
+        return
+
+    stored_id = st.session_state.get(f"msc_selected_{machine.id}")
+    default_index = next((i for i, c in enumerate(configurations) if c.id == stored_id), 0)
+    configuration = st.selectbox(
+        "Revision to work on",
+        configurations,
+        index=default_index,
+        format_func=_msc_label,
+        key=f"msc_pick_{machine.id}",
+    )
+    st.session_state[f"msc_selected_{machine.id}"] = configuration.id
+
+    if configuration.status != ms.STATUS_DRAFT:
+        _msc_readonly_summary(configuration)
+        if configuration.status == ms.STATUS_ACTIVE:
+            st.caption(
+                "An Active configuration is frozen. To change the mapping, supersede it below "
+                "and create a new draft revision."
+            )
+            with st.form(f"msc_supersede_{configuration.id}"):
+                st.markdown("**Supersede this revision**")
+                end_date = st.date_input("Effective to (date, UTC) *", key=f"msc_sup_date_{configuration.id}")
+                end_time = st.time_input("Effective to (time, UTC) *", key=f"msc_sup_time_{configuration.id}")
+                if st.form_submit_button("Supersede"):
+                    effective_to = dt.datetime.combine(end_date, end_time)
+                    try:
+                        ms.supersede(session, configuration, effective_to)
+                        session.commit()
+                        st.success(
+                            f"Revision {configuration.revision} superseded with effect from "
+                            f"{effective_to} (UTC). Production runs already stamped against it are unchanged."
+                        )
+                        st.rerun()
+                    except (ms.ConfigurationFrozen, ValueError) as exc:
+                        session.rollback()
+                        st.error(str(exc))
+        else:
+            st.caption("A Superseded configuration is a historical record and cannot be edited.")
+        return
+
+    role_options = [_MSC_UNSET] + list(ms.CHEMICAL_ROLES)
+    current_a = ms.role_for_stream(configuration, "A") or _MSC_UNSET
+    current_b = ms.role_for_stream(configuration, "B") or _MSC_UNSET
+    now = dt.datetime.utcnow().replace(microsecond=0)
+    approved_default = configuration.approved_at or now
+    end_default = configuration.effective_to or configuration.effective_from
+
+    with st.form(f"msc_draft_{configuration.id}"):
+        st.markdown(f"**Draft {configuration.controlled_id or ''} · revision {configuration.revision}**")
+        left, right = st.columns(2)
+        with left:
+            from_date = st.date_input("Effective from (date, UTC) *", value=configuration.effective_from.date())
+            from_time = st.time_input("Effective from (time, UTC) *", value=configuration.effective_from.time())
+            open_ended = st.checkbox("Open-ended (no end)", value=configuration.effective_to is None)
+            to_date = st.date_input("Effective to (date, UTC)", value=end_default.date())
+            to_time = st.time_input("Effective to (time, UTC)", value=end_default.time())
+        with right:
+            role_a = st.selectbox(
+                "Stream A carries", role_options, index=role_options.index(current_a)
+            )
+            role_b = st.selectbox(
+                "Stream B carries", role_options, index=role_options.index(current_b)
+            )
+            st.caption(
+                "There is no default here on purpose. Read it off the machine's commissioning "
+                "or calibration record — assuming A is isocyanate is exactly the error this "
+                "table exists to prevent."
+            )
+        source_reference = st.text_input(
+            "Source reference *",
+            value=configuration.source_reference or "",
+            help="The commissioning report, calibration record or approval that establishes this mapping.",
+        )
+        approved_by = st.text_input("Approved by *", value=configuration.approved_by or "")
+        approved_date = st.date_input("Approved at (date, UTC) *", value=approved_default.date())
+        approved_time = st.time_input("Approved at (time, UTC) *", value=approved_default.time())
+        notes = st.text_area("Notes", value=configuration.notes or "")
+        saved = st.form_submit_button("Save draft")
+        activate_clicked = st.form_submit_button("Save and activate")
+
+        if saved or activate_clicked:
+            chosen_a = None if role_a == _MSC_UNSET else role_a
+            chosen_b = None if role_b == _MSC_UNSET else role_b
+            if chosen_a is not None and chosen_a == chosen_b:
+                st.error(
+                    "Stream A and stream B cannot carry the same chemical role — one is the "
+                    "isocyanate component and the other is the polyol blend component."
+                )
+            else:
+                configuration.effective_from = dt.datetime.combine(from_date, from_time)
+                configuration.effective_to = None if open_ended else dt.datetime.combine(to_date, to_time)
+                configuration.source_reference = source_reference.strip()
+                configuration.approved_by = approved_by.strip()
+                configuration.approved_at = dt.datetime.combine(approved_date, approved_time)
+                configuration.notes = notes
+                _msc_apply_assignments(session, configuration, chosen_a, chosen_b)
+                if activate_clicked:
+                    try:
+                        ms.activate(session, configuration)
+                    except ms.ActivationRefused as refusal:
+                        session.rollback()
+                        st.error("This revision cannot be activated yet:")
+                        for problem in refusal.problems:
+                            st.error(f"• {problem}")
+                    else:
+                        session.commit()
+                        st.success(
+                            f"Revision {configuration.revision} is now Active. It is frozen — a "
+                            "later change is a new revision."
+                        )
+                        st.rerun()
+                else:
+                    session.commit()
+                    st.success("Draft saved. It is not in force until it is activated.")
+                    st.rerun()
+
+    def _discard_draft(_session=session, _id=configuration.id, _machine_id=machine.id):
+        _session.query(MachineStreamConfiguration).filter(
+            MachineStreamConfiguration.id == _id
+        ).delete(synchronize_session=False)
+        _session.commit()
+        st.session_state.pop(f"msc_selected_{_machine_id}", None)
+
+    delete_with_confirm(
+        f"draft revision {configuration.revision}",
+        _discard_draft,
+        key_prefix=f"msc_draft_{configuration.id}",
+        extra_warning="A draft has never been in force, so discarding it affects no production run.",
+    )
 
 
 tab_create, tab_edit_delete, tab_import = st.tabs(
@@ -368,6 +650,8 @@ with tab_edit_delete:
                     f"'{selected_machine.name}'", _do_delete_machine, key_prefix=f"machine_{selected_machine.id}",
                     extra_warning=warning,
                 )
+
+            _render_machine_stream_configuration(session, selected_machine, page_usable)
 
             if st.button("Clear selection", key="clear_machine_selection"):
                 st.session_state.pop("machine_selected_id", None)

@@ -192,7 +192,12 @@ ALLOWED_FOAM_FAMILY_HITS = {
     ("analytics.py", 15), ("analytics.py", 138), ("analytics.py", 233),
     ("analytics.py", 541), ("analytics.py", 792), ("analytics.py", 1043),
     ("analytics.py", 1181), ("analytics.py", 1702), ("analytics.py", 1877),
-    ("db.py", 2046),
+    # db.py shifted +132 lines by Phase 8 Decision 2 (2026-08-19): the
+    # MachineStreamConfiguration / MachineStreamAssignment models, their
+    # explanatory block comment, and ProductionRun.machine_stream_
+    # configuration_id all landed above this line. Same unchanged comment
+    # text, new position - 2046 -> 2178.
+    ("db.py", 2178),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("views/16_Trend_Analysis.py", 228), ("views/16_Trend_Analysis.py", 411),
     ("views/17_Process_Property_Correlation.py", 109),

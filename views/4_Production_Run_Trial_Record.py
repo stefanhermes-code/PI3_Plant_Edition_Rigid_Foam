@@ -98,6 +98,7 @@ import pandas as pd
 import streamlit as st
 
 import analytics
+import machine_stream
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
 from cascades import delete_production_run_cascade, production_run_dependency_counts
@@ -278,6 +279,50 @@ def _generate_batch_reference(session, run_date, plant_ids):
     return f"{prefix}-{_max_batch_seq_for_prefix(session, prefix, plant_ids) + 1:02d}"
 
 
+# ---------------------------------------------------------------------------
+# Phase 8 Decision 2: machine-stream configuration on a run (2026-08-19)
+#
+# A run is stamped ONCE, at creation, with the configuration in force on its
+# Production Unit / Cell at that moment. Display never resolves and never
+# writes: if the run carries no stamp it reads Unresolved, full stop. That is
+# deliberate - resolving at display time would mean a configuration activated
+# next month silently changed how last month's run is interpreted, which is
+# the exact failure the versioned table exists to prevent.
+#
+# Historical runs created before this feature stay NULL and stay Unresolved.
+# They are not back-filled, because nobody has established what was plumbed
+# where on the day they ran; an Unresolved run is an honest gap, a guessed one
+# is a wrong answer that looks like a right one.
+# ---------------------------------------------------------------------------
+
+def _render_machine_stream_stamp(session, run):
+    summary = machine_stream.run_stream_summary(session, run)
+    if not summary["resolved"]:
+        st.warning(
+            "**Machine-stream configuration: Unresolved.** No activated A/B stream mapping "
+            "applied to this Production Unit or Cell when this run was created, so which "
+            "physical stream carried the isocyanate component is not established, and no A:B "
+            "ratio is derived for this run. Activate a configuration on the Production "
+            "Equipment page — it governs runs created from then on; this run is not "
+            "retrospectively stamped."
+        )
+        return
+    configuration = summary["configuration"]
+    st.info(
+        f"**Machine-stream configuration: {summary['label']}** (revision {configuration.revision}, "
+        f"{configuration.status}) — stream **{summary['isocyanate_stream']}** carries the "
+        f"Isocyanate Component, stream **{summary['polyol_stream']}** carries the Polyol Blend "
+        "Component."
+    )
+    st.caption(
+        f"Stamped when the run was created and frozen since: valid from "
+        f"{configuration.effective_from} to {configuration.effective_to or 'open-ended'} (UTC) · "
+        f"source reference: {configuration.source_reference or '—'} · approved by: "
+        f"{configuration.approved_by or '—'}. Superseding this revision later does not change "
+        "what this run reads."
+    )
+
+
 def _run_selector(runs, key):
     """Selectbox defaulting to the run selected elsewhere on the page
     (st.session_state['pr_selected_run_id']), keeping every tab in sync."""
@@ -422,6 +467,9 @@ with tab_runs:
                     "Block": r.block_reference if block_reference_applicable(r.production_method) else "—",
                     "Production Method": r.production_method.name if r.production_method else "—",
                     "Production Unit or Cell": r.machine.name if r.machine else "—",
+                    # Phase 8 Decision 2: surfaced in the overview so an
+                    # Unresolved run is visible without opening it.
+                    "Machine stream": machine_stream.run_stream_summary(session, r)["label"],
                     "Operator": r.operator_or_team_reference,
                 }
                 for r in runs
@@ -439,6 +487,7 @@ with tab_runs:
             if selected_run:
                 st.divider()
                 st.markdown(f"#### Edit Run #{selected_run.id}")
+                _render_machine_stream_stamp(session, selected_run)
                 st.caption(
                     "WP7 Phase 2 Closeout Correction: Run Context is captured context-first - "
                     "Plant, then Production Method, then Production Unit or Cell, then Product "
@@ -836,10 +885,20 @@ with tab_runs:
                         notes=notes,
                     )
                     session.add(run)
+                    session.flush()
+                    # Phase 8 Decision 2: stamp once, here, with whatever is
+                    # in force now. None means Unresolved and stays NULL.
+                    stamped = machine_stream.stamp_run(session, run)
                     session.commit()
                     clear_scope_cache()
                     st.session_state["pr_selected_run_id"] = run.id
                     st.success(f"Production run created. Batch reference: {run.batch_reference}.")
+                    if stamped is None:
+                        st.warning(
+                            "No activated machine-stream configuration applies to this Production "
+                            "Unit or Cell — the run reads as Unresolved and no A:B ratio is "
+                            "derived. Set one up on the Production Equipment page."
+                        )
                     st.rerun()
 
     with tab_import:
@@ -960,20 +1019,24 @@ with tab_runs:
                         session.get(Machine, int(machine_val)) if not pd.isna(machine_val) else None
                     )
                     imported_method = imported_machine.production_method if imported_machine else None
-                    session.add(
-                        ProductionRun(
-                            plant_id=grade_row.product_family.plant_id,
-                            foam_grade_id=grade_row.id,
-                            recipe_version_id=int(row["recipe_version_id"]),
-                            run_date=final_run_date,
-                            batch_reference=batch_val,
-                            block_reference=str(row.get("block_reference", "") or ""),
-                            machine_id=imported_machine.id if imported_machine else None,
-                            production_method_id=imported_method.id if imported_method else None,
-                            operator_or_team_reference=str(row.get("operator_or_team_reference", "") or ""),
-                            notes=str(row.get("notes", "") or ""),
-                        )
+                    imported_run = ProductionRun(
+                        plant_id=grade_row.product_family.plant_id,
+                        foam_grade_id=grade_row.id,
+                        recipe_version_id=int(row["recipe_version_id"]),
+                        run_date=final_run_date,
+                        batch_reference=batch_val,
+                        block_reference=str(row.get("block_reference", "") or ""),
+                        machine_id=imported_machine.id if imported_machine else None,
+                        production_method_id=imported_method.id if imported_method else None,
+                        operator_or_team_reference=str(row.get("operator_or_team_reference", "") or ""),
+                        notes=str(row.get("notes", "") or ""),
                     )
+                    session.add(imported_run)
+                    session.flush()
+                    # Phase 8 Decision 2: imported runs are stamped on the
+                    # same terms as manually created ones - no configuration
+                    # in force means Unresolved, never a default.
+                    machine_stream.stamp_run(session, imported_run)
                 session.commit()
                 clear_scope_cache()
                 msg = f"Imported {len(import_rows)} production run(s) from {run_filename}."

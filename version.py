@@ -7782,6 +7782,89 @@ files. Was 744 / 6 / 750 at v0.70.0, so the 10 new tests are the whole delta.
 
 No browser verification: Charlie's return condition requires it only where an
 application change was made, and none was.
+
+v0.71.0, 2026-08-19: Phase 8 Decision 2 - controlled machine-stream
+configuration. Which physical stream on a machine carries which chemical role
+is now recorded data, versioned per machine, and stamped onto a production run
+at creation.
+
+WHAT WAS WRONG
+
+analytics._component_side() has said for a while that this database uses the
+A-side label inconsistently: the WP3 seed recipe calls the isocyanate the
+A-side, the WP5-era reference recipes call it the B-side. Its docstring told
+callers not to guess, and nothing existed for them to consult instead. So A:B
+ratio reporting could not function, and any global rule anyone might have
+written - "A is isocyanate" - would have been correct on some machines and
+silently inverted on others.
+
+The reason it varies is physical: a stream label describes how one machine is
+plumbed, and two machines on one site can be plumbed opposite ways. So it is
+not a property of the plant and not a property of the formulation. Charlie's
+Decision 2 ruling put it on the machine, versioned, with a validity period.
+
+WHAT WAS BUILT
+
+db.py - MachineStreamConfiguration (the versioned header: machine, revision,
+Draft/Active/Superseded, half-open effective period, source reference and
+approval fields) and MachineStreamAssignment (the two mapping rows, one per
+stream). ProductionRun gained a nullable machine_stream_configuration_id with
+ON DELETE RESTRICT.
+
+machine_stream.py, new - every control rule in one module: activation
+validation, overlap detection, the freeze on Active and Superseded revisions,
+supersede, resolution and one-time stamping. No function in it derives a
+chemical role from a stream label or the reverse, and nothing else in the
+codebase pairs the two.
+
+views/31_Production_Equipment.py - the editor, inside the Edit/Delete tab under
+the selected Production Unit / Cell, because a configuration has no meaning
+without a machine. Create a Draft, map A and B, activate, supersede. Activation
+reports every missing item at once rather than one per attempt. Active and
+Superseded revisions are read-only; a change is a new revision.
+
+views/4_Production_Run_Trial_Record.py - runs are stamped once, at creation,
+manual and imported alike. The run record and the overview table show the
+stamped revision, or Unresolved. Display never resolves and never writes.
+
+WHY UNRESOLVED IS LEFT UNRESOLVED
+
+A run with no configuration in force keeps a null reference and derives no A:B
+ratio, and the eight pre-existing runs were not back-filled. Resolving at
+display time, or back-filling from run_date, would let a configuration created
+today rewrite what a block foamed in March was made of. An unresolved run is an
+honest gap; a guessed one is a wrong answer that looks like a right one.
+
+DATABASE
+
+Migration phase8_decision2_machine_stream_configuration, applied live to
+rigid_foam (97 -> 99 tables). btree_gist 1.7 was available and not installed;
+installing it was ruling R2's precondition, so it was installed first and the
+GiST exclusion constraint ex_msc_no_overlap created on
+tsrange(effective_from, effective_to, '[)') for Active and Superseded rows
+only. Plus uq_msc_one_open_active (partial unique: one open-ended Active
+configuration per machine), the three unique constraints, the three check
+constraints, and RLS enabled on both tables - 0 rigid_foam tables without it.
+
+Idempotence: the full migration body re-run in place left the constraint,
+index and column inventory byte-identical (md5 10b3541d4de92900101805824535076d
+over 40 objects, before and after) and wrote no rows. Configurations 0,
+assignments 0, production runs 8, of which 8 still unstamped.
+
+TESTS
+
+New tests/test_phase8_decision2_machine_stream_configuration.py (32 tests),
+covering the eleven code-testable items in section 6 of Charlie's ruling. The
+one that carries the design: a March run stamped under revision 1, the line
+re-hosed in June and revision 2 activated the opposite way round, and the March
+run still reads isocyanate on stream A - while a September run reads it on B.
+
+tests/test_cr18_product_family_terminology.py - one allowlisted db.py line
+number moved 2046 -> 2178, the Decision 2 models having landed above it. Text
+unchanged.
+
+Full regression: see the closeout. Was 785 passed / 6 skipped at v0.70.2 before
+this work landed.
 """
 
-APP_VERSION = "0.70.2"
+APP_VERSION = "0.71.0"

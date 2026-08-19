@@ -1162,6 +1162,127 @@ class RecipeComponent(Base):
 
 
 # ---------------------------------------------------------------------------
+# 5b. Machine-stream configuration (Phase 8 Decision 2, 2026-08-19)
+#
+# Charlie's Decision 2 Schema Ruling separates two concepts that the A:B ratio
+# path needs and that this database previously conflated:
+#
+#   CHEMICAL ROLE   what a material IS - Isocyanate Component or Polyol Blend
+#                   Component. A property of the formulation.
+#   MACHINE STREAM  which physical stream carries it on one machine - A or B.
+#                   A property of how that machine is plumbed, and the
+#                   convention varies by plant.
+#
+# Nothing here asserts that stream A means isocyanate. The mapping is data,
+# per machine, per revision. That is what lets one recipe run on two machines
+# with opposite conventions and still produce a correct A:B ratio, and it is
+# why analytics._component_side() had to stop guessing.
+#
+# The existing MachineConfiguration table further down is deliberately NOT
+# reused: its grain is machine MODEL ("this model ships in these variants"),
+# whereas a stream convention belongs to one installed machine at a point in
+# time. A changed hose creates a new revision here, not a new model.
+# ---------------------------------------------------------------------------
+class MachineStreamConfiguration(Base):
+    """One revision of one machine's physical A/B stream convention.
+
+    Lifecycle is Draft -> Active -> Superseded, and it only moves forwards.
+    A Draft may be incomplete and Drafts may overlap while being prepared
+    (ruling R6/R2). Activation is where the controls bite - see
+    machine_stream.validate_activation(). Once Active, the header and its
+    assignment rows are frozen; any later change is a new revision, so a
+    Production Run that already points at a revision can never be
+    reinterpreted by a subsequent plant change.
+
+    Validity is a half-open UTC timestamp period [effective_from,
+    effective_to), timestamp rather than date because a configuration can
+    change within a calendar day (ruling R3). effective_to NULL means
+    open-ended.
+
+    Overlap between Active/Superseded periods for the same machine is
+    prevented in the database by a GiST exclusion constraint
+    (ex_msc_no_overlap, requires btree_gist), backed by a partial unique
+    index allowing only one open-ended Active configuration per machine.
+    """
+
+    __tablename__ = "machine_stream_configurations"
+
+    id = Column(Integer, primary_key=True)
+    controlled_id = Column(String(50), unique=True)  # e.g. "MSC-001"
+    machine_id = Column(Integer, ForeignKey("machines.id"), nullable=False)
+    revision = Column(Integer, nullable=False)
+    effective_from = Column(DateTime, nullable=False)
+    effective_to = Column(DateTime)  # NULL = open-ended
+    status = Column(String(20), nullable=False, default="Draft")
+    # Required to activate, not to draft: the commissioning report, calibration
+    # record or approval that establishes the mapping. An uncontrolled mapping
+    # is the thing this whole decision exists to prevent.
+    source_reference = Column(Text)
+    approved_by = Column(String(200))
+    approved_at = Column(DateTime)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=dt.datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("machine_id", "revision", name="uq_msc_machine_revision"),
+        CheckConstraint(
+            "status IN ('Draft', 'Active', 'Superseded')",
+            name="ck_msc_status",
+        ),
+        CheckConstraint(
+            "effective_to IS NULL OR effective_to > effective_from",
+            name="ck_msc_period",
+        ),
+    )
+
+    machine = relationship("Machine")
+    assignments = relationship(
+        "MachineStreamAssignment",
+        back_populates="configuration",
+        cascade="all, delete-orphan",
+    )
+
+
+class MachineStreamAssignment(Base):
+    """One physical stream within a configuration: which chemical role runs
+    on stream A, and which on stream B.
+
+    Two unique constraints carry the meaning. One stream label per
+    configuration is obvious. One chemical ROLE per configuration is the one
+    that matters: it makes recording both streams as isocyanate impossible,
+    which is the shape a careless entry takes.
+    """
+
+    __tablename__ = "machine_stream_assignments"
+
+    id = Column(Integer, primary_key=True)
+    machine_stream_configuration_id = Column(
+        Integer,
+        ForeignKey("machine_stream_configurations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    stream_label = Column(String(1), nullable=False)  # 'A' or 'B' - a physical stream only
+    chemical_role = Column(String(40), nullable=False)  # see machine_stream.CHEMICAL_ROLES
+    notes = Column(Text)
+
+    __table_args__ = (
+        CheckConstraint("stream_label IN ('A', 'B')", name="ck_msa_stream_label"),
+        CheckConstraint(
+            "chemical_role IN ('Isocyanate Component', 'Polyol Blend Component')",
+            name="ck_msa_chemical_role",
+        ),
+        UniqueConstraint(
+            "machine_stream_configuration_id", "stream_label", name="uq_msa_config_stream"
+        ),
+        UniqueConstraint(
+            "machine_stream_configuration_id", "chemical_role", name="uq_msa_config_role"
+        ),
+    )
+
+    configuration = relationship("MachineStreamConfiguration", back_populates="assignments")
+
+
+# ---------------------------------------------------------------------------
 # 6. production_runs
 # ---------------------------------------------------------------------------
 class ProductionRun(Base):
@@ -1175,6 +1296,16 @@ class ProductionRun(Base):
     batch_reference = Column(String(200))
     block_reference = Column(String(200))
     machine_id = Column(Integer, ForeignKey("machines.id"))  # which foaming line actually ran this
+    # Phase 8 Decision 2 (2026-08-19): the machine-stream configuration that
+    # applied when this run started, stamped once at run start and never
+    # recomputed. Nullable, and null means Unresolved - A:B ratio derivation is
+    # suppressed rather than defaulted. Historical runs stay null; Charlie's
+    # ruling forbids auto-stamping them from run_date, because a historical
+    # assignment needs an explicit controlled action and evidence.
+    # ondelete RESTRICT: a configuration a run points at cannot be deleted.
+    machine_stream_configuration_id = Column(
+        Integer, ForeignKey("machine_stream_configurations.id", ondelete="RESTRICT")
+    )
     operator_or_team_reference = Column(String(200))
     notes = Column(Text)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
@@ -1244,6 +1375,7 @@ class ProductionRun(Base):
     # (see production_run = relationship(...) on each child model below)
     # avoids that entirely.
 
+    machine_stream_configuration = relationship("MachineStreamConfiguration")
 
 # ---------------------------------------------------------------------------
 # 6b. production_phases (two snapshots: Setup = planned, Finalized = actual)
@@ -4480,6 +4612,8 @@ ALL_MODELS = [
     User,
     Plant,
     Machine,
+    MachineStreamConfiguration,
+    MachineStreamAssignment,
     ProductFamily,
     FoamGrade,
     FoamGradeTargetProperty,
