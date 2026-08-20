@@ -8299,6 +8299,37 @@ surfaced as 27 unexplained failures. Caught, reverted, redone against the real
 repository, and the copy deleted. The lesson is to anchor paths absolutely
 rather than trusting an inherited cwd.
 
+v0.74.1, 2026-08-20: R-PRE correction - the Certificate of Analysis page
+still said it carried the formulation.
+
+Found in v0.74.0's own browser evidence, on the deployed application, with
+every code test green.
+
+The recipe block and the formulation table were gone from the certificate -
+screen, PDF and Word - and verified gone. But the tab caption still read "the
+recipe used (full formulation - internal use only, not customer-facing)", and
+the page-level intro still called the report "result-and-recipe traceability".
+
+Both were false, and false in the more dangerous direction. A reader would
+either believe a customer-facing document contained the formulation, or refuse
+to send one that was in fact safe to send. The certificate's own block comment
+still carried the old caveat too.
+
+This is the same defect class as the internal-vocabulary leak of v0.71.1: the
+application describing itself inaccurately. It is invisible to a test that
+checks behaviour, because every test was asking whether the recipe was gone
+rather than whether the page still promised it. Nothing but looking at the
+running application would have caught it.
+
+Fixed, with a guard that scans what the page SAYS about the certificate rather
+than what it does. The scan ignores comment lines - the section's block
+comment deliberately quotes the old wording to record what changed, and a scan
+that tripped on its own explanation would force the history to be deleted to
+keep the test green. Both new assertions are mutation-checked by restoring the
+old caption and the old intro in turn.
+
+Full regression: 942 passed, 6 skipped, 0 failed of 948 collected.
+
 v0.74.0, 2026-08-20: R-PRE, the pilot-commitment release ahead of the
 architecture redesign. Redesign Migration Plan v3, Package A.
 
@@ -8565,4 +8596,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.74.0"
+APP_VERSION = "0.74.1"

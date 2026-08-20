@@ -268,3 +268,58 @@ def test_report_page_no_longer_renders_the_formulation_table():
     for banned in ("recipe_components", "recipe_version_label", "recipe_approval_status",
                    "recipe_effective_date", "recipe_ratio_index"):
         assert banned not in certificate_section, f"{banned} still rendered on the certificate tab"
+
+
+# ---------------------------------------------------------------------------
+# 5. What the page SAYS about the certificate
+#
+# Found live on 20 August 2026, after the content had already been removed and
+# the code tests were green: the page still described the certificate as
+# carrying "the recipe used (full formulation - internal use only, not
+# customer-facing)", and the page-level action text still called it
+# "result-and-recipe traceability".
+#
+# Both were false, and false in the worst direction - a user reading them
+# would believe a customer-facing document contained the formulation, or
+# would avoid sending a certificate that was in fact safe to send. Removing
+# content and leaving the description behind is the same defect class as the
+# internal-vocabulary leak: the application describing itself inaccurately.
+# ---------------------------------------------------------------------------
+
+FORMULATION_CLAIMS = [
+    "result-and-recipe",
+    "the recipe used (full formulation",
+    "full recipe formulation",
+    "internal use only, not customer-facing",
+]
+
+
+def _user_visible(source):
+    """Comment lines removed. The section's block comment deliberately QUOTES
+    the old wording to record what changed and why, and a scan that tripped on
+    its own explanation would force the history to be deleted to keep the test
+    green. What matters is what the user reads on screen."""
+    return "\n".join(l for l in source.splitlines() if not l.lstrip().startswith("#"))
+
+
+def test_the_report_page_does_not_claim_the_certificate_carries_a_recipe():
+    with open(os.path.join(APP_DIR, "views", "21_Report.py"), encoding="utf-8") as handle:
+        source = handle.read()
+    certificate_section = _user_visible(
+        source[source.index("# 4. Sample Certificate of Analysis"):
+               source.index("# 5. WP3 Property Conformance Report")]
+    )
+    for claim in FORMULATION_CLAIMS:
+        assert claim not in certificate_section, (
+            f"the certificate section still tells the user it carries a recipe: {claim!r}"
+        )
+
+
+def test_the_page_intro_does_not_claim_recipe_traceability():
+    """The Function/Action block at the top of the page, which every user sees
+    before they pick a tab."""
+    with open(os.path.join(APP_DIR, "views", "21_Report.py"), encoding="utf-8") as handle:
+        source = handle.read()
+    intro = _user_visible(source[:source.index("session = get_session()")])
+    assert "result-and-recipe" not in intro
+

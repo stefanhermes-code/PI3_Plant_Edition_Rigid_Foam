@@ -77,7 +77,8 @@ render_function_action_intro(
         "Conformance Record to see whether a single batch met spec (and what else was going on "
         "if it didn't), the Plant/Period Summary for a broader review across a date range, the "
         "Trial Closeout Report once a customer or optimization trial is formally closed, the "
-        "Sample Certificate of Analysis for one sample's full result-and-recipe traceability, "
+        "Sample Certificate of Analysis for one sample's source and results - the only report "
+        "here that is customer-facing, and the only one that carries no formulation - "
         "and the Property Conformance Report for a rigid-product grade specification's full "
         "method/unit/condition/orientation-aware verdict against one production run."
     ),
@@ -371,15 +372,20 @@ with tab_trial:
 # 4. Sample Certificate of Analysis
 #
 # Picking one sample is a single simple choice, same placement logic as
-# the other three reports on this page. Not customer-facing as-is - it
-# includes the full recipe formulation used, same caveat as Batch Release
-# Record and Recipe Formulation Record.
+# the other three reports on this page.
+#
+# R-PRE-WP2 (2026-08-20): this IS the customer-facing report, and since that
+# release it carries no recipe content at all - no version reference, no
+# formulation table, on screen or in the download. The caveat that used to sit
+# here ("not customer-facing as-is - it includes the full recipe formulation")
+# was true until then and is not any more. Batch Release Record and Recipe
+# Formulation Record keep theirs; they are internal.
 # ---------------------------------------------------------------------------
 with tab_sample:
     st.caption(
-        "Full traceability record for one sample: which run/trial it came from, the sample itself, "
-        "the recipe used (full formulation - internal use only, not customer-facing), its quality "
-        "test results, and the pass/fail assessment."
+        "Certificate of analysis for one sample: which run or trial it came from, the sample "
+        "itself, its quality test results and the pass/fail assessment. Intended to be sent to a "
+        "customer - it carries no formulation and no recipe reference."
     )
     if active_company_id is None:
         sample_query = session.query(Sample)
