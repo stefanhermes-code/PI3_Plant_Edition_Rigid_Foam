@@ -8299,6 +8299,46 @@ surfaced as 27 unexplained failures. Caught, reverted, redone against the real
 repository, and the copy deleted. The lesson is to anchor paths absolutely
 rather than trusting an inherited cwd.
 
+v0.74.2, 2026-08-20: R-PRE correction 2 - the new properties had no
+selectable unit. Data-only; no application code changed.
+
+Found in browser evidence, like v0.74.1, and again invisible to every test.
+
+Viscosity was selectable on the Test Results page, its description read
+correctly, ASTM D445 was offered as the measuring method - and "Unit of
+measure" showed "No options to select", greyed out. The only way to enter a
+unit was the free-text "Or type a unit not listed above" box: the uncontrolled
+path the whole viscosity ruling exists to close.
+
+The page builds that picker from physical_property_uoms, the per-property
+allowed-unit link table, NOT from physical_property_definitions.default_uom.
+Migrations 0006 and 0007 set the default and made mPa.s controlled without
+making it choosable. Setting a standard and leaving it unselectable is worse
+than not setting one, because the record then looks controlled and is not.
+
+Migration 0008 adds the link rows: ratio for Specific gravity; mPa.s, cP, Pa.s
+and P for Viscosity, mPa.s first so it is the default. Kinematic units are
+deliberately NOT offered on the dynamic property - that would invite a
+kinematic number to be stored under a dynamic one, the exact confusion the
+two-quantity split in 0006 exists to prevent.
+
+A PRE-EXISTING GAP, RAISED NOT FIXED
+
+physical_property_uoms holds ONE row in the whole database, for PROP-005
+Thermal conductivity. All 56 other controlled properties have the same empty
+picker and the same free-text fallback, and have had since WP5. That is a real
+finding about the controlled-unit model and it is raised as its own item. It
+is not fixed here: 56 properties is a controlled-vocabulary exercise of its
+own and not R-PRE's scope. 0008 closes it only for the two properties R-PRE
+added, so the units it just standardised can actually be chosen.
+
+WHAT THE TWO BROWSER-EVIDENCE DEFECTS HAVE IN COMMON
+
+v0.74.1 was the page describing content it no longer had. v0.74.2 is the page
+offering a control it could not populate. Both passed every test, because the
+tests asked whether the data was right and neither asked what the user would
+actually see. Both were found by opening the running application and looking.
+
 v0.74.1, 2026-08-20: R-PRE correction - the Certificate of Analysis page
 still said it carried the formulation.
 
@@ -8596,4 +8636,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.74.1"
+APP_VERSION = "0.74.2"
