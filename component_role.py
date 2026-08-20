@@ -207,29 +207,72 @@ def clear_role(component):
 # The one place chemistry meets plumbing
 # ---------------------------------------------------------------------------
 
+# Reasons a resolution can fail. Returned rather than raised, because every one
+# of them is a normal state the application has to display, not an error.
+UNRESOLVED_NO_ROLE = "component has no controlled chemical role"
+UNRESOLVED_NO_CONFIGURATION = "run has no stamped machine-stream configuration"
+UNRESOLVED_RECIPE_MISMATCH = (
+    "component belongs to a different recipe version than the run records"
+)
+
+
+def component_belongs_to_run(run, component):
+    """Whether this component is part of the recipe version the run records.
+
+    Charlie's Decision 3 Correction Ruling section 5. Without this check the
+    resolver would answer confidently for a component from an entirely
+    different recipe - the caller would get a real-looking 'A' with no
+    indication that the question was meaningless. No current caller does that;
+    Decision 4 will call this resolver a great deal more, and a guard that only
+    holds while nobody makes a mistake is not a guard.
+    """
+    if run is None or component is None:
+        return False
+    if run.recipe_version_id is None or component.recipe_version_id is None:
+        return False
+    return run.recipe_version_id == component.recipe_version_id
+
+
+def resolve_component_stream(session, run, component):
+    """The full answer: (stream, reason).
+
+    stream is 'A', 'B' or None. reason is None when resolved, and otherwise one
+    of the UNRESOLVED_* constants above, so a caller can say WHICH thing is
+    missing instead of reporting an undifferentiated failure. The three causes
+    need three different actions from three different people.
+    """
+    if not component_belongs_to_run(run, component):
+        return None, UNRESOLVED_RECIPE_MISMATCH
+    role = role_of(component)
+    if role is None:
+        return None, UNRESOLVED_NO_ROLE
+    configuration = machine_stream.configuration_for_run(session, run)
+    if not machine_stream.is_resolved(configuration):
+        return None, UNRESOLVED_NO_CONFIGURATION
+    return machine_stream.stream_for_role(configuration, role), None
+
+
 def component_stream_for_run(session, run, component):
     """Which physical stream carried this component on this run. 'A', 'B' or None.
 
-    Both halves are required and neither is defaulted:
+    Three things are required and none is defaulted:
 
+      - the component must belong to the recipe version the run records;
       - the component must carry a controlled chemical role (Decision 3);
       - the run must carry a stamped machine-stream configuration whose
         assignments resolve (Decision 2).
 
-    Returns None if either is missing. There is deliberately no fallback: the
-    most common convention is still a guess, and a guessed stream produces a
-    ratio that is precisely wrong and indistinguishable from a measured one.
+    Returns None if any is missing. There is deliberately no fallback: the most
+    common convention is still a guess, and a guessed stream produces a ratio
+    that is precisely wrong and indistinguishable from a measured one.
+
+    Use resolve_component_stream() when the caller needs to know WHY.
 
     Performs no writes. Reading a run must never stamp it - see
     machine_stream.configuration_for_run().
     """
-    role = role_of(component)
-    if role is None:
-        return None
-    configuration = machine_stream.configuration_for_run(session, run)
-    if not machine_stream.is_resolved(configuration):
-        return None
-    return machine_stream.stream_for_role(configuration, role)
+    stream, _reason = resolve_component_stream(session, run, component)
+    return stream
 
 
 def run_component_resolution(session, run, recipe_version):
@@ -243,6 +286,11 @@ def run_component_resolution(session, run, recipe_version):
     configuration = machine_stream.configuration_for_run(session, run)
     stream_resolved = machine_stream.is_resolved(configuration)
     unresolved = unresolved_components(recipe_version)
+    recipe_matches = (
+        recipe_version is not None
+        and run is not None
+        and run.recipe_version_id == recipe_version.id
+    )
 
     components = []
     for component in (recipe_version.components if recipe_version else []):
@@ -255,9 +303,12 @@ def run_component_resolution(session, run, recipe_version):
         )
 
     return {
-        "resolved": stream_resolved and bool(components) and not unresolved,
+        "resolved": (
+            recipe_matches and stream_resolved and bool(components) and not unresolved
+        ),
         "configuration": configuration,
         "machine_stream_resolved": stream_resolved,
+        "recipe_version_matches_run": recipe_matches,
         "unresolved_components": unresolved,
         "components": components,
     }
@@ -299,6 +350,11 @@ def php_by_stream_for_run(session, run, recipe_version):
     Requires both halves. Returns None if either is missing, so a caller cannot
     accidentally receive a half-answer shaped like a whole one.
     """
+    if recipe_version is None or run is None or run.recipe_version_id != recipe_version.id:
+        # Same ownership guard as the per-component resolver. Totalling a
+        # recipe the run did not use would produce a confident number about a
+        # formulation that was never on that machine.
+        return None
     totals = php_by_chemical_role(recipe_version)
     if totals is None:
         return None

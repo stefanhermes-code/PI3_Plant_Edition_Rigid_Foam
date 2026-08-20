@@ -737,3 +737,179 @@ def test_the_legacy_ratio_is_not_presented_as_the_controlled_one(fixture):
     assert "_controlled_roles_complete = component_role.recipe_version_is_resolved(v)" in source
     assert "Computed (uncontrolled, legacy basis)" in source
     assert "No controlled A:B ratio for this version." in source
+
+
+# ---------------------------------------------------------------------------
+# Charlie's Decision 3 Correction Ruling, sections 4 and 5 (20 August 2026)
+# ---------------------------------------------------------------------------
+
+def test_a_component_from_another_recipe_version_does_not_resolve(fixture):
+    """Ruling section 5. Without the ownership guard the resolver answered
+    confidently for a component belonging to an entirely different recipe - a
+    real-looking 'A' to a question that was meaningless."""
+    session = fixture["session"]
+    other_version = db.RecipeVersion(foam_grade_id=fixture["grade"].id, version_label="v2")
+    session.add(other_version)
+    session.flush()
+
+    foreign = db.RecipeComponent(
+        recipe_version_id=other_version.id,
+        raw_material_name="Lupranate M20",
+        php=145,
+        chemical_role=ISO,
+        chemical_role_source_id=fixture["source"].id,
+        chemical_role_source_location="Table 3, row 2",
+    )
+    session.add(foreign)
+    session.flush()
+
+    _configuration(fixture, fixture["line_1"], {"A": ISO, "B": POLYOL})
+    run = _run(fixture, fixture["line_1"])          # run records fixture["version"]
+
+    stream, reason = component_role.resolve_component_stream(session, run, foreign)
+    assert stream is None
+    assert reason == component_role.UNRESOLVED_RECIPE_MISMATCH
+    assert component_role.component_stream_for_run(session, run, foreign) is None
+
+
+def test_a_matching_component_still_resolves(fixture):
+    """The guard must not break the normal case."""
+    own = _component(fixture, "Lupranate M20", 145, role=ISO)
+    _configuration(fixture, fixture["line_1"], {"A": ISO, "B": POLYOL})
+    run = _run(fixture, fixture["line_1"])
+
+    stream, reason = component_role.resolve_component_stream(fixture["session"], run, own)
+    assert stream == "A"
+    assert reason is None
+
+
+def test_each_unresolved_cause_reports_its_own_reason(fixture):
+    """Three causes needing three different actions from three different
+    people. Reporting one undifferentiated failure would tell nobody what to
+    do about it."""
+    session = fixture["session"]
+    unresolved_component = _component(fixture, "Cyclopentane", 12)
+    resolved_component = _component(fixture, "Lupranate M20", 145, role=ISO)
+
+    unstamped = _run(fixture, fixture["line_1"], stamp=False)
+    assert component_role.resolve_component_stream(session, unstamped, unresolved_component)[1] == (
+        component_role.UNRESOLVED_NO_ROLE
+    )
+    assert component_role.resolve_component_stream(session, unstamped, resolved_component)[1] == (
+        component_role.UNRESOLVED_NO_CONFIGURATION
+    )
+
+
+def _fully_resolved_other_version(fixture):
+    """A SECOND recipe version that is complete in its own right.
+
+    Deliberately populated and fully resolved. An empty version would be
+    refused by recipe_version_is_resolved() anyway, so a test using one would
+    pass whether or not the ownership guard existed - which is exactly what the
+    first draft of these two tests did.
+    """
+    session = fixture["session"]
+    other = db.RecipeVersion(foam_grade_id=fixture["grade"].id, version_label="v2")
+    session.add(other)
+    session.flush()
+    for name, php, role in (("Other iso", 150, ISO), ("Other polyol", 100, POLYOL)):
+        session.add(db.RecipeComponent(
+            recipe_version_id=other.id,
+            raw_material_name=name,
+            php=php,
+            chemical_role=role,
+            chemical_role_source_id=fixture["source"].id,
+            chemical_role_source_location="Table 9, row 1",
+        ))
+    session.flush()
+    session.refresh(other)
+    assert component_role.recipe_version_is_resolved(other) is True
+    return other
+
+
+def test_stream_totals_refuse_a_recipe_the_run_did_not_use(fixture):
+    """Totalling a formulation that was never on that machine would produce a
+    confident number about the wrong thing.
+
+    The other version here is complete and would total perfectly well on its
+    own, so the ONLY thing that can refuse it is the ownership guard.
+    """
+    session = fixture["session"]
+    _component(fixture, "Lupranate M20", 145, role=ISO)
+    _component(fixture, "Lupranol 3300", 100, role=POLYOL)
+    _configuration(fixture, fixture["line_1"], {"A": ISO, "B": POLYOL})
+    run = _run(fixture, fixture["line_1"])
+
+    other_version = _fully_resolved_other_version(fixture)
+    assert component_role.php_by_chemical_role(other_version) == {ISO: 150.0, POLYOL: 100.0}
+
+    version = fixture["version"]
+    session.refresh(version)
+    assert component_role.php_by_stream_for_run(session, run, version) == {"A": 145.0, "B": 100.0}
+    assert component_role.php_by_stream_for_run(session, run, other_version) is None
+
+
+def test_the_resolution_summary_flags_a_recipe_mismatch(fixture):
+    """Again with a version that is complete on its own, so 'resolved' can only
+    be False because of the ownership guard."""
+    _component(fixture, "Lupranate M20", 145, role=ISO)
+    _configuration(fixture, fixture["line_1"], {"A": ISO, "B": POLYOL})
+    run = _run(fixture, fixture["line_1"])
+
+    other_version = _fully_resolved_other_version(fixture)
+
+    summary = component_role.run_component_resolution(fixture["session"], run, other_version)
+    assert summary["recipe_version_matches_run"] is False
+    assert summary["machine_stream_resolved"] is True
+    assert summary["unresolved_components"] == []
+    assert summary["resolved"] is False
+
+
+def test_the_revision_path_warns_confirms_and_audits_the_role_reset(fixture):
+    """Ruling section 4, asserted against the PAGE.
+
+    Three separate obligations, and a test for each, because the previous round
+    of this work showed that asserting them in prose is worth nothing:
+    the warning must name how many assignments reset, the save must be blocked
+    until the user confirms, and the reset must reach the audit trail.
+    """
+    page = os.path.join(REPO_ROOT, "views", "3_Recipe_Version_Record.py")
+    with open(page, encoding="utf-8") as handle:
+        source = handle.read()
+
+    # names the count
+    assert "_roles_to_reset = [" in source
+    assert "controlled chemical role assignment(s) will reset" in source
+    assert "len(_roles_to_reset)" in source
+
+    # requires explicit confirmation, and blocks the save without it
+    assert "_reset_confirmed = st.checkbox(" in source
+    assert "elif not _reset_confirmed:" in source
+
+    # records it as part of version creation, on the controlled-edit path
+    assert "reset to Unresolved on the new version" in source
+    assert source.count("RoleChangeLog(") >= 2, (
+        "the version-creation reset must be recorded as well as the assignment"
+    )
+    # and says the old version keeps its record
+    assert "retains" in source and "its assignments and sources" in source
+
+
+def test_new_version_components_are_created_without_role_fields(fixture):
+    """The reset itself: the revision path must not copy provenance forward.
+
+    Carrying a role over would assert that evidence gathered for one
+    formulation applies to a revised one, which nobody has established.
+    """
+    import io
+    import tokenize
+
+    page = os.path.join(REPO_ROOT, "views", "3_Recipe_Version_Record.py")
+    with open(page, encoding="utf-8") as handle:
+        source = handle.read()
+
+    block = source.split("new_version = RecipeVersion(")[1].split("activate_recipe_version(")[0]
+    for field in ("chemical_role", "chemical_role_source_id", "chemical_role_source_location"):
+        assert field not in block, (
+            f"the revision path copies {field} forward - provenance must not be inherited"
+        )

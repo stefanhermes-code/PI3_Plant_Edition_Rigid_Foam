@@ -8298,6 +8298,103 @@ allowlist edit were applied to the mutated tree rather than the real one. It
 surfaced as 27 unexplained failures. Caught, reverted, redone against the real
 repository, and the copy deleted. The lesson is to anchor paths absolutely
 rather than trusting an inherited cwd.
+
+v0.73.0, 2026-08-20: P8-OWR-003 reproducible migrations and schema-drift
+control, plus the two Decision 3 correction rulings - recipe-revision role
+reset, and the resolver's recipe-version ownership guard.
+
+P8-OWR-003: THE REPOSITORY CAN NOW REBUILD THE SCHEMA
+
+Until now every schema change here was applied by hand against Supabase. The
+live database was correct; the repository could not reproduce it. db.py starts
+the app with Base.metadata.create_all(), and create_all() NEVER ALTERs an
+existing table - so on any database predating a change, the new columns and
+constraints simply stay absent.
+
+For a column that surfaces as an error. For a CONTROL constraint it does not
+surface at all: the page works, the saves succeed, and the thing that was
+supposed to make a partial provenance state or an overlapping machine-stream
+period impossible is quietly not there. An environment that looks correct and
+enforces nothing is the failure this closes.
+
+  migrations/0001  Decision 2 machine-stream configuration
+  migrations/0002  Decision 3 chemical role (as applied, defect included)
+  migrations/0003  the NULL-handling fix
+  migrate.py       ordered runner, ledger, --dry-run and --baseline
+
+Object names in the migration files are UNQUALIFIED and the runner sets
+search_path. That is not tidiness: it is what makes "applies cleanly to a
+pre-change database" testable rather than asserted.
+
+0002 is preserved with the NULL defect that shipped in v0.72.0, and 0003 fixes
+it. Folding the fix into 0002 would have been neater and wrong - a migration set
+that cannot reproduce the state a database was actually in cannot be used to
+diagnose that database.
+
+EVIDENCE, AGAINST A DISPOSABLE SCHEMA RATHER THAN AGAINST PRODUCTION
+
+A rigid_foam_migtest schema was built holding only the PRE-change shape of the
+five prerequisite tables - no machine_stream_* tables, no run stamp column, no
+chemical-role columns - and the three artifacts applied to it:
+
+  before: 0 chemical-role columns, 0 run stamp column, 0 machine_stream tables
+  after:  3 chemical-role columns, 1 run stamp column, 2 machine_stream tables,
+          5 control constraints
+
+Then re-run: inventory md5 c05771be96e905c20266f5d287059702 identical before and
+after. Then probed for ENFORCEMENT rather than presence - null location
+rejected, off-vocabulary rejected, overlapping Active periods rejected. Then
+dropped. Live data untouched throughout: 5 recipe components, 0 with a role, 8
+production runs, 99 tables.
+
+The live database is baselined into the new ledger rather than re-migrated: the
+DDL was already applied by hand, so the three versions are recorded as applied
+without executing them. A ledger that disagrees with reality is worse than no
+ledger.
+
+tests/test_schema_compatibility.py (8 tests). The required columns and control
+constraints are written out LITERALLY, not derived from the ORM - a derived
+expectation would delete itself alongside whatever it was meant to protect, and
+one test guards against someone later "simplifying" it into exactly that
+tautology. Mutation-checked: removing one CheckConstraint from db.py fails two
+of them.
+
+RULING 6.2: A REVISION NO LONGER RESETS ROLES SILENTLY
+
+A new recipe version starts with every chemical role Unresolved. That is the
+correct control - a role established for one formulation is not automatically
+true of a revised one, and copying provenance forward would assert evidence
+nobody gave. What was wrong was doing it in silence: correcting a php typo reset
+the whole formulation and removed its ability to produce a ratio, with no
+warning and nothing in the audit trail.
+
+Now the Edit Recipe path names how many assignments will reset and which
+materials, states that the previous version keeps its roles and sources as the
+historical record, requires an explicit confirmation checkbox, blocks the save
+without it, and records the reset through the same controlled-edit path as an
+assignment - in the same transaction as version creation, so a new version
+cannot exist without the record of what it cost.
+
+RULING 6.3: THE RESOLVER CHECKS THE COMPONENT BELONGS TO THE RUN
+
+component_stream_for_run() would previously answer confidently for a component
+belonging to an entirely different recipe version. New resolve_component_stream()
+returns (stream, reason) with three named causes - no role, no stamped
+configuration, recipe mismatch - because they need three different actions from
+three different people, and one undifferentiated failure tells nobody what to
+do. php_by_stream_for_run() and the resolution summary take the same guard.
+
+TWO WEAK TESTS CAUGHT BY MY OWN MUTATION CHECK
+
+The first drafts of the ownership-guard tests used an EMPTY second recipe
+version. An empty version is refused by recipe_version_is_resolved() anyway, so
+both passed whether or not the guard existed. They now use a second version that
+is complete and would total perfectly well on its own, so the only thing that
+can refuse it is the guard. Recorded because it is the same class of mistake the
+v0.72.0 review found, caught this time before it shipped.
+
+Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
+files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.72.1"
+APP_VERSION = "0.73.0"

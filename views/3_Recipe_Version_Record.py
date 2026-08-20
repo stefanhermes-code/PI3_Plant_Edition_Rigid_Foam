@@ -508,6 +508,41 @@ with tab_edit:
 
                 suggested_label = next_version_label(active_version.version_label, len(edit_grade.recipe_versions))
                 st.caption(f"Saving creates version **{suggested_label}** and retires the current one.")
+
+                # Phase 8 Decision 3, Charlie's correction ruling section 4.
+                #
+                # A new version starts with every chemical role Unresolved. That
+                # is the correct control - a role established for one
+                # formulation is not automatically true of a revised one, and
+                # copying provenance forward would assert evidence nobody gave.
+                #
+                # What was wrong was doing it silently. Correcting a php typo
+                # reset the whole formulation to Unresolved and removed its
+                # ability to produce a ratio, with no warning and nothing in the
+                # audit trail. The user has to be told what it costs and has to
+                # agree to it.
+                _roles_to_reset = [
+                    c for c in active_version.components
+                    if component_role.is_resolved(c)
+                ]
+                _reset_confirmed = True
+                if _roles_to_reset:
+                    st.warning(
+                        f"**{len(_roles_to_reset)} controlled chemical role assignment(s) will reset "
+                        f"to Unresolved** on the new version: "
+                        + ", ".join(c.raw_material_name for c in _roles_to_reset)
+                        + ". A role belongs to the formulation it was established for, so the new "
+                        "version needs its own assignment from valid evidence. Version "
+                        f"**{active_version.version_label}** keeps its roles and sources as the "
+                        "historical record. Until the new version is assigned, no A:B ratio is "
+                        "derived for it."
+                    )
+                    _reset_confirmed = st.checkbox(
+                        f"I understand the new version will start with {len(_roles_to_reset)} "
+                        "chemical role(s) Unresolved",
+                        key=f"confirm_role_reset_{edit_grade.id}_{active_version.id}",
+                    )
+
                 with st.form(f"edit_recipe_{edit_grade.id}"):
                     new_effective = st.date_input("Effective date", value=dt.date.today())
                     new_status = st.selectbox("Approval status", APPROVAL_STATUSES, index=0)
@@ -524,6 +559,12 @@ with tab_edit:
                         ]
                         if not clean_rows:
                             st.error("At least one ingredient is required.")
+                        elif not _reset_confirmed:
+                            st.error(
+                                f"Confirm the chemical-role reset above before saving. "
+                                f"{len(_roles_to_reset)} controlled assignment(s) will return to "
+                                "Unresolved on the new version."
+                            )
                         else:
                             new_label = suggested_label
                             new_change_note = summarize_recipe_component_changes(
@@ -562,10 +603,43 @@ with tab_edit:
                                     )
                                 )
                             activate_recipe_version(session, edit_grade.id, new_version)
+                            # The reset is part of version creation, so it is
+                            # recorded as part of version creation - on the same
+                            # controlled-edit path as an assignment, and in the
+                            # same transaction, so a new version cannot exist
+                            # without the record of what it cost.
+                            if _roles_to_reset:
+                                session.add(
+                                    RoleChangeLog(
+                                        changed_by_user_id=user["id"],
+                                        company_id=user["company_id"],
+                                        target_type="recipe_component",
+                                        target_id=new_version.id,
+                                        target_label=f"{edit_grade.grade_name} {new_label}",
+                                        change_summary=(
+                                            f"New recipe version '{new_label}' created from "
+                                            f"'{active_version.version_label}': "
+                                            f"{len(_roles_to_reset)} controlled chemical role(s) "
+                                            "reset to Unresolved on the new version ("
+                                            + ", ".join(
+                                                f"{c.raw_material_name}: {c.chemical_role}"
+                                                for c in _roles_to_reset
+                                            )
+                                            + f"). Version '{active_version.version_label}' retains "
+                                            "its assignments and sources."
+                                        ),
+                                    )
+                                )
                             session.commit()
                             st.success(
                                 f"'{new_label}' saved and is now the active recipe for {edit_grade.grade_name}."
                             )
+                            if _roles_to_reset:
+                                st.warning(
+                                    f"{len(_roles_to_reset)} chemical role(s) are Unresolved on "
+                                    f"'{new_label}'. Assign them from controlled evidence before "
+                                    "this version's A:B ratio can be derived."
+                                )
                             st.rerun()
 
 with tab_import:
