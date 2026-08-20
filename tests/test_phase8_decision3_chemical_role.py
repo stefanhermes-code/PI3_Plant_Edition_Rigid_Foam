@@ -571,3 +571,169 @@ def test_schema_creation_is_idempotent():
     before = sorted(sa.inspect(db.ENGINE).get_table_names())
     db.Base.metadata.create_all(db.ENGINE)
     assert sorted(sa.inspect(db.ENGINE).get_table_names()) == before
+
+
+# ---------------------------------------------------------------------------
+# Review corrections (2026-08-19)
+#
+# An independent adversarial review found four defects in the first cut of
+# Decision 3, and - more usefully - found that two of Charlie's nine closeout
+# items were asserted in prose while no test could fail if the production code
+# implementing them were deleted. Mutation-checked: removing both audit calls
+# from the save path AND flipping the role selector off Unresolved left 26/26
+# passing.
+#
+# The tests below are written against that standard. Each one was verified to
+# fail when the specific line it protects is reverted.
+# ---------------------------------------------------------------------------
+
+def test_a_null_source_location_is_rejected(fixture):
+    """THE defect. trim(NULL) is NULL, "FALSE OR NULL" is NULL, and a CHECK
+    passes on NULL - so a role with a source and a NULL location was accepted
+    by both SQLite and live Postgres. Verbatim the partial-provenance state the
+    ruling forbids ("a role with only a document reference").
+
+    The original probes tested '' and '   ' and never NULL, which is exactly
+    why the gap survived into the closeout evidence.
+    """
+    component = db.RecipeComponent(
+        recipe_version_id=fixture["version"].id,
+        raw_material_name="Lupranate M20",
+        chemical_role=ISO,
+        chemical_role_source_id=fixture["source"].id,
+        chemical_role_source_location=None,
+    )
+    fixture["session"].add(component)
+    with pytest.raises(sa.exc.IntegrityError):
+        fixture["session"].flush()
+    fixture["session"].rollback()
+
+
+def test_a_source_location_cannot_be_nulled_out_from_under_a_live_role(fixture):
+    """The update path of the same defect: a row that was valid on insert must
+    not be reducible to a role with no citation."""
+    component = _component(fixture, "Lupranate M20", 145, role=ISO)
+    fixture["session"].flush()
+
+    component.chemical_role_source_location = None
+    with pytest.raises(sa.exc.IntegrityError):
+        fixture["session"].flush()
+    fixture["session"].rollback()
+
+
+def test_a_missing_php_blocks_the_role_totals(fixture):
+    """A component can carry a perfectly good controlled role and no dosage.
+    `php or 0.0` then contributed nothing and the totals came back looking
+    complete - a ratio of 0.0 indistinguishable downstream from a measured one.
+    """
+    _component(fixture, "Lupranate M20", None, role=ISO)
+    _component(fixture, "Lupranol 3300", 100, role=POLYOL)
+    version = fixture["version"]
+    fixture["session"].refresh(version)
+
+    assert component_role.recipe_version_is_resolved(version) is True
+    assert component_role.php_by_chemical_role(version) is None
+
+
+def test_the_audit_summary_names_the_source_document(fixture):
+    """A correction that changed only the source register entry used to produce
+    a line byte-identical to a no-op re-save. An audit record that cannot show
+    the field that changed is not an audit record."""
+    component = _component(fixture, "Lupranate M20", 145, role=ISO)
+
+    same_role_new_source = component_role.describe_assignment(
+        component, ISO, "Table 3, row 2", source_label="SRC-901 · Patent"
+    )
+    same_role_old_source = component_role.describe_assignment(
+        component, ISO, "Table 3, row 2", source_label="SRC-900 · Internal"
+    )
+    assert same_role_new_source != same_role_old_source
+    assert "SRC-901" in same_role_new_source
+
+
+def test_the_page_writes_an_audit_row_on_the_save_path(fixture):
+    """Closeout item 'correction auditing through the existing controlled-edit
+    path', asserted against the PAGE rather than against audit_log.
+
+    The previous version of this file called log_role_change() itself, so it
+    passed with the page's audit calls deleted. This reads the page source and
+    requires the writer to be invoked on the save path, and requires the writer
+    to add a RoleChangeLog row.
+    """
+    page = os.path.join(REPO_ROOT, "views", "3_Recipe_Version_Record.py")
+    with open(page, encoding="utf-8") as handle:
+        source = handle.read()
+
+    assert "_record_chemical_role_change(session, component, summary, user)" in source, (
+        "the chemical-role save path no longer records a controlled-edit audit row"
+    )
+    assert source.count("_record_chemical_role_change(session, component, summary, user)") >= 2, (
+        "both the assignment and the clear path must be audited"
+    )
+    assert 'target_type="recipe_component"' in source
+    assert "RoleChangeLog(" in source
+
+
+def test_the_audit_row_is_written_in_the_same_transaction_as_the_assignment(fixture):
+    """The save path must not be able to report success while discarding the
+    assignment.
+
+    audit_log.log_role_change() swallows exceptions and its _safe_flush() calls
+    session.rollback() on failure - and because the audit row shares the
+    transaction with the assignment, a failed audit write rolled the ASSIGNMENT
+    back too, after which the page committed nothing and still said success.
+    The save path must therefore NOT use that helper.
+    """
+    import io
+    import tokenize
+
+    page = os.path.join(REPO_ROOT, "views", "3_Recipe_Version_Record.py")
+    with open(page, encoding="utf-8") as handle:
+        source = handle.read()
+
+    # Tokenised: the page's docstring legitimately explains WHY the helper is
+    # not used here, and a text scan would flag the very comment that exists to
+    # stop someone putting it back.
+    offenders = []
+    previous = None
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type in (tokenize.COMMENT, tokenize.STRING):
+            continue
+        if token.type == tokenize.NAME and token.string == "log_role_change" and previous == "audit_log":
+            offenders.append(f"{token.start[0]}: {token.line.strip()}")
+        if token.type == tokenize.NAME:
+            previous = token.string
+    assert not offenders, (
+        "the chemical-role path must not use the swallowing audit helper:\n" + "\n".join(offenders)
+    )
+
+
+def test_the_role_selector_starts_unresolved(fixture):
+    """Closeout item 'the role field starting in the Unresolved state and
+    requiring an explicit user selection'.
+
+    Mutation-checked: flipping the default index off zero must fail this.
+    """
+    page = os.path.join(REPO_ROOT, "views", "3_Recipe_Version_Record.py")
+    with open(page, encoding="utf-8") as handle:
+        source = handle.read()
+
+    assert 'role_options = ["— Unresolved —"] + list(component_role.CHEMICAL_ROLES)' in source, (
+        "the role selector's first option must be Unresolved"
+    )
+    assert "role_index = role_options.index(current_role) if current_role in role_options else 0" in source, (
+        "an unassigned component must default the selector to Unresolved, not to a chemical role"
+    )
+
+
+def test_the_legacy_ratio_is_not_presented_as_the_controlled_one(fixture):
+    """Review found the page printing a confident legacy A:B ratio a few inches
+    below the caption saying the ratio cannot be derived. Whichever number a
+    user reads first wins, and one of them is a guess."""
+    page = os.path.join(REPO_ROOT, "views", "3_Recipe_Version_Record.py")
+    with open(page, encoding="utf-8") as handle:
+        source = handle.read()
+
+    assert "_controlled_roles_complete = component_role.recipe_version_is_resolved(v)" in source
+    assert "Computed (uncontrolled, legacy basis)" in source
+    assert "No controlled A:B ratio for this version." in source

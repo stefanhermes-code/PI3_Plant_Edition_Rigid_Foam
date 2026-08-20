@@ -71,7 +71,6 @@ import streamlit as st
 from sqlalchemy import func
 
 import analytics
-import audit_log
 import component_role
 from access_control import can_use_page
 from auth import current_user, logout_button, require_login
@@ -84,6 +83,7 @@ from db import (
     RecipeComponent,
     RecipeVersion,
     ReferenceFormulation,
+    RoleChangeLog,
     SourceRegister,
     get_session,
     init_db,
@@ -245,6 +245,34 @@ def _source_register_label(source):
     return " · ".join(bits)
 
 
+def _record_chemical_role_change(session, component, summary, user):
+    """Write the controlled-edit audit row for a chemical-role assignment.
+
+    Deliberately NOT audit_log.log_role_change() on this path, even though that
+    is the same table and the same model. That helper swallows exceptions and
+    its _safe_flush() calls session.rollback() on failure - and because the
+    audit row shares this transaction with the assignment itself, a failed
+    audit write silently rolled the ASSIGNMENT back too, after which the page
+    committed nothing and still reported success. Found in review.
+
+    Here the row is added to the same transaction and any failure propagates,
+    so the assignment and its audit record commit together or neither does, and
+    the user sees an error rather than a false success. Same path in the sense
+    that matters - same table, same controlled-edit history - without the
+    swallow.
+    """
+    session.add(
+        RoleChangeLog(
+            changed_by_user_id=user["id"],
+            company_id=user["company_id"],
+            target_type="recipe_component",
+            target_id=component.id,
+            target_label=component.raw_material_name,
+            change_summary=summary,
+        )
+    )
+
+
 def _render_chemical_role_control(session, component, user):
     st.markdown("**Controlled chemical role**")
     st.caption(
@@ -317,15 +345,7 @@ def _render_chemical_role_control(session, component, user):
                         f"{current_role} -> Unresolved (cleared)"
                     )
                     component_role.clear_role(component)
-                    audit_log.log_role_change(
-                        session,
-                        target_type="recipe_component",
-                        change_summary=summary,
-                        changed_by_user_id=user["id"],
-                        company_id=user["company_id"],
-                        target_id=component.id,
-                        target_label=component.raw_material_name,
-                    )
+                    _record_chemical_role_change(session, component, summary, user)
                     session.commit()
                     st.success("Chemical role cleared. This component is Unresolved again.")
                     st.rerun()
@@ -340,24 +360,13 @@ def _render_chemical_role_control(session, component, user):
                         st.error(problem)
                 else:
                     summary = component_role.describe_assignment(
-                        component, chosen_role, chosen_location.strip()
+                        component, chosen_role, chosen_location.strip(),
+                        source_label=_source_register_label(chosen_source),
                     )
                     component_role.assign_role(
                         component, chosen_role, chosen_source.id, chosen_location
                     )
-                    # Audited through the existing controlled-edit path rather
-                    # than a new mechanism, per Charlie's ruling. target_type
-                    # distinguishes these from the access-role changes that
-                    # share the table.
-                    audit_log.log_role_change(
-                        session,
-                        target_type="recipe_component",
-                        change_summary=summary,
-                        changed_by_user_id=user["id"],
-                        company_id=user["company_id"],
-                        target_id=component.id,
-                        target_label=component.raw_material_name,
-                    )
+                    _record_chemical_role_change(session, component, summary, user)
                     session.commit()
                     st.success(f"Chemical role recorded: {chosen_role}.")
                     st.rerun()
@@ -1004,9 +1013,35 @@ else:
             fc1, fc2, fc3 = st.columns(3)
             with fc1:
                 st.markdown("**A:B mass ratio**")
+                # This is the LEGACY calculation. It resolves a component's side
+                # from the free-text stream_assignment / role_in_formulation
+                # prefix - which is uncontrolled, varies between recipes, and is
+                # outside the controlled ratio path. It is left in place because
+                # replacing it belongs to Decision 4, but it must not be shown
+                # as if it were the controlled answer: review found it printing a
+                # confident ratio a few inches below the caption saying the ratio
+                # cannot be derived. Whichever number a user reads first wins,
+                # and one of them is a guess.
+                _controlled_roles_complete = component_role.recipe_version_is_resolved(v)
+                if not _controlled_roles_complete:
+                    st.warning(
+                        "**No controlled A:B ratio for this version.** The components do not all "
+                        "carry a controlled chemical role yet, so which side each material belongs "
+                        "to is not established."
+                    )
                 if ab_result["computed_ratio"] is not None:
-                    st.metric("Computed", f"{ab_result['computed_ratio']:.3f}")
+                    st.metric(
+                        "Computed (uncontrolled, legacy basis)"
+                        if not _controlled_roles_complete else "Computed",
+                        f"{ab_result['computed_ratio']:.3f}",
+                    )
                     st.caption(f"A-side {ab_result['a_side_php']:.2f} php : B-side {ab_result['b_side_php']:.2f} php")
+                    if not _controlled_roles_complete:
+                        st.caption(
+                            "Derived from the legacy free-text side labels, not from controlled "
+                            "chemical roles. Shown for reference only - do not use it as the "
+                            "controlled ratio."
+                        )
                 else:
                     st.warning("Insufficient data - no B-side components resolved.")
                 if ab_result["target_ratio"] is not None:

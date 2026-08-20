@@ -1214,6 +1214,16 @@ class RecipeComponent(Base):
             "(chemical_role IS NULL AND chemical_role_source_id IS NULL "
             "AND chemical_role_source_location IS NULL) OR "
             "(chemical_role IS NOT NULL AND chemical_role_source_id IS NOT NULL "
+            "AND chemical_role_source_location IS NOT NULL "
+            # The IS NOT NULL above is not redundant, and leaving it out was a
+            # real defect found in review and confirmed against live Postgres:
+            # trim(NULL) is NULL, so "trim(location) <> ''" evaluates to NULL
+            # when the location is NULL, "FALSE OR NULL" is NULL, and a CHECK
+            # constraint PASSES on NULL. A role with a source and a NULL
+            # location was therefore accepted - the exact partial-provenance
+            # state the ruling forbids. Never rely on a function of a
+            # possibly-NULL value being false; say IS NOT NULL.
+            #
             # trim() rather than Postgres' btrim(): identical semantics there
             # (Postgres renders trim() as btrim), and it also exists in
             # SQLite, which is the test path. A constraint the tests cannot

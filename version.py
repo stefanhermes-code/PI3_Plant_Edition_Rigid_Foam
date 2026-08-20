@@ -8192,6 +8192,112 @@ tests/test_cr18_product_family_terminology.py - one allowlisted db.py line moved
 
 Full regression: 824 passed, 6 skipped, 0 failed of 830 collected across 68
 files. Was 798 / 6 / 804 at v0.71.2, so the 26 new tests are the whole delta.
+
+v0.72.1, 2026-08-19: Decision 3 review correction. An independent adversarial
+review found four defects in v0.72.0 and, more usefully, found that two of the
+nine closeout items JC had claimed were satisfied were not actually covered by
+any test that could fail.
+
+THE ONE THAT WAS LIVE
+
+ck_rc_chemical_role_provenance had a hole, and it was in the exact clause the
+ruling had strengthened. The constraint ended:
+
+    ... AND trim(chemical_role_source_location) <> ''
+
+trim(NULL) is NULL. "FALSE OR NULL" is NULL. A CHECK constraint PASSES on NULL.
+So a chemical role saved with a source and a NULL source location was ACCEPTED,
+and an already-valid row could have its location nulled out from under it.
+
+That is verbatim the state Charlie's ruling names as forbidden: "a role with
+only a document reference". Confirmed against live Postgres before the fix, both
+on insert and on update.
+
+The reason it survived into the closeout evidence is worth recording. The
+original live probe tested seven cases including '' and '   ', both correctly
+rejected - and never tested NULL. The evidence was thorough in the wrong
+direction. Empty string and NULL are different values and a constraint that
+handles one may not handle the other.
+
+Fixed by stating the requirement rather than inferring it: the branch now
+includes an explicit "chemical_role_source_location IS NOT NULL". Migration
+phase8_decision3_chemical_role_provenance_null_fix applied live, and the ORM
+constraint corrected to match. All seven original cases plus both NULL cases
+re-probed live: null location rejected, update-to-null rejected, full triple
+accepted, all-null accepted, whitespace rejected, stranded source rejected,
+role-with-location-omitted rejected. Zero rows written throughout; still 5
+components, 0 with a role.
+
+RULE FOR NEXT TIME: never rely on a function of a possibly-NULL value being
+false. Say IS NOT NULL.
+
+TWO CLOSEOUT ITEMS CLAIMED AND NOT EARNED
+
+The reviewer mutation-tested the suite. Deleting BOTH audit calls from the
+chemical-role save path AND flipping the role selector off Unresolved left
+26/26 tests passing.
+
+So "correction auditing through the existing controlled-edit path" and "the role
+field starting in the Unresolved state" were asserted in the closeout prose and
+demonstrated by nothing. The audit test called audit_log.log_role_change()
+itself rather than exercising the page, which is testing the library instead of
+the feature.
+
+Both now have tests that read the page and fail when the production code is
+removed. Every new test in this version was mutation-checked the same way -
+reverted its own fix, confirmed it failed, restored.
+
+THE OTHER THREE DEFECTS
+
+A save could report success while discarding the assignment. audit_log.
+log_role_change() swallows exceptions and its _safe_flush() calls
+session.rollback() on failure - and the audit row shared the transaction with
+the assignment, so a failed audit write rolled the ASSIGNMENT back too, after
+which the page committed nothing and still said "Chemical role recorded". The
+save path now writes the RoleChangeLog row directly in the same transaction, so
+the pair commits together or neither does and the user sees a real error. Same
+table, same controlled-edit history, without the swallow.
+
+php_by_chemical_role() turned a missing dosage into a complete-looking total.
+"component.php or 0.0" meant a component with a controlled role and no php
+contributed nothing while the totals came back looking whole - a ratio of 0.0
+indistinguishable downstream from a measured one, which is the precise failure
+mode that module was written to prevent. It now returns None if any component
+has no php.
+
+The Recipes page showed a confident LEGACY A:B ratio a few inches below the new
+caption saying the ratio cannot be derived. The legacy figure comes from the
+uncontrolled free-text side labels and stays until Decision 4 replaces it, but
+it is now labelled "Computed (uncontrolled, legacy basis)" and preceded by an
+explicit warning when the controlled roles are incomplete. Whichever number a
+user reads first wins, and one of them was a guess.
+
+Also: the audit summary named only the role and location, so a correction that
+changed nothing but the source document produced a line byte-identical to a
+no-op re-save. It now names the source.
+
+NOT FIXED HERE - RAISED TO CHARLIE
+
+Three findings need a ruling rather than a patch, and are listed in the
+correction document: there is no migration artifact in the repository (the live
+schema and the ORM agree only because DDL was run by hand, and create_all()
+never ALTERs an existing table); editing a recipe version silently drops every
+controlled role on the new version, with no warning; and
+component_stream_for_run() does not check that the component belongs to the
+run's recipe version.
+
+Full regression: 832 passed, 6 skipped, 0 failed of 838 collected across 68
+files. Was 824 / 6 / 830 at v0.72.0, so the 8 corrective tests are the whole
+delta.
+
+ONE PROCESS NOTE, RECORDED BECAUSE IT ALMOST COST MORE THAN THE BUGS
+
+Midway through this correction the shell's working directory was still inside a
+throwaway mutation-test copy of the repository, so a regression run and an
+allowlist edit were applied to the mutated tree rather than the real one. It
+surfaced as 27 unexplained failures. Caught, reverted, redone against the real
+repository, and the copy deleted. The lesson is to anchor paths absolutely
+rather than trusting an inherited cwd.
 """
 
-APP_VERSION = "0.72.0"
+APP_VERSION = "0.72.1"

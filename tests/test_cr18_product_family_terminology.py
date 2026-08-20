@@ -200,8 +200,11 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # Decision 3 the same day: RecipeComponent gained chemical_role,
     # chemical_role_source_id, chemical_role_source_location, their two
     # CheckConstraints and the block comment explaining why a role is never
-    # inferred - 2178 -> 2246. Comment text unchanged throughout.
-    ("db.py", 2246),
+    # inferred - 2178 -> 2246. Shifted once more by the Decision 3 review
+    # correction (same day): the constraint comment explaining why IS NOT NULL
+    # is required alongside trim() - 2246 -> 2256. Comment text unchanged
+    # throughout; only its position has ever moved.
+    ("db.py", 2256),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("views/16_Trend_Analysis.py", 228), ("views/16_Trend_Analysis.py", 411),
     ("views/17_Process_Property_Correlation.py", 109),

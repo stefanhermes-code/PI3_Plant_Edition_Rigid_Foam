@@ -148,22 +148,29 @@ def validate_assignment(chemical_role, source_id, source_location):
     return problems
 
 
-def describe_assignment(component, chemical_role, source_location):
+def describe_assignment(component, chemical_role, source_location, source_label=None):
     """The audit summary for an assignment or a correction.
 
     Says what it was as well as what it became. A change log that records only
     the new value cannot answer the question anyone actually asks later, which
     is what it used to say.
+
+    source_label is included because the FIRST version of this function named
+    only the role and the location - so a correction that changed nothing but
+    the source document produced a line byte-identical to a no-op re-save. An
+    audit record that cannot show the field that changed is not an audit
+    record.
     """
     previous = component.chemical_role or "Unresolved"
+    provenance = f"source: {source_label or 'not recorded'}, location: {source_location}"
     if previous == chemical_role:
         return (
-            f"Chemical role source updated for '{component.raw_material_name}': "
-            f"{chemical_role} (source location: {source_location})"
+            f"Chemical role provenance updated for '{component.raw_material_name}': "
+            f"{chemical_role} ({provenance})"
         )
     return (
         f"Chemical role for '{component.raw_material_name}': "
-        f"{previous} -> {chemical_role} (source location: {source_location})"
+        f"{previous} -> {chemical_role} ({provenance})"
     )
 
 
@@ -265,14 +272,24 @@ def php_by_chemical_role(recipe_version):
     the A number and the B number happens later, through the run's stamped
     configuration, and is the ONLY step that varies by machine.
 
-    Returns None when any component is unresolved. A partial sum would be a
-    smaller number that looks like a real one.
+    Returns None when any component is unresolved, AND when any component has
+    no php recorded. A partial sum would be a smaller number that looks like a
+    real one.
+
+    The php check is not redundant with role resolution, and leaving it out was
+    a real defect found in review: a component can carry a perfectly good
+    controlled role and no dosage at all. `component.php or 0.0` then quietly
+    contributed nothing, and the totals came back looking complete. A ratio of
+    0.0 derived that way is indistinguishable downstream from a measured one -
+    which is the failure mode this whole module exists to prevent.
     """
     if not recipe_version_is_resolved(recipe_version):
         return None
+    if any(component.php is None for component in recipe_version.components):
+        return None
     totals = {role: 0.0 for role in CHEMICAL_ROLES}
     for component in recipe_version.components:
-        totals[component.chemical_role] += component.php or 0.0
+        totals[component.chemical_role] += component.php
     return totals
 
 
