@@ -8299,6 +8299,43 @@ surfaced as 27 unexplained failures. Caught, reverted, redone against the real
 repository, and the copy deleted. The lesson is to anchor paths absolutely
 rather than trusting an inherited cwd.
 
+v0.74.3, 2026-08-20: R-PRE correction 3 - the metering module explained
+itself and then offered the form anyway.
+
+Third defect found in browser evidence, third one no test caught.
+
+With a Production Unit or Cell set to "Batch blended", the run page correctly
+displayed "Material metering is not applicable to this run's Production Unit
+or Cell" - and directly beneath that banner sat the entry form, ready to
+accept flow, pressure and temperature readings for a unit that has no
+metering.
+
+An explanation the user can ignore is not a gate. Stefan's ruling was that
+context-specific fields APPEAR only where they apply, not that they are
+captioned where they do not.
+
+Fixed: the create path is closed when metering does not apply. The Edit/Delete
+path is deliberately left open, and a test asserts it stays open - withdrawing
+a module must never strand data somebody has already recorded. The banner was
+reworded to match what now happens: recording is closed, existing readings
+stay visible and editable.
+
+WHY THE TEST SUITE MISSED IT
+
+The existing test asserted the resolver was called and the banner rendered.
+Both were true. Nothing asked what the user could still DO afterwards, which
+is the only question that mattered. The new tests assert the guard sits BEFORE
+the first field of the form, and are mutation-checked in both directions:
+un-guarding the form fails, and gating the edit tab fails too.
+
+A note on that second mutation, because it nearly passed for the wrong reason.
+The first attempt inserted the gate at the first "with tab_edit_delete:" in
+the file - which belongs to a different tab entirely - and the suite stayed
+green, correctly. Re-run against the metering section, it failed as intended.
+A mutation that lands somewhere harmless proves nothing.
+
+Full regression: 945 passed, 6 skipped, 0 failed of 951 collected.
+
 v0.74.2, 2026-08-20: R-PRE correction 2 - the new properties had no
 selectable unit. Data-only; no application code changed.
 
@@ -8636,4 +8673,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.74.2"
+APP_VERSION = "0.74.3"

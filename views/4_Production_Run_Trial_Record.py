@@ -1494,13 +1494,16 @@ with tab_streams:
         # and goes is a tab nobody can find, and the applicability depends on
         # the run selected inside it, which is not known when the tab strip
         # is built.
-        if not run_uses_metered_material_delivery(run):
+        metering_applies = run_uses_metered_material_delivery(run)
+        if not metering_applies:
             st.info(
                 "Material metering is not applicable to this run's Production Unit or Cell. "
                 "Its material delivery mode is recorded as "
-                f"**{run.machine.material_delivery_mode}**, which does not meter. Readings "
-                "already recorded against this run stay available and are shown below. The "
-                "mode is set per Production Unit or Cell on the Production Equipment page."
+                f"**{run.machine.material_delivery_mode}**, which does not meter. Recording new "
+                "readings is therefore closed for this run. Anything already recorded stays "
+                "visible and editable below - withdrawing a module must never strand data "
+                "somebody has entered. The mode is set per Production Unit or Cell on the "
+                "Production Equipment page."
             )
         phases_for_run = (
             session.query(ProductionPhase).filter(ProductionPhase.production_run_id == run.id).all()
@@ -1666,7 +1669,19 @@ with tab_streams:
                     st.caption("Click a row above to edit (and optionally delete) that stream reading.")
 
         with tab_create:
-            if finalized_phase:
+            # R-PRE-WP1 correction (2026-08-20, found in browser evidence):
+            # the banner above said metering did not apply and the entry form
+            # was still sitting underneath it, ready to accept flow, pressure
+            # and temperature readings for a unit that has no metering. An
+            # explanation the user can ignore is not a gate. Editing and
+            # import of existing rows stay open - see the Edit/Delete tab -
+            # because withdrawing a module must not strand recorded data.
+            if not metering_applies:
+                st.info(
+                    "Recording new metering readings is closed for this run - see the note above. "
+                    "Existing readings can still be viewed and corrected on the Edit/Delete tab."
+                )
+            elif finalized_phase:
                 st.caption(
                     "Linked directly to the run, and also to the Finalized (Runtime Data) phase "
                     "since one already exists for this run."
@@ -1676,69 +1691,70 @@ with tab_streams:
                     "Linked directly to the run. No Runtime Data (Finalized) snapshot exists yet - "
                     "that's no longer required before recording metering readings."
                 )
-            if not recipe_components:
-                st.warning(
-                    "This run's recipe version has no components listed yet — add them on the Recipe "
-                    "Version Record page. Falling back to free text for now."
-                )
-            stream_choice = st.selectbox(
-                "Stream / raw material *",
-                recipe_components,
-                format_func=lambda c: f"{c.raw_material_name}" + (f" ({c.role_in_formulation})" if c.role_in_formulation else ""),
-                key=f"stream_choice_select_{run.id}",
-            ) if recipe_components else None
-            with st.form(f"add_stream_reading_{run.id}"):
-                stream_other = st.text_input(
-                    "Or type a stream not in the recipe (e.g. blended stream, process air, water addition)"
-                )
-                flow_unit = st.selectbox("Flow unit", STREAM_FLOW_UNIT_OPTIONS)
-                c1, c2, c3, c4 = st.columns(4)
-                flow = c1.number_input("Flow", min_value=0.0, step=0.1)
-                pump_speed = c2.number_input(
-                    "Pump speed", min_value=0.0, step=0.1,
-                    help="Metering pump setting for this stream (RPM/Hz/% depending on OEM) — the "
-                    "control input, distinct from the measured Flow.",
-                )
-                pressure_bar = c3.number_input("Pressure (bar)", min_value=0.0, step=0.1)
-                temperature_c = c4.number_input("Temperature (°C)", step=0.1)
-                flow_total_qty = st.number_input(
-                    "Total delivered this phase (same base unit as flow unit, kg or L)", min_value=0.0, step=0.1
-                )
-                c5, c6 = st.columns(2)
-                calibration_status = c5.selectbox(
-                    "Instrument calibration status", ["", "Valid", "Expired", "Failed", "Not Verified"]
-                )
-                calibration_note = c6.text_input("Calibration note (e.g. cal. due date, certificate ref.)")
-                notes = st.text_area("Notes")
-
-                submitted = st.form_submit_button("Save stream reading", disabled=not page_usable)
-                if submitted and page_usable:
-                    final_stream_name = stream_other.strip() or (
-                        stream_choice.raw_material_name if stream_choice else ""
+            if metering_applies:
+                if not recipe_components:
+                    st.warning(
+                        "This run's recipe version has no components listed yet — add them on the Recipe "
+                        "Version Record page. Falling back to free text for now."
                     )
-                    if not final_stream_name:
-                        st.error("Pick a stream from the recipe, or type one that isn't in it.")
-                    else:
-                        session.add(
-                            ComponentStreamReading(
-                                production_run_id=run.id,
-                                production_phase_id=finalized_phase.id if finalized_phase else None,
-                                stream_name=final_stream_name,
-                                flow_unit=flow_unit,
-                                flow=flow or None,
-                                pump_speed=pump_speed or None,
-                                flow_total_qty=flow_total_qty or None,
-                                pressure_bar=pressure_bar or None,
-                                temperature_c=temperature_c or None,
-                                calibration_status=calibration_status or None,
-                                calibration_note=calibration_note,
-                                notes=notes,
-                                source_file_reference="manual entry",
-                            )
+                stream_choice = st.selectbox(
+                    "Stream / raw material *",
+                    recipe_components,
+                    format_func=lambda c: f"{c.raw_material_name}" + (f" ({c.role_in_formulation})" if c.role_in_formulation else ""),
+                    key=f"stream_choice_select_{run.id}",
+                ) if recipe_components else None
+                with st.form(f"add_stream_reading_{run.id}"):
+                    stream_other = st.text_input(
+                        "Or type a stream not in the recipe (e.g. blended stream, process air, water addition)"
+                    )
+                    flow_unit = st.selectbox("Flow unit", STREAM_FLOW_UNIT_OPTIONS)
+                    c1, c2, c3, c4 = st.columns(4)
+                    flow = c1.number_input("Flow", min_value=0.0, step=0.1)
+                    pump_speed = c2.number_input(
+                        "Pump speed", min_value=0.0, step=0.1,
+                        help="Metering pump setting for this stream (RPM/Hz/% depending on OEM) — the "
+                        "control input, distinct from the measured Flow.",
+                    )
+                    pressure_bar = c3.number_input("Pressure (bar)", min_value=0.0, step=0.1)
+                    temperature_c = c4.number_input("Temperature (°C)", step=0.1)
+                    flow_total_qty = st.number_input(
+                        "Total delivered this phase (same base unit as flow unit, kg or L)", min_value=0.0, step=0.1
+                    )
+                    c5, c6 = st.columns(2)
+                    calibration_status = c5.selectbox(
+                        "Instrument calibration status", ["", "Valid", "Expired", "Failed", "Not Verified"]
+                    )
+                    calibration_note = c6.text_input("Calibration note (e.g. cal. due date, certificate ref.)")
+                    notes = st.text_area("Notes")
+
+                    submitted = st.form_submit_button("Save stream reading", disabled=not page_usable)
+                    if submitted and page_usable:
+                        final_stream_name = stream_other.strip() or (
+                            stream_choice.raw_material_name if stream_choice else ""
                         )
-                        session.commit()
-                        st.success("Stream reading saved.")
-                        st.rerun()
+                        if not final_stream_name:
+                            st.error("Pick a stream from the recipe, or type one that isn't in it.")
+                        else:
+                            session.add(
+                                ComponentStreamReading(
+                                    production_run_id=run.id,
+                                    production_phase_id=finalized_phase.id if finalized_phase else None,
+                                    stream_name=final_stream_name,
+                                    flow_unit=flow_unit,
+                                    flow=flow or None,
+                                    pump_speed=pump_speed or None,
+                                    flow_total_qty=flow_total_qty or None,
+                                    pressure_bar=pressure_bar or None,
+                                    temperature_c=temperature_c or None,
+                                    calibration_status=calibration_status or None,
+                                    calibration_note=calibration_note,
+                                    notes=notes,
+                                    source_file_reference="manual entry",
+                                )
+                            )
+                            session.commit()
+                            st.success("Stream reading saved.")
+                            st.rerun()
 
         with tab_import:
             show_pending_banner("stream_import_msg")
