@@ -60,6 +60,7 @@ from db import (
     init_db,
 )
 from helpers import (
+    MATERIAL_DELIVERY_MODES,
     activated_methods_for_plant,
     clickable_table,
     cr11_function_tab_labels,
@@ -438,6 +439,20 @@ with tab_create:
                 f"**{method_choice.name if method_choice else '—'}** · "
                 f"OEM: **{oem}** · Model: **{model or '—'}** (change above, outside this form)"
             )
+            # R-PRE-WP1 (2026-08-20): how this unit gets material into the
+            # mix. Optional on purpose - "not declared" is the default and
+            # keeps every module available, so nobody has to answer this
+            # before they can create equipment.
+            delivery_mode = st.selectbox(
+                "Material delivery mode",
+                [""] + list(MATERIAL_DELIVERY_MODES),
+                format_func=lambda m: "— not declared —" if m == "" else m,
+                help=(
+                    "Governs whether the material-metering module applies to runs on this "
+                    "unit. Leave undeclared to keep every module available."
+                ),
+                key="add_machine_delivery_mode",
+            )
             active = st.checkbox("Active", value=True)
             notes = st.text_area("Notes")
             submitted = st.form_submit_button("Save Production Unit / Cell", disabled=method_choice is None)
@@ -457,6 +472,7 @@ with tab_create:
                             active=active,
                             notes=notes,
                             production_method_id=method_choice.id,
+                            material_delivery_mode=delivery_mode or None,
                         )
                     )
                     session.commit()
@@ -611,6 +627,25 @@ with tab_edit_delete:
                         f"**{e_method_choice.name if e_method_choice else '—'}** · "
                         f"OEM: **{e_oem}** · Model: **{e_model or '—'}** (change above, outside this form)"
                     )
+                    _mode_options = [""] + list(MATERIAL_DELIVERY_MODES)
+                    _current_mode = selected_machine.material_delivery_mode or ""
+                    # An unrecognised stored value is shown rather than
+                    # silently reset to "not declared" - the same principle
+                    # the historical-readability rule applies elsewhere: a
+                    # value already recorded stays selectable.
+                    if _current_mode and _current_mode not in _mode_options:
+                        _mode_options.append(_current_mode)
+                    e_delivery_mode = st.selectbox(
+                        "Material delivery mode",
+                        _mode_options,
+                        index=_mode_options.index(_current_mode),
+                        format_func=lambda m: "— not declared —" if m == "" else m,
+                        help=(
+                            "Governs whether the material-metering module applies to runs on this "
+                            "unit. Leave undeclared to keep every module available."
+                        ),
+                        key=f"edit_machine_delivery_mode_{selected_machine.id}",
+                    )
                     e_active = st.checkbox("Active", value=selected_machine.active, key=f"edit_machine_active_{selected_machine.id}")
                     e_notes = st.text_area("Notes", value=selected_machine.notes or "", key=f"edit_machine_notes_{selected_machine.id}")
                     if st.form_submit_button("Save changes", disabled=e_method_choice is None):
@@ -627,6 +662,7 @@ with tab_edit_delete:
                             selected_machine.active = e_active
                             selected_machine.notes = e_notes
                             selected_machine.production_method_id = e_method_choice.id
+                            selected_machine.material_delivery_mode = e_delivery_mode or None
                             session.commit()
                             st.success("Production Unit / Cell updated.")
                             st.rerun()

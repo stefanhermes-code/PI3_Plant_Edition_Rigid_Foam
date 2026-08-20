@@ -1849,7 +1849,6 @@ def build_sample_certificate_data(session, sample_id):
     source_type, source = _sample_source(session, sample)
     grade = source.foam_grade if source else None
     plant = source.plant if source else None
-    recipe = source.recipe_version if source else None
 
     # Production Method (added 2026-08-10, per Charlie's flat-PM technical
     # completion instruction): only the Production Run source has one -
@@ -1890,17 +1889,26 @@ def build_sample_certificate_data(session, sample_id):
     else:
         header_fields = [("Source", "—")]
 
-    ordered_components = (
-        sorted(recipe.components, key=lambda c: (c.role_in_formulation or "", c.raw_material_name or ""))
-        if recipe else []
-    )
-    recipe_components = [
-        {
-            "Material": c.raw_material_name, "Supplier": c.supplier or "—",
-            "PHP": c.php, "Role": c.role_in_formulation or "—", "Notes": c.notes or "—",
-        }
-        for c in ordered_components
-    ]
+    # --- R-PRE-WP2 (2026-08-20). Redesign Migration Plan v3, Package A.
+    #
+    # The Certificate of Analysis is a CUSTOMER-FACING document. It used to
+    # carry a "Recipe used" block (version label, approval status, effective
+    # date, ratio/index) and a full "Formulation" table - every raw material,
+    # its supplier, its php and its role - marked "internal use only" on
+    # screen but rendered into the downloadable PDF and Word file all the
+    # same. For a system house whose product IS the formulation, that is the
+    # one thing the certificate must never disclose.
+    #
+    # Stefan's ruling of 20 August 2026: remove all of it, including the
+    # recipe reference. The certificate now identifies the sample, its source
+    # and its results; it says nothing about how the material was made. The
+    # recipe link still exists in the data model and every internal report
+    # that legitimately needs it - Batch Release Record, Recipe Formulation
+    # Record, Where Used - is untouched.
+    #
+    # Deliberately NOT a redaction flag or a permission-gated section: a
+    # certificate that can show the formulation under some condition is a
+    # certificate that will show it eventually.
 
     results = (
         session.query(PhysicalPropertyResult)
@@ -1967,11 +1975,6 @@ def build_sample_certificate_data(session, sample_id):
         "zone_label": sample.zone_label or "—",
         "sample_ts": sample.sample_ts,
         "sample_notes": sample.notes or "",
-        "recipe_version_label": recipe.version_label if recipe else "—",
-        "recipe_approval_status": recipe.approval_status if recipe else "—",
-        "recipe_effective_date": recipe.effective_date if recipe else None,
-        "recipe_ratio_index": recipe.ratio_index if recipe else None,
-        "recipe_components": recipe_components,
         "quality_results": quality_results,
         "pass_count": pass_count,
         "fail_count": fail_count,
@@ -1999,15 +2002,6 @@ def render_sample_certificate_pdf(data):
             story.append(_p(f"Notes: {data['sample_notes']}"))
 
         story.append(Spacer(1, 8))
-        story.append(Paragraph("Recipe used", STYLES["Heading3"]))
-        story.append(_key_value_table([
-            ("Recipe version", data["recipe_version_label"]), ("Approval status", data["recipe_approval_status"]),
-            ("Effective date", data["recipe_effective_date"]),
-            ("Ratio / index", f"{data['recipe_ratio_index']:.3f}" if data["recipe_ratio_index"] is not None else "—"),
-        ]))
-        _section(story, "Formulation", data["recipe_components"])
-
-        story.append(Spacer(1, 8))
         story.append(Paragraph("Quality test results", STYLES["Heading3"]))
         story.append(_key_value_table([
             ("Overall verdict", data["overall_verdict"]),
@@ -2033,14 +2027,6 @@ def render_sample_certificate_docx(data):
     ])
     if data["sample_notes"]:
         doc.add_paragraph(f"Notes: {data['sample_notes']}")
-
-    _docx_heading(doc, "Recipe used", size=12, color=_HTC_GREY, space_before=10)
-    _docx_kv_table(doc, [
-        ("Recipe version", data["recipe_version_label"]), ("Approval status", data["recipe_approval_status"]),
-        ("Effective date", data["recipe_effective_date"]),
-        ("Ratio / index", f"{data['recipe_ratio_index']:.3f}" if data["recipe_ratio_index"] is not None else "—"),
-    ])
-    _docx_section(doc, "Formulation", data["recipe_components"])
 
     _docx_heading(doc, "Quality test results", size=12, color=_HTC_GREY, space_before=10)
     _docx_kv_table(doc, [

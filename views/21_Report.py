@@ -425,12 +425,12 @@ with tab_sample:
         if data["sample_notes"]:
             st.write(f"**Sample notes:** {data['sample_notes']}")
 
-        st.write(
-            f"**Recipe used:** {data['recipe_version_label']} · **Approval status:** "
-            f"{data['recipe_approval_status']} · **Effective:** {data['recipe_effective_date']}"
-        )
-        st.write("**Formulation** (internal use only)")
-        render_data_table(pd.DataFrame(data["recipe_components"] or [{"—": "No data recorded"}]))
+        # R-PRE-WP2 (2026-08-20): the recipe block and the formulation table
+        # are gone from the Certificate of Analysis, on screen as well as in
+        # the download. The on-screen copy carried an "internal use only"
+        # caption, but the same data went into the PDF and Word file the
+        # customer receives, so the caption was decoration. See the block
+        # comment in reports.build_sample_certificate_data.
 
         st.write(f"**Quality test results** — Pass: {data['pass_count']} · Fail: {data['fail_count']}")
         render_data_table(pd.DataFrame(data["quality_results"] or [{"—": "No data recorded"}]))

@@ -544,6 +544,53 @@ def run_uses_cycle_shot_operation(run):
     return False
 
 
+# --- R-PRE-WP1 (2026-08-20), Redesign Migration Plan v3 Package A ----------
+#
+# How a Production Unit or Cell gets material into the mix. A controlled
+# vocabulary describing the industry, not one customer: a metering machine, a
+# blending vessel with an agitator, and a hand mix are three real ways of
+# making polyurethane and every company type in scope uses at least one.
+#
+# Order is deliberate - the most common case first, so the picker's default
+# reading matches the majority of installed equipment.
+MATERIAL_DELIVERY_MODES = (
+    "Machine-metered",
+    "Batch blended",
+    "Hand mix",
+)
+
+# The modes that positively DO NOT meter. Stated as an exclusion list rather
+# than as "anything that is not Machine-metered", so that an unrecognised
+# stored value - a typo, a hand-edited row, a value from a future version -
+# keeps the module rather than losing it. Withdrawing functionality is the
+# irreversible-feeling direction for a user, so it happens only on a value
+# this code positively recognises as non-metering.
+_NON_METERED_DELIVERY_MODES = ("Batch blended", "Hand mix")
+
+
+def run_uses_metered_material_delivery(run):
+    """Whether a Production Run's material-metering module should be exposed.
+
+    Resolved from the run's Production Unit or Cell
+    (Machine.material_delivery_mode), never inferred from a name and never
+    from the customer the run belongs to - the same config-driven rule
+    run_uses_cycle_shot_operation() follows.
+
+    Returns True when the mode is NOT DECLARED. That direction is deliberate.
+    An undeclared unit is one nobody has configured yet, and withdrawing a
+    module from it would take working functionality away from every existing
+    plant on the day this shipped. A module is only withdrawn once somebody
+    has positively said the unit does not meter. Never raises.
+    """
+    machine = getattr(run, "machine", None)
+    if machine is None:
+        return True
+    mode = (machine.material_delivery_mode or "").strip()
+    if not mode:
+        return True
+    return mode not in _NON_METERED_DELIVERY_MODES
+
+
 def grade_production_method_label(grade):
     """Display label for grade_production_methods() - "—" for none, the
     single method's name for one, a comma-joined list for more than one

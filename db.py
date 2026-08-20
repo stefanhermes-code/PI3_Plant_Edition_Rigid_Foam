@@ -637,6 +637,22 @@ class Machine(Base):
     # confirmation for that specific Machine. See
     # helpers.run_uses_cycle_shot_operation() for the resolution order.
     cycle_shot_operation_override = Column(Boolean)
+    # R-PRE-WP1 (2026-08-20), Redesign Migration Plan v3 Package A: how this
+    # Production Unit or Cell gets material into the mix. Governs whether the
+    # metering modules are applicable to a run on it.
+    #
+    # NOT a PTU field. PTU's blending vessel is one value of it; a continuous
+    # lamination line is another; a laboratory bench is a third. The vocabulary
+    # describes the industry, not the pilot customer.
+    #
+    # NULL is the default and means "not declared", which resolves to
+    # APPLICABLE - every existing Production Unit or Cell therefore keeps
+    # exactly the modules it has today, and nothing disappears from a plant
+    # that has not been configured yet. A module is only withdrawn once
+    # somebody has positively declared a mode that excludes it, which is the
+    # same "config-driven, never inferred" rule cycle_shot_operation_override
+    # follows. See helpers.run_uses_metered_material_delivery().
+    material_delivery_mode = Column(String(40))
     # Deliberately a free-text label, not a new ProductionLine entity - a
     # "production line" in Charlie's document can group several Machine
     # rows (metering unit + mixhead + mold) or map 1:1 to one, and nothing

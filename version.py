@@ -8299,6 +8299,174 @@ surfaced as 27 unexplained failures. Caught, reverted, redone against the real
 repository, and the copy deleted. The lesson is to anchor paths absolutely
 rather than trusting an inherited cwd.
 
+v0.74.0, 2026-08-20: R-PRE, the pilot-commitment release ahead of the
+architecture redesign. Redesign Migration Plan v3, Package A.
+
+WHAT R-PRE IS FOR
+
+The redesign retires Production Method, renames Product Family to PU Material
+Family and rebuilds the hierarchy - eight staged migrations behind eight gates.
+Three commitments made to a pilot customer did not depend on any of that, and
+holding them behind the whole sequence would have deferred them by weeks. So
+they were carved out and shipped first, against the current structure. The
+accepted version and commit of this release become the baseline the structural
+migration starts from.
+
+R-PRE-WP3 - TWO CONTROLLED PROPERTY DEFINITIONS
+
+Specific gravity (PROP-058) and Viscosity (PROP-059) were added to the
+physical property master, which held 57 records and had neither. End-of-rise
+time was NOT added: it is the same property as the existing Rise time
+(PROP-050) and is mapped to it. Free-rise density, cream time, start time, gel
+time and tack-free time all already existed.
+
+Both new rows are marked "Provisional - pending PTU documentation". 56 of the
+57 existing definitions carry source provenance; these two cannot until the
+supplier documentation arrives, and a controlled record with no provenance and
+no marker is indistinguishable from a finished one.
+
+Viscosity was created with NO default unit of measure, because the controlled
+UOM master had no viscosity quantity type at all - no cP, no mPa.s, no Pa.s.
+Inventing one there would have created exactly the uncontrolled unit the UOM
+reconciliation ruling exists to prevent, so the field was left unset and the
+gap raised rather than filled. Stefan ruled on it the same day and migration
+0006 closes it - see below.
+
+Correction to a figure quoted in 0004's own comment: the UOM master held 43
+records, not 40. The quantity-type count (30) was right; the record count was
+carried over from a group-by whose rows were counted rather than summed. 0004
+is left exactly as it was applied - its SQL is correct, only a comment is
+wrong, and rewriting an artifact the ledger has already checksummed to fix a
+comment is a worse habit than carrying the correction forward.
+
+Migration 0004 carries a setval guard on the id sequence before its inserts.
+That is not decoration: proved by mutation against a disposable schema, an
+insert without it fails outright with a primary-key collision on any database
+whose sequence sits behind max(id) - which is any database rebuilt from a dump
+with explicit ids. The live sequence happened to be in step, so the guard is a
+no-op there and matters for the replay.
+
+R-PRE-WP3 ADDENDUM - mPa.s AS THE CONTROLLED VISCOSITY STANDARD
+
+Stefan's ruling, twice on the same day: first that viscosity has a controlled
+standard at all and that a value arriving from a supplier data sheet in
+another unit is converted into it rather than stored as typed; then, on
+reflection, that the standard should follow ASTM D445 and be mPa.s rather than
+cP.
+
+The second ruling changed no number. 1 mPa.s = 1 cP EXACTLY - the same size,
+not a rounded factor - so it relabelled the standard and left every conversion
+factor untouched. cP remains an accepted input unit at 1:1, which matters
+because it is still what most polyurethane data sheets print. Nothing had to
+be re-stated either: zero results existed against the new properties and zero
+results anywhere carried a viscosity unit, checked before the change. The same
+move after the pilot had loaded its data would have meant relabelling records
+a customer had already seen.
+
+Migration 0007 also registers the two method routes, because D445 is worth
+reading carefully before it is adopted as THE method. D445 is a KINEMATIC
+method: a glass capillary gives mm2/s, and the dynamic value in mPa.s is
+CALCULATED from it using the density at the same temperature. Under D445 the
+density is part of the method, not an optional extra, and the as-measured
+quantity is the kinematic one. ASTM D2196 (rotational / Brookfield) is the
+other route and the one more usually run on a polyol or prepolymer system: it
+reads dynamic directly and needs no density. Both are controlled methods now;
+the choice belongs on the individual result.
+
+Migration 0006 adds two quantity types, not one. Dynamic viscosity (mPa.s the
+standard, cP, Pa.s, P) and kinematic viscosity (cSt, mm2/s) are different
+physical quantities that look interchangeable on a data sheet: kinematic =
+dynamic / density. A straight cSt -> cP conversion is wrong by a factor of the
+material's density - for a polyol near 1.02 g/cm3 about 2%, which is small
+enough to pass for a plausible reading and large enough to matter against a
+release specification.
+
+So convert() REFUSES cSt -> mPa.s outright, and one function crosses between
+them: unit_conversion.dynamic_viscosity_cp(), which requires a density in
+g/cm3 and returns None without one - which is D445's own rule, arrived at
+independently before the standard was named. Specific gravity serves as that density,
+which is a quiet argument for having added both properties together.
+
+Saybolt, Engler and Redwood readings are refused entirely rather than
+approximated. Their relationship to cSt is an empirical piecewise formula
+defined over part of the range, not a factor. A wrong-but-confident number is
+worse than a refusal, so the reading has to be obtained in a real unit -
+and viscosity_conversion_note() says which ones, rather than the value being
+silently dropped.
+
+1 mPa.s = 1 cP exactly. There is a test asserting it, because if that factor
+ever drifts every data sheet quoting the other unit has been silently
+rescaled - and a mutation that rescales mPa.s fails eight tests.
+
+R-PRE-WP2 - NO FORMULATION ON THE CERTIFICATE OF ANALYSIS
+
+The Certificate of Analysis is the one report in this application that leaves
+the company. It carried a "Recipe used" block - version label, approval
+status, effective date, ratio/index - and a full "Formulation" table listing
+every raw material, its supplier, its php and its role. On screen that table
+was captioned "internal use only". The same content was written into the PDF
+and the Word file the customer downloads, so the caption protected nothing.
+
+All of it is gone, including the recipe reference. The certificate now
+identifies the sample, its source and its results and says nothing about how
+the material was made. Deliberately not a redaction flag or a permission-gated
+section: a certificate that can show the formulation under some condition is a
+certificate that will show it eventually.
+
+The Batch Release Record is internal and keeps its recipe section. A test
+asserts that, because a change that stripped formulation content from every
+report would have satisfied the ruling and broken the plant.
+
+The tests render both documents and search the output rather than inspecting
+the builder's dict, because it is the rendered file that reaches the customer
+and a renderer can reach past the dict. reportlab writes its content streams
+ASCII85-encoded and deflated, so a naive substring search over the PDF bytes
+passes whether or not the text is there. The first version of that helper
+returned ASCII85 noise and all five leak tests passed on it. The guard test
+written to catch exactly that caught exactly that.
+
+R-PRE-WP1 - MATERIAL METERING BECOMES APPLICABLE, NOT UNIVERSAL
+
+Machine.material_delivery_mode records how a Production Unit or Cell gets
+material into the mix: "Machine-metered", "Batch blended" or "Hand mix". The
+material-metering module is withdrawn for the two that do not meter.
+
+This is a general property of production equipment, not a customer switch. A
+metering machine, a blending vessel with an agitator and a hand mix are three
+real ways of making polyurethane; the pilot customer's vessel is one value of
+it. The resolver reads the Production Unit or Cell and nothing else - not the
+company, not the plant, not the tenant - and a test asserts that by watching
+which attributes it touches.
+
+NULL means "not declared" and resolves to APPLICABLE. So does any value this
+code does not recognise. Both directions are deliberate and both are tested:
+withdrawing functionality is the direction a user cannot undo for themselves,
+so it happens only when somebody has positively declared a mode that excludes
+it. Every existing Production Unit or Cell keeps every module it had.
+
+The module explains itself in place rather than the tab disappearing, matching
+the Cycle/Shot module's existing pattern. A tab that comes and goes is a tab
+nobody can find, and applicability depends on the run selected inside the tab,
+which is not known when the tab strip is built.
+
+SCOPE NOTE
+
+Migration Plan v3 describes R-PRE as workflow, COA/QC presentation and two
+controlled-data additions. R-PRE-WP1 as built also adds one nullable column,
+which is the smallest form the agreed per-unit setting can take. Recorded as a
+deviation for Charlie to fold into the plan rather than left to be discovered
+in the diff.
+
+Full regression: 940 passed, 6 skipped, 0 failed of 946 collected. Was 847
+passed / 6 skipped at v0.73.0; the 93 new tests are the four R-PRE control
+files, each individually mutation-checked - including a mutation that puts cSt
+into the dynamic-viscosity group, which is the specific error the two-group
+split exists to make impossible.
+
+The CR-18 terminology allowlist moved again - db.py 2256 -> 2272. Fourth move.
+It is position-based on purpose, so every addition above that line will move
+it; the fix is always to re-point the line, never to soften the scan.
+
 v0.73.0, 2026-08-20: P8-OWR-003 reproducible migrations and schema-drift
 control, plus the two Decision 3 correction rulings - recipe-revision role
 reset, and the resolver's recipe-version ownership guard.
@@ -8397,4 +8565,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.73.0"
+APP_VERSION = "0.74.0"

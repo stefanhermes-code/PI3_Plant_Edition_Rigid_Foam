@@ -151,6 +151,7 @@ from helpers import (
     render_data_table,
     render_function_action_intro,
     run_uses_cycle_shot_operation,
+    run_uses_metered_material_delivery,
     set_pending_banner,
     show_pending_banner,
     upload_within_size_limit,
@@ -1482,6 +1483,25 @@ with tab_streams:
         st.info("Create a production run first (Production Runs tab).")
     else:
         run = _run_selector(runs, key="stream_tab_run_select")
+        # R-PRE-WP1 (2026-08-20): metering readings only mean something on a
+        # Production Unit or Cell that meters. A blending vessel with an
+        # agitator, or a hand mix, has no metered streams to read - so the
+        # module says so instead of presenting empty flow/pressure fields
+        # that can never be filled in honestly.
+        #
+        # Same shape as the Cycle/Shot module below: the tab stays where it
+        # is and explains itself, rather than disappearing. A tab that comes
+        # and goes is a tab nobody can find, and the applicability depends on
+        # the run selected inside it, which is not known when the tab strip
+        # is built.
+        if not run_uses_metered_material_delivery(run):
+            st.info(
+                "Material metering is not applicable to this run's Production Unit or Cell. "
+                "Its material delivery mode is recorded as "
+                f"**{run.machine.material_delivery_mode}**, which does not meter. Readings "
+                "already recorded against this run stay available and are shown below. The "
+                "mode is set per Production Unit or Cell on the Production Equipment page."
+            )
         phases_for_run = (
             session.query(ProductionPhase).filter(ProductionPhase.production_run_id == run.id).all()
         )
