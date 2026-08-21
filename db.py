@@ -2637,9 +2637,26 @@ class ProductionMethod(Base):
 
 
 class Application(Base):
-    """Charlie's APP-* vocabulary, e.g. "Building Insulation - Wall Panel",
-    "Refrigeration", "Pipe Insulation" - the end-use the grade is designed
-    for."""
+    """Charlie's APP-* vocabulary - the end-use a Product Grade is designed
+    for. R2 (Redesign Migration Plan v5, Package C) promotes this table into
+    the single global Application Area master; the class name stays Application
+    because renaming an ORM class is not what "Application Area" means to a
+    user, and the internal identifier boundary CR-18 established still holds.
+
+    R2-WP2 (2026-08-21) rulings, from Charlie's Package B acceptance:
+
+    Cabinet and door are ONE Application Area. Stefan confirmed PTU's system
+    fills both, and rather than adding a grade-to-area join table the
+    classification was judged too fine: APP-310 became "Refrigerator/Freezer
+    Insulation" and APP-320 was retired. foam_grades.application_id therefore
+    stays singular and no association table exists - ruling section 4, "No
+    Product Grade/Application Area association table is to be created."
+
+    The APP-* numbers are a controlled identifier and an ordering convention,
+    NOT a parent-child hierarchy - ruling section 6. That is why APP-300 was
+    retired rather than kept as a parent of the refrigeration group, and why
+    APP-210 needs no APP-200 above it. Read sort_order as sort order and
+    nothing more."""
 
     __tablename__ = "applications"
 
@@ -2648,6 +2665,22 @@ class Application(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text)
     sort_order = Column(Integer)
+    # R2-WP2: "active controlled master" is a phrase in the ruling and the plan,
+    # and the table had no way to express it - a record was either present or
+    # deleted. A retired record drops out of every picker immediately while its
+    # row stays inspectable until R2-WP4 removes it, which is what makes the
+    # retirement reviewable in the running application before anything is
+    # dropped. APP-300 and APP-320 are the two retired at R2-WP2.
+    is_active = Column(Boolean, nullable=False, default=True)
+    # R2-WP2: the controlled PU Material Family this Application Area belongs
+    # to, from the same seven values as PUMaterialFamily.name. R2-WP3 requires
+    # a Product Grade's Application Area to carry the same family value as the
+    # grade's own plant-scoped family, and that comparison only means anything
+    # if both sides draw on one vocabulary - see ck_applications_pumf_vocabulary
+    # in migration 0011, which mirrors ck_pumf_controlled_vocabulary from 0009.
+    # Nullable so a record can exist before it is classified; the migration's
+    # exit check refuses to leave an ACTIVE record untagged.
+    pu_material_family = Column(String(200))
 
 
 # ---------------------------------------------------------------------------

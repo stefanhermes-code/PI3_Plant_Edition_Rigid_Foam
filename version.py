@@ -8389,6 +8389,103 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.77.0, 2026-08-21: R2-WP2 and R2-WP3 - the Application Area master.
+Redesign Migration Plan v5, Package C.
+
+WHAT CHARLIE RULED, AND WHAT IT REPLACED
+
+R2-WP1 returned a question rather than an answer: PTU's system fills both a
+refrigerator cabinet and a door, foam_grades.application_id holds one value,
+and R2-WP3 as drafted enforced one selection. Two ways out were offered - an
+umbrella record, or a grade-to-area join table.
+
+Charlie took neither. He judged the classification too fine and merged the two
+Application Areas: APP-310 became "Refrigerator/Freezer Insulation" and APP-320
+was retired. The model was never wrong; the vocabulary was. Cabinet versus door
+is end-use detail on a trial or production record, not a hierarchy branch.
+
+So the singular relationship stays, and section 4 of the ruling is explicit:
+"No Product Grade/Application Area association table is to be created." That is
+now a standing test rather than a sentence in a document, because the next
+grade that appears to serve two things will produce the same argument.
+
+He also ruled the APP- numbering is a controlled identifier and an ordering
+convention, NOT a parent-child hierarchy. APP-300 is therefore retired rather
+than kept as the parent of the refrigeration group, and APP-210 needs no
+APP-200 above it.
+
+THE ACTIVE MASTER, SIX RECORDS
+
+  APP-100  Building insulation                    unchanged
+  APP-210  Cold-room wall or ceiling panel        unchanged
+  APP-310  Refrigerator/Freezer Insulation        renamed, absorbs APP-320
+  APP-330  Industrial Refrigeration Insulation    renamed
+  APP-340  Water-heater insulation                unchanged
+  APP-350  Cool Box Insulation                    created
+
+  APP-300  retired - 3 reference formulations set to NULL
+  APP-320  retired - zero references, nothing to re-point
+
+The three former APP-300 reference formulations are deliberately NULL, not
+re-pointed. Charlie: "JC is not to classify those formulations into a narrower
+Application Area from formulation chemistry." Their previous links are recorded
+verbatim in migration 0011.
+
+APP-340 was NOT renamed. The ruling says "Keep APP-340 as Water-Heater
+Insulation" while the stored name is "Water-heater insulation" - the same words
+in different case. "Keep" means keep, and renaming a controlled record on a
+capitalisation difference is not a silent decision to make. Raised in the R2
+return as a house-style question instead.
+
+is_active EXISTS BECAUSE "ACTIVE MASTER" HAD NO MECHANISM
+
+Both the ruling and Plan v5 say "active controlled master", and the table could
+only express present or deleted. is_active is the difference, and it is what
+makes R2-WP2 reversible: a retired record leaves every picker immediately while
+its row stays inspectable until R2-WP4 deletes it. The retirement can be
+reviewed in the running application before anything is dropped.
+
+THE PICKER THAT DID NOT EXIST
+
+Before this release there was no Application Area selector anywhere in the
+application. The column had been on foam_grades since before the redesign, it
+was rendered read-only in two places, and no user could set it. That is the
+same defect as R1-WP5's customer_segment - a field in the schema and nowhere on
+the screen has not been delivered.
+
+Product Grades now carries it on create, edit and the table. The picker offers
+only areas tagged with that grade's PU Material Family, so R2-WP3's family-match
+rule holds by construction; the save path checks again, because a filtered
+picker stops a user and does not stop an import or a stale widget. A stored
+value that no longer matches stays selectable and is refused on save rather
+than being silently rewritten - the same historical-readability rule the PU
+Material Family picker follows.
+
+Labels carry the controlled identifier: "APP-310 — Refrigerator/Freezer
+Insulation". Charlie made this a ruling in direct response to R1, where two
+families both rendered as "Rigid" and a live grade was re-parented through the
+resulting picker. Application Area names do not collide today, but the master
+is tagged by family and will grow a branch per family, and the APP- number is
+how every ruling refers to these records.
+
+A MUTATION THAT SURVIVED, AND WHAT IT EXPOSED
+
+Six mutations were run against the new guards. Five failed the intended test.
+The sixth - removing the is_active filter from selectable_application_areas() -
+passed the entire suite.
+
+The cause was the fixture, not the code. Migration 0011 leaves the two retired
+records untagged, so the family filter excluded them for the wrong reason and
+the is_active filter was never observed. A retired-but-still-tagged area was
+added to the fixture, and the mutation now fails. Two filters that always agree
+are one filter with a spare.
+
+This is the third time in two days that a green suite has meant less than it
+looked. It is the reason Charlie's mutation rule says the mutation must be
+confirmed to land on the intended path.
+
+Full regression: 983 passed, 6 skipped, 0 failed.
+
 v0.76.2, 2026-08-21: R1 correction 2 - the picker collision R1 created.
 Redesign Migration Plan v3, Package B.
 
@@ -9001,4 +9098,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.76.2"
+APP_VERSION = "0.77.0"

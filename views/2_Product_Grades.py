@@ -33,6 +33,7 @@ from access_control import can_use_page
 from auth import current_user, logout_button, require_login
 from cascades import delete_foam_grade_cascade, foam_grade_dependency_counts
 from db import (
+    Application,
     FoamGrade,
     GRADE_SPEC_TARGET_TYPE_OPERATORS,
     GRADE_SPEC_TARGET_TYPES,
@@ -54,7 +55,9 @@ from helpers import (
     delete_with_confirm,
     grade_production_method_label,
     machines_for_plant_across_activated_methods,
+    application_area_label,
     pu_material_family_label,
+    selectable_application_areas,
     page_setup,
     render_data_table,
     render_function_action_intro,
@@ -190,6 +193,24 @@ else:
                     "PU Material Family *", families,
                     format_func=pu_material_family_label, key="add_grade_family",
                 )
+                # R2-WP3 (2026-08-21): the Application Area a grade is designed
+                # for. Offered only from the areas tagged with THIS grade's
+                # PU Material Family, so the family-match rule is satisfied by
+                # construction rather than by a message after the fact. The
+                # save path checks it again - a filtered picker stops a user,
+                # it does not stop an import or a stale widget.
+                _area_options = selectable_application_areas(session, family.name)
+                if not _area_options:
+                    st.warning(
+                        f"No Application Area is tagged '{family.name}' yet, so this grade "
+                        "will be saved without one. Add or tag an Application Area first if "
+                        "the grade needs it."
+                    )
+                application_area = st.selectbox(
+                    "Application Area", [None] + _area_options,
+                    format_func=lambda a: "Not set" if a is None else application_area_label(a),
+                    key="add_grade_application",
+                ) if _area_options else None
                 assignable_machines = machines_for_plant_across_activated_methods(session, family.plant_id)
                 if not assignable_machines:
                     st.warning(
@@ -231,6 +252,7 @@ else:
                             new_grade = FoamGrade(
                                 pu_material_family_id=family.id,
                                 grade_name=grade_name,
+                                application_id=application_area.id if application_area else None,
                                 customer_segment=customer_segment.strip() or None,
                                 notes=notes,
                             )
@@ -310,6 +332,9 @@ else:
                     # R1-WP5 (2026-08-21): shown here because the family table
                     # no longer carries it - if it appeared nowhere the column
                     # would be enterable and invisible.
+                    # R2-WP3: shown so a grade with no Application Area, or one
+                    # carrying a retired area, is visible rather than silent.
+                    "Application Area": application_area_label(grade.application),
                     "Customer segment": grade.customer_segment or "—",
                     # Derived from the grade's assigned Machines (many-to-many),
                     # never from the deprecated FoamGrade.production_method_id -
@@ -352,6 +377,26 @@ else:
                     # form from silently dropping a cross-method machine
                     # assignment the way the single-method-filtered
                     # version used to.
+                    _e_area_options = selectable_application_areas(session, e_family.name)
+                    # An area the grade already carries stays selectable even if
+                    # it is retired or tagged to another family - the same
+                    # historical-readability rule the PU Material Family picker
+                    # follows. A picker that silently drops the stored value
+                    # rewrites data the moment someone saves anything else.
+                    _e_current_area = selected_grade.application
+                    if _e_current_area is not None and _e_current_area not in _e_area_options:
+                        _e_area_options = [_e_current_area] + _e_area_options
+                    e_area_choices = [None] + _e_area_options
+                    e_application_area = st.selectbox(
+                        "Application Area", e_area_choices,
+                        index=next(
+                            (i for i, a in enumerate(e_area_choices)
+                             if a is not None and a.id == selected_grade.application_id),
+                            0,
+                        ),
+                        format_func=lambda a: "Not set" if a is None else application_area_label(a),
+                        key=f"edit_grade_application_{selected_grade.id}",
+                    )
                     e_assignable_machines = machines_for_plant_across_activated_methods(session, e_family.plant_id)
                     # A machine the grade is already assigned to might not
                     # be in e_assignable_machines if its Production Method
@@ -402,6 +447,20 @@ else:
                             # Moving a grade between families at the SAME plant
                             # stays allowed, and so does moving a grade that has
                             # no machines assigned yet.
+                            # R2-WP3 family-match rule, checked on save as well
+                            # as in the picker. An Application Area tagged for a
+                            # different PU Material Family, or a retired one, is
+                            # refused rather than written.
+                            _area_family = getattr(e_application_area, "pu_material_family", None)
+                            _area_mismatch = (
+                                e_application_area is not None
+                                and _area_family is not None
+                                and _area_family != e_family.name
+                            )
+                            _area_retired = (
+                                e_application_area is not None
+                                and e_application_area.is_active is False
+                            )
                             _target_plant_id = getattr(e_family, "plant_id", None)
                             _stranded = [
                                 m for m in (e_assigned_machines or [])
@@ -409,6 +468,19 @@ else:
                             ]
                             if not e_grade_name.strip():
                                 st.error("Grade name is required.")
+                            elif _area_mismatch:
+                                st.error(
+                                    f"'{application_area_label(e_application_area)}' belongs to "
+                                    f"PU Material Family '{_area_family}', but this grade is under "
+                                    f"'{e_family.name}'. Pick an Application Area for "
+                                    f"'{e_family.name}', or leave it unset. Nothing was saved."
+                                )
+                            elif _area_retired:
+                                st.error(
+                                    f"'{application_area_label(e_application_area)}' is a retired "
+                                    "Application Area and cannot be assigned. Pick an active one, "
+                                    "or leave it unset. Nothing was saved."
+                                )
                             elif _stranded:
                                 st.error(
                                     f"'{pu_material_family_label(e_family)}' is at a different plant "
@@ -420,6 +492,9 @@ else:
                             else:
                                 selected_grade.pu_material_family_id = e_family.id
                                 selected_grade.grade_name = e_grade_name.strip()
+                                selected_grade.application_id = (
+                                    e_application_area.id if e_application_area else None
+                                )
                                 selected_grade.customer_segment = e_customer_segment.strip() or None
                                 selected_grade.notes = e_notes
                                 # production_method_id intentionally left untouched -

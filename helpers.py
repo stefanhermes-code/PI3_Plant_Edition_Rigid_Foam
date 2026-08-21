@@ -270,6 +270,60 @@ def pu_material_family_label(family, include_plant=True):
     return f"{name} — {plant_name}" if plant_name else name
 
 
+def application_area_label(application, include_id=True):
+    """Display name for an Application Area.
+
+    R2-WP3 requires that "Application Area selectors must display enough
+    context to prevent ambiguous choices" - Charlie's ruling of 21 August
+    2026, written in direct response to what happened in R1, where two
+    PU Material Families both rendered as "Rigid" and a live grade was
+    re-parented through the resulting picker.
+
+    The context that prevents ambiguity here is the controlled identifier.
+    Application Areas are global rather than plant-scoped, so their names do
+    not collide today; but the master is tagged by PU Material Family and will
+    grow one branch per family, and "Insulation" is exactly the kind of name
+    that repeats across chemistries. The APP- number is also how Charlie
+    refers to these records in every ruling, so showing it lets a user match
+    what they see on screen to what they read in a document.
+
+    include_id=False is for report fields and prose, where the identifier is
+    noise and the surrounding text already fixes which record is meant."""
+    if application is None:
+        return "—"
+    name = application.name or "—"
+    controlled_id = getattr(application, "controlled_id", None)
+    if include_id and controlled_id:
+        return f"{controlled_id} — {name}"
+    return name
+
+
+def selectable_application_areas(session, pu_material_family_name):
+    """The Application Areas a Product Grade under this family may select.
+
+    R2-WP3: "Every Product Grade Application Area must carry the same
+    controlled PU Material Family value as the grade's plant-scoped PU
+    Material Family." Enforced by filtering the picker rather than by
+    validating after the fact, so an invalid choice cannot be made in the
+    first place - and validated again on save, because a filtered picker
+    stops a user and does not stop an import or a stale widget.
+
+    Retired areas (is_active False) are excluded. APP-300 and APP-320 were
+    retired at R2-WP2 and must not be offerable, even though their rows
+    survive until R2-WP4.
+    """
+    from db import Application
+
+    query = (
+        session.query(Application)
+        .filter(Application.is_active.is_(True))
+        .order_by(Application.sort_order, Application.controlled_id)
+    )
+    if pu_material_family_name:
+        query = query.filter(Application.pu_material_family == pu_material_family_name)
+    return query.all()
+
+
 def page_setup(title: str):
     """Kept for compatibility with existing pages, which all call this as
     their first Streamlit command. Page config, sidebar logo, and global
