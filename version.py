@@ -8389,6 +8389,87 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.76.1, 2026-08-21: R1 correction - the two halves of R1 the deploy check
+found unfinished. Redesign Migration Plan v3, Package B.
+
+This release exists because the post-deploy browser check on v0.76.0 found
+things the full green suite did not. Both are recorded here in full, because
+the mechanism that hid them is more useful than either defect.
+
+WHAT WAS WRONG
+
+1. Customer Segment was moved but never surfaced. Migration 0009 added
+customer_segment to foam_grades and the FoamGrade model declared it, and that
+was the whole of R1-WP5. There was no field on the Product Grade create form,
+none on the edit form, no column in the table, and no import header. The
+column existed and no user could reach it. A field that can be neither entered
+nor read has not been moved down from the PU Material Family - it has been
+deleted, with the schema left behind to make it look otherwise.
+
+Fixed: create form, edit form (pre-filled from the stored value, so saving an
+unrelated change on that form can no longer blank it), grade table column, and
+GRADE_OPTIONAL_COLUMNS for CSV/Excel import. Free text on purpose - the
+segment is a commercial description, and R1 does not invent a controlled
+vocabulary for it on the way past.
+
+2. The R1-WP3 rename swept identifiers, not labels. ProductFamily ->
+PUMaterialFamily, product_family_id -> pu_material_family_id, the page_key,
+the nav entry and both dedicated pages were all renamed correctly. Nine files
+of customer-facing text were not: the Product Grades create and edit forms
+still read "Product family *", and so did Reports, Physical Property Result,
+Quality Observation, Expert Notes, the Plant Overview metric, the shared
+analysis_unit_picker "Analyze by" control, four function/action intro
+paragraphs, and five report field labels.
+
+Two of those - the analysis_unit_picker radio and the two Product scope radios
+- carry string-keyed branch logic. In all three the grade branch tests for
+"Product grade" and the family case is the fall-through, so renaming the
+family option is display-only. That is now asserted rather than assumed.
+
+WHY THE SUITE STAYED GREEN
+
+CR-18 (2026-08-13) built a terminology scanner. It scans for the Flexible Foam
+term "foam family". "Product family" was the term CR-18 renamed things TO, so
+it was, by construction, the one term that scanner could never flag. When R1
+moved the goalposts again, the scanner was still watching the old line.
+
+The general lesson, and the one worth carrying into R2: a rename needs its own
+scanner written at the moment of the rename. Inheriting the previous rename's
+scanner inherits a test that is guaranteed to pass.
+
+tests/test_r1_pu_material_family_labels.py is that scanner. It walks each
+app file's AST and checks every string literal that is USED - a widget label,
+a dict key, a returned value - while leaving prose alone: docstrings and bare
+string statements are excluded by node identity, not by an allowlist, because
+prose is supposed to say "Product family" when it is recording what a past CR
+did. Comments never reach the AST at all. version.py is excluded outright;
+rewriting a past release note to use today's term would make this file lie
+about what shipped that day.
+
+The same file drives the real Product Grades create and edit forms end to end
+and reads the row back from the database, so R1-WP5 is proved by round-trip
+rather than by the column existing.
+
+SEVEN TESTS UPDATED, NONE WEAKENED
+
+test_cr15 (2), test_cr18 (2), test_cr22_correction_focused_closeout (2) and
+test_cr22_semantic_freeze_evidence (1) asserted the old wording. Each now
+asserts "PU Material Family" and each keeps the requirement it was written for:
+CR-15's is that the Expert Notes entity picker carries no Flexible Foam term,
+CR-18's is the same across the quality and analysis surfaces, and F22-02's is
+the frozen OPTION ORDER of the Product scope radios, which is unchanged. The
+word moved; none of the three requirements did.
+
+Also corrected: v0.76.0's blind rename had damaged prose it should not have
+touched - helpers.analysis_unit_picker's CR-18 docstring rendered as
+"PU Material Family"/"PU Material Family", the CR-18 test file's own docstring
+as three variants of the same phrase, and five files pointed at a
+test_cr18_pu_material_family_terminology.py that does not exist. All restored
+to what CR-18 actually said, with the R1 change noted after it rather than
+written over it.
+
+Full regression: 960 passed, 6 skipped, 0 failed.
+
 v0.75.0, 2026-08-21: R0 - baseline, restore point, evidence inventory and the
 application-facing rename. Redesign Migration Plan v3, Package B.
 
@@ -8856,4 +8937,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.76.0"
+APP_VERSION = "0.76.1"

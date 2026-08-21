@@ -577,7 +577,7 @@ def test_block_reference_csv_import_accepts_pm500_rejects_others(three_method_ru
 # ===========================================================================
 # Part 2b - rendered UI evidence for the Product scope radio's frozen order
 # (Charlie's Section 5 standard applied to F22-01/F22-02): the existing
-# test_cr18_pu_material_family_terminology.py::test_quality_pages_product_scope_
+# test_cr18_product_family_terminology.py::test_quality_pages_product_scope_
 # control_says_pu_material_family only reads views/5 and views/6's SOURCE CODE
 # for the exact options-list string - a helper/source-text check, not
 # genuine rendered-widget evidence. These two tests drive the real
@@ -588,7 +588,7 @@ def test_quality_test_result_product_scope_radio_renders_frozen_order(three_meth
     at = _run(PAGE_QTR)
     assert not at.exception, f"Unhandled exception loading Quality Test Results: {at.exception}"
     radio = next(r for r in at.radio if r.key == "qtr_foam_scope_mode")
-    assert list(radio.options) == ["All product grades", "Product family", "Product grade"], (
+    assert list(radio.options) == ["All product grades", "PU Material Family", "Product grade"], (
         f"Quality Test Result's rendered Product scope radio order is {list(radio.options)!r}"
     )
 
@@ -597,7 +597,7 @@ def test_quality_issue_product_scope_radio_renders_frozen_order(three_method_run
     at = _run(PAGE_QI)
     assert not at.exception, f"Unhandled exception loading Quality Issues: {at.exception}"
     radio = next(r for r in at.radio if r.key == "qi_foam_scope_mode")
-    assert list(radio.options) == ["All product grades", "Product family", "Product grade"], (
+    assert list(radio.options) == ["All product grades", "PU Material Family", "Product grade"], (
         f"Quality Issue's rendered Product scope radio order is {list(radio.options)!r}"
     )
 

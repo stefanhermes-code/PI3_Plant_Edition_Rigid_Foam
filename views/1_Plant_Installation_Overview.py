@@ -60,8 +60,8 @@ logout_button()
 st.title("Plants")
 render_function_action_intro(
     function_text=(
-        "This is where you set up and maintain the plants that every Production Method, product "
-        "family, recipe, production run, and quality result in the system is ultimately traced "
+        "This is where you set up and maintain the plants that every Production Method, PU Material "
+        "Family, recipe, production run, and quality result in the system is ultimately traced "
         "back to. It records each plant's name, code, and location, and shows at a glance how many "
         "PU Material Families and Production Units/Cells sit under each plant. Activating Production "
         "Methods for a plant and setting up its Production Equipment now live on the Production "
@@ -69,8 +69,8 @@ render_function_action_intro(
         "location/identity only."
     ),
     action_text=(
-        "Add a plant before adding anything else under it, since Production Methods, product "
-        "families, recipes, and production runs all key off it eventually. Once a plant exists, go "
+        "Add a plant before adding anything else under it, since Production Methods, PU Material "
+        "Families, recipes, and production runs all key off it eventually. Once a plant exists, go "
         "to Production Methods to activate the methods it runs, then Production Equipment to add "
         "its Production Units/Cells. Use CSV/Excel import to bulk-load plants from a spreadsheet. "
         "Click a row in the Edit/Delete tab's table to edit or delete a plant - deleting one "
@@ -232,7 +232,7 @@ with tab_edit_delete:
                 "Name": plant.name,
                 "Code": plant.plant_code or "—",
                 "Location": plant.location or "—",
-                "Product families": len(plant.pu_material_families),
+                "PU Material Families": len(plant.pu_material_families),
                 "Production Units/Cells": session.query(Machine).filter(Machine.plant_id == plant.id).count(),
                 "Notes": plant.notes or "",
             }

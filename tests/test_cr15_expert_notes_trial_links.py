@@ -280,8 +280,16 @@ def test_pu_material_family_terminology_not_leaked_in_ui(seeded_two_trial_target
     at.run()
     assert not at.exception
 
-    entity_sb = next((sb for sb in at.selectbox if sb.label == "Product family *"), None)
-    assert entity_sb is not None, "Entity picker must be labeled 'Product family *', not 'Foam family *'"
+    # R1-WP3 (2026-08-21): CR-15 required "Product family *" here (replacing
+    # the Flexible-Foam "Foam family *"). R1 renamed the term once more, to
+    # "PU Material Family *". CR-15's requirement - the entity picker must
+    # not carry Flexible Foam terminology - is unchanged; only the target
+    # wording moved, so the assertion below tracks it and still fails if
+    # "Foam family" ever comes back.
+    entity_sb = next((sb for sb in at.selectbox if sb.label == "PU Material Family *"), None)
+    assert entity_sb is not None, (
+        "Entity picker must be labeled 'PU Material Family *' (R1-WP3), never 'Foam family *' (CR-15)"
+    )
 
     all_widget_text = " ".join(
         [w.label or "" for w in at.selectbox]
@@ -669,7 +677,7 @@ def test_pu_material_family_still_creatable_after_terminology_rename(seeded_two_
     at.run()
     assert not at.exception
 
-    entity_sb = next(sb for sb in at.selectbox if sb.label == "Product family *")
+    entity_sb = next(sb for sb in at.selectbox if sb.label == "PU Material Family *")
     assert entity_sb.value is not None and entity_sb.value.id == ids["family_id"]
 
     note_area = next(t for t in at.text_area if t.label == "Note *" and t.key is None)

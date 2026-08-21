@@ -1194,7 +1194,7 @@ def build_where_used_report_data(session, raw_material_id):
             family_names.add(family.name)
         usage_rows.append({
             "Product grade": grade.grade_name if grade else "—",
-            "Product family": family.name if family else "—",
+            "PU Material Family": family.name if family else "—",
             "Recipe version": v.version_label if v else "—",
             "Status": "Active" if v and v.is_active else "Retired",
             "PHP": c.php,
@@ -1263,7 +1263,7 @@ def render_where_used_report_pdf(data):
         story.append(_key_value_table([
             ("Recipe versions using this material", data["recipe_version_count"]),
             ("Product grades affected", data["foam_grade_count"]),
-            ("Product families affected", data["pu_material_family_count"]),
+            ("PU Material Families affected", data["pu_material_family_count"]),
             ("", ""),
         ]))
         _section(story, "Recipes using this material", data["usage_rows"])
@@ -1282,7 +1282,7 @@ def render_where_used_report_docx(data):
     _docx_kv_table(doc, [
         ("Recipe versions using this material", data["recipe_version_count"]),
         ("Product grades affected", data["foam_grade_count"]),
-        ("Product families affected", data["pu_material_family_count"]),
+        ("PU Material Families affected", data["pu_material_family_count"]),
     ])
     _docx_section(doc, "Recipes using this material", data["usage_rows"])
     _docx_section(doc, "Target properties of affected product grades", data["target_rows"])
@@ -1688,7 +1688,7 @@ def render_batch_release_record_pdf(data):
         # CR-22 / F22-04 (AF22-01): "Block reference" row omitted entirely
         # for every method except PM-500 Rigid Block Production.
         batch_release_kv = [
-            ("Plant", data["plant"]), ("Product family", data["pu_material_family"]),
+            ("Plant", data["plant"]), ("PU Material Family", data["pu_material_family"]),
             ("Product grade", data["foam_grade"]), ("Production Unit or Cell", data["machine"]),
             ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
         ]
@@ -1756,7 +1756,7 @@ def render_batch_release_record_docx(data):
     # CR-22 / F22-04 (AF22-01): "Block reference" row omitted entirely for
     # every method except PM-500 Rigid Block Production.
     batch_release_docx_kv = [
-        ("Plant", data["plant"]), ("Product family", data["pu_material_family"]),
+        ("Plant", data["plant"]), ("PU Material Family", data["pu_material_family"]),
         ("Product grade", data["foam_grade"]), ("Production Unit or Cell", data["machine"]),
         ("Production method", data["production_method"]),
         ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),

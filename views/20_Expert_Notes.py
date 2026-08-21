@@ -122,8 +122,8 @@ render_function_action_intro(
         "trial, or optimization trial), write it, set a "
         "confidence level, and save - there's no other structured field to fill in, so use this "
         "for anything worth remembering that the rest of the app has no place for. Use CSV/Excel "
-        "import to bulk-load notes referencing existing production runs/product grades/product "
-        "families/commercial trials/optimization trials from a spreadsheet. Click a PI3-sourced "
+        "import to bulk-load notes referencing existing production runs/product grades/PU Material "
+        "Families/commercial trials/optimization trials from a spreadsheet. Click a PI3-sourced "
         "note to re-download its original Word report, or edit/delete any note the same way as "
         "elsewhere in the app."
     ),
@@ -238,7 +238,7 @@ with tab_create:
         elif entity_type == "pu_material_family":
             if not families:
                 st.warning("No PU Material Families yet - create one on the PU Material Families page first.")
-            entity = st.selectbox("Product family *", families, format_func=lambda f: f.name)
+            entity = st.selectbox("PU Material Family *", families, format_func=lambda f: f.name)
         elif entity_type == "customer_trial":
             if not customer_trials:
                 st.warning(

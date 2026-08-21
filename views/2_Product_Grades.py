@@ -79,7 +79,11 @@ GRADE_COLUMN_ALIASES = {"product_family_id": "pu_material_family_id"}
 # import's optional columns along with the manual Add/Edit form fields below
 # - see db.py's FoamGrade docstring. A batch import shouldn't write into a
 # deprecated fixed field any more than the manual form should.
-GRADE_OPTIONAL_COLUMNS = ["notes"]
+# R1-WP5 (2026-08-21): customer_segment moved down from the PU Material
+# Family to the grade. Optional, free text - it is a commercial
+# description ("Cold-store contractors", "Panel OEM"), not a controlled
+# vocabulary, and R1 deliberately does not invent one for it.
+GRADE_OPTIONAL_COLUMNS = ["customer_segment", "notes"]
 
 page_setup("Product Grades")
 init_db()
@@ -181,7 +185,7 @@ else:
                 # methods is offered up front, labeled by its own
                 # method, rather than forcing one method choice before
                 # any machine can be picked.
-                family = st.selectbox("Product family *", families, format_func=lambda f: f.name, key="add_grade_family")
+                family = st.selectbox("PU Material Family *", families, format_func=lambda f: f.name, key="add_grade_family")
                 assignable_machines = machines_for_plant_across_activated_methods(session, family.plant_id)
                 if not assignable_machines:
                     st.warning(
@@ -204,6 +208,16 @@ else:
                 # Quality results use.
                 with st.form("add_grade"):
                     grade_name = st.text_input("Grade name / code *")
+                    # R1-WP5 (2026-08-21): the customer segment this grade is
+                    # sold into. It used to sit on the PU Material Family,
+                    # where it was wrong - one family (now a chemistry, e.g.
+                    # "Rigid") serves several segments through different
+                    # grades, so a single value up there had to be either
+                    # blank or a lie. Free text on purpose.
+                    customer_segment = st.text_input(
+                        "Customer segment",
+                        help="Who this grade is sold to, e.g. 'Cold-store panel contractors'. Optional.",
+                    )
                     notes = st.text_area("Notes")
                     submitted = st.form_submit_button("Save product grade")
                     if submitted:
@@ -213,6 +227,7 @@ else:
                             new_grade = FoamGrade(
                                 pu_material_family_id=family.id,
                                 grade_name=grade_name,
+                                customer_segment=customer_segment.strip() or None,
                                 notes=notes,
                             )
                             new_grade.machines = list(assigned_machines)
@@ -263,6 +278,7 @@ else:
                             FoamGrade(
                                 pu_material_family_id=int(row["pu_material_family_id"]),
                                 grade_name=str(row["grade_name"]).strip(),
+                                customer_segment=str(row.get("customer_segment", "") or "").strip() or None,
                                 notes=str(row.get("notes", "") or ""),
                             )
                         )
@@ -287,6 +303,10 @@ else:
                 {
                     "Grade": grade.grade_name,
                     "Family": grade.pu_material_family.name,
+                    # R1-WP5 (2026-08-21): shown here because the family table
+                    # no longer carries it - if it appeared nowhere the column
+                    # would be enterable and invisible.
+                    "Customer segment": grade.customer_segment or "—",
                     # Derived from the grade's assigned Machines (many-to-many),
                     # never from the deprecated FoamGrade.production_method_id -
                     # see helpers.grade_production_method_label().
@@ -316,7 +336,7 @@ else:
                     st.caption("View-only access - editing and deleting is restricted for your role.")
                 else:
                     e_family = st.selectbox(
-                        "Product family *", families,
+                        "PU Material Family *", families,
                         index=next((i for i, f in enumerate(families) if f.id == selected_grade.pu_material_family_id), 0),
                         format_func=lambda f: f.name, key=f"edit_grade_family_{selected_grade.id}",
                     )
@@ -354,6 +374,12 @@ else:
                         e_grade_name = st.text_input(
                             "Grade name / code *", value=selected_grade.grade_name, key=f"edit_grade_name_{selected_grade.id}"
                         )
+                        e_customer_segment = st.text_input(
+                            "Customer segment",
+                            value=selected_grade.customer_segment or "",
+                            help="Who this grade is sold to, e.g. 'Cold-store panel contractors'. Optional.",
+                            key=f"edit_grade_customer_segment_{selected_grade.id}",
+                        )
                         e_notes = st.text_area("Notes", value=selected_grade.notes or "", key=f"edit_grade_notes_{selected_grade.id}")
                         if st.form_submit_button("Save changes"):
                             if not e_grade_name.strip():
@@ -361,6 +387,7 @@ else:
                             else:
                                 selected_grade.pu_material_family_id = e_family.id
                                 selected_grade.grade_name = e_grade_name.strip()
+                                selected_grade.customer_segment = e_customer_segment.strip() or None
                                 selected_grade.notes = e_notes
                                 # production_method_id intentionally left untouched -
                                 # deprecated, see db.py's FoamGrade model.

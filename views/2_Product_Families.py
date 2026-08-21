@@ -86,8 +86,8 @@ render_function_action_intro(
         "product grades using the button on its edit panel below - or open the Product Grades "
         "page directly if you'd rather add grades under a different family or see every grade at "
         "once. Use CSV/Excel import to bulk-load families (referencing an existing plant_id) from "
-        "a spreadsheet. Click a row in the Edit/Delete tab's table to edit or delete that product "
-        "family - deleting one cascades to every product grade recorded under it, with the count "
+        "a spreadsheet. Click a row in the Edit/Delete tab's table to edit or delete that PU Material "
+        "Family - deleting one cascades to every product grade recorded under it, with the count "
         "shown before you confirm."
     ),
 )

@@ -214,7 +214,7 @@ with tab_period:
         families_q = families_q.filter(PUMaterialFamily.plant_id == plant.id)
     with p2:
         family = st.selectbox(
-            "Product family", [None] + families_q.all(),
+            "PU Material Family", [None] + families_q.all(),
             format_func=lambda f: "All families" if f is None else f.name,
             key="report_period_family",
         )

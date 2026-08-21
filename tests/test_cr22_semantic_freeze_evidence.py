@@ -7,7 +7,7 @@ direct-evidence regression coverage of: Product hierarchy, Location
 semantics, Block reference UI/reports, Block reference import, Active
 Quality Issue list, Historical readability, Trial behavior, and a semantic
 guard against wording regressions. Most of these are already covered by
-targeted AppTest-based tests elsewhere (test_cr18_pu_material_family_terminology.py
+targeted AppTest-based tests elsewhere (test_cr18_product_family_terminology.py
 for F22-01/F22-02's page-level UI, test_cr11_functional_evidence_group_b.py
 for F22-03's "Observed location" wording, test_cr11_functional_evidence_group_d.py
 for F22-04/F22-05's block_reference UI gating + CSV import validation, and
@@ -267,9 +267,9 @@ def test_no_customer_facing_foam_scope_wording_remains():
         with open(os.path.join(APP_DIR, relpath), encoding="utf-8") as f:
             source = f.read()
         assert '"Foam scope"' not in source, f"{relpath} still has a customer-facing 'Foam scope' widget label"
-        assert '"Product scope", ["All product grades", "Product family", "Product grade"]' in source, (
+        assert '"Product scope", ["All product grades", "PU Material Family", "Product grade"]' in source, (
             f"{relpath}'s Product scope radio is not in the frozen order "
-            f"'All product grades / Product family / Product grade' (F22-02)"
+            f"'All product grades / PU Material Family / Product grade' (F22-02)"
         )
 
     with open(os.path.join(APP_DIR, "reports.py"), encoding="utf-8") as f:

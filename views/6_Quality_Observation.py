@@ -556,7 +556,7 @@ with tab_edit_delete:
             .all()
         )
         foam_scope_mode = st.radio(
-            "Product scope", ["All product grades", "Product family", "Product grade"], key="qi_foam_scope_mode"
+            "Product scope", ["All product grades", "PU Material Family", "Product grade"], key="qi_foam_scope_mode"
         )
         if foam_scope_mode == "All product grades" or not scoped_grades:
             scope_grade_ids = None
@@ -575,7 +575,7 @@ with tab_edit_delete:
                 scope_label = "—"
             else:
                 scope_family = st.selectbox(
-                    "Product family", families, format_func=lambda f: f.name, key="qi_foam_scope_family"
+                    "PU Material Family", families, format_func=lambda f: f.name, key="qi_foam_scope_family"
                 )
                 scope_grade_ids = [g.id for g in scoped_grades if g.pu_material_family_id == scope_family.id]
                 scope_label = scope_family.name

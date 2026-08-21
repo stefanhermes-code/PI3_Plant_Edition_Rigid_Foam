@@ -155,15 +155,19 @@ def analysis_unit_picker(grades, key_prefix):
 
     CR-18 (2026-08-13): the control's own options, empty-state warning, and
     family selectbox label were corrected from "Foam Family"/"foam family"
-    to "PU Material Family"/"PU Material Family" - CR-18's required customer-facing
-    term. This docstring and the `mode`/`link_type` dict values below
+    to "Product Family"/"Product family" - CR-18's required customer-facing
+    term at the time. R1-WP3 (2026-08-21) moved that term on again, to
+    "PU Material Family"; the strings below now read that way and
+    test_r1_pu_material_family_labels.py guards them. This docstring and
+    the `mode`/`link_type` dict values below
     ("family", "pu_material_family") are internal identifiers, not customer-
     facing text, so they are unchanged (see CR-18's Internal Compatibility
     Boundary).
 
     CR-22 / F22-02 (AF22-01, 2026-08-16): the radio's option order was
     changed from ["Product grade", "Product family"] to ["Product family",
-    "Product grade"] to lead with the pooled/family-level view. This is a
+    "Product grade"] to lead with the pooled/family-level view (R1-WP3
+    later renamed that first option to "PU Material Family"). This is a
     display-order-only change - the `mode_choice == "Product grade"` branch
     logic below is string-keyed, not position-keyed, so no other behavior
     changes.
@@ -192,7 +196,7 @@ def analysis_unit_picker(grades, key_prefix):
       that want to spell out exactly which grades were pooled
     """
     mode_choice = st.radio(
-        "Analyze by", ["Product family", "Product grade"], key=f"{key_prefix}_unit_mode", horizontal=True
+        "Analyze by", ["PU Material Family", "Product grade"], key=f"{key_prefix}_unit_mode", horizontal=True
     )
     if mode_choice == "Product grade":
         grade = st.selectbox(
@@ -214,7 +218,7 @@ def analysis_unit_picker(grades, key_prefix):
         st.warning("No PU Material Family available for these grades yet.")
         st.stop()
     family = st.selectbox(
-        "Product family", families,
+        "PU Material Family", families,
         format_func=lambda f: f"{f.name} ({sum(1 for g in grades if g.pu_material_family_id == f.id)} grade(s))",
         key=f"{key_prefix}_family_select",
     )

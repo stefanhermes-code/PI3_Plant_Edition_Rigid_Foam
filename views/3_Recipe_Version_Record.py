@@ -1417,7 +1417,7 @@ else:
     wc1, wc2, wc3 = st.columns(3)
     wc1.metric("Recipe versions using it", wu_data["recipe_version_count"])
     wc2.metric("Product grades affected", wu_data["foam_grade_count"])
-    wc3.metric("Product families affected", wu_data["pu_material_family_count"])
+    wc3.metric("PU Material Families affected", wu_data["pu_material_family_count"])
 
     st.write("**Recipes using this material**")
     render_data_table(pd.DataFrame(wu_data["usage_rows"] or [{"—": "No data recorded"}]))

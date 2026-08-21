@@ -14,7 +14,11 @@ the PI3-subject-context `subject_desc` string duplicated in those three
 pages AND three report-building functions in reports.py, and a report
 link-type label dict in reports.py's Expert Notes aggregate report. The
 fix standardizes every one of those customer-facing occurrences to
-"PU Material Family"/"Product family"/"PU Material Family", while leaving every
+"Product Family"/"Product family"/"product family" - the term CR-18
+required. R1-WP3 (2026-08-21) renamed that term again to "PU Material
+Family"; the assertions below were updated to the new wording, and the
+CR-18 requirement they encode (no Flexible-Foam "foam family" on any
+customer-facing surface) is unchanged. While leaving every
 internal identifier (`mode: "family"`, `link_type: "pu_material_family"`,
 `FoamGrade`, `foam_grade_id`, comments/docstrings describing internal
 behavior) untouched, per CR-18's own Internal Compatibility Boundary.
@@ -36,7 +40,8 @@ covers, in order:
      section 2 quotes.
   4. helpers.analysis_unit_picker()'s own family-mode behavior, driven
      live through Trend Analysis: the customer-facing control/warning/
-     label text reads "Product family" while the internal `mode`/
+     label text reads "PU Material Family" (R1-WP3; "Product family"
+     before it) while the internal `mode`/
      `link_type` dict values and the pooled `grade_ids` list (business
      logic) are unchanged from before CR-18.
   5. Generated Word report text (reports.build_trend_analysis_report_data
@@ -49,7 +54,7 @@ customer-facing text, which CR-15 already fixed and this CR's inventory
 confirmed has no new leaks (its 3 remaining "foam family" mentions are
 all comments/docstrings documenting CR-15's own completed fix).
 
-Usage: python -m pytest tests/test_cr18_pu_material_family_terminology.py -v
+Usage: python -m pytest tests/test_cr18_product_family_terminology.py -v
 """
 import datetime as dt
 import io
@@ -349,7 +354,7 @@ def test_process_parameter_optimization_action_text_and_radio_say_pu_material_fa
 def test_quality_pages_product_scope_control_says_pu_material_family():
     """views/5 and views/6's "Product scope" radio (renamed from "Foam
     scope" and reordered per CR-22 / F22-01, F22-02, AF22-01) has options
-    'All product grades / Product family / Product grade' - Product family
+    'All product grades / PU Material Family / Product grade' - Product family
     before Product grade, matching the hierarchy order used everywhere else
     (e.g. helpers.analysis_unit_picker()). Both pages gate their filterable
     table (and this radio) behind "at least one production run/trial
@@ -360,9 +365,9 @@ def test_quality_pages_product_scope_control_says_pu_material_family():
     for page_path, page_name in ((PAGE5, "Quality Test Result"), (PAGE6, "Quality Issue")):
         with open(page_path, encoding="utf-8") as f:
             source = f.read()
-        assert '"Product scope", ["All product grades", "Product family", "Product grade"]' in source, (
+        assert '"Product scope", ["All product grades", "PU Material Family", "Product grade"]' in source, (
             f"{page_name}'s Product scope radio options are not "
-            f"'All product grades / Product family / Product grade'"
+            f"'All product grades / PU Material Family / Product grade'"
         )
         assert '"Foam scope"' not in source, (
             f"{page_name} still has a 'Foam scope' widget label - should be 'Product scope' (CR-22 / F22-01)"
@@ -370,8 +375,8 @@ def test_quality_pages_product_scope_control_says_pu_material_family():
         assert 'st.caption("No PU Material Family available for these grades yet.")' in source, (
             f"{page_name}'s empty-state caption is not 'No PU Material Family available...'"
         )
-        assert '"Product family", families, format_func=lambda f: f.name' in source, (
-            f"{page_name}'s family selectbox label is not 'Product family'"
+        assert '"PU Material Family", families, format_func=lambda f: f.name' in source, (
+            f"{page_name}'s family selectbox label is not 'PU Material Family'"
         )
         assert '"Foam family"' not in source, f"{page_name} still constructs a 'Foam family' string"
         assert 'No foam family available' not in source, f"{page_name} still has the old empty-state caption"
@@ -379,7 +384,7 @@ def test_quality_pages_product_scope_control_says_pu_material_family():
 
 # ---------------------------------------------------------------------------
 # 4. helpers.analysis_unit_picker() family-mode regression, driven live
-#    through Trend Analysis: customer-facing text reads "Product family"
+#    through Trend Analysis: customer-facing text reads "PU Material Family"
 #    while internal identifiers and the pooling business logic (which
 #    grade_ids get pooled) are unchanged.
 # ---------------------------------------------------------------------------
@@ -442,16 +447,16 @@ def test_analysis_unit_picker_family_mode_uses_pu_material_family_wording_and_po
     # hierarchy order (All product grades -> Product family -> Product
     # grade) is consistent everywhere it appears.
     unit_mode = next(r for r in at.radio if r.key == "trend_unit_mode")
-    assert unit_mode.options == ["Product family", "Product grade"], (
-        f"Analyze-by control's own option text is not 'Product family'/'Product grade': {unit_mode.options}"
+    assert unit_mode.options == ["PU Material Family", "Product grade"], (
+        f"Analyze-by control's own option text is not 'PU Material Family'/'Product grade': {unit_mode.options}"
     )
-    unit_mode.set_value("Product family")
+    unit_mode.set_value("PU Material Family")
     at.run()
     assert not at.exception, f"Unhandled exception after switching to Product family mode: {at.exception}"
 
     family_select = next((sb for sb in at.selectbox if sb.key == "trend_family_select"), None)
     assert family_select is not None, "Product family selectbox did not appear after switching modes"
-    assert family_select.label == "Product family"
+    assert family_select.label == "PU Material Family"
 
     all_text = "\n".join(w.value for w in list(at.caption) + list(at.markdown))
     assert "foam family" not in all_text.lower(), f"'foam family' leaked once in family mode: {all_text!r}"
