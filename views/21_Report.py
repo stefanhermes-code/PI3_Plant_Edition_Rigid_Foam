@@ -45,7 +45,13 @@ from db import (
     get_session,
     init_db,
 )
-from helpers import log_export_click, page_setup, render_data_table, render_function_action_intro
+from helpers import (
+    log_export_click,
+    page_setup,
+    pu_material_family_label,
+    render_data_table,
+    render_function_action_intro,
+)
 from tenant_scope import (
     apply_scope,
     company_picker,
@@ -215,7 +221,7 @@ with tab_period:
     with p2:
         family = st.selectbox(
             "PU Material Family", [None] + families_q.all(),
-            format_func=lambda f: "All families" if f is None else f.name,
+            format_func=lambda f: "All families" if f is None else pu_material_family_label(f),
             key="report_period_family",
         )
     with p3:

@@ -219,13 +219,13 @@ def analysis_unit_picker(grades, key_prefix):
         st.stop()
     family = st.selectbox(
         "PU Material Family", families,
-        format_func=lambda f: f"{f.name} ({sum(1 for g in grades if g.pu_material_family_id == f.id)} grade(s))",
+        format_func=lambda f: f"{pu_material_family_label(f)} ({sum(1 for g in grades if g.pu_material_family_id == f.id)} grade(s))",
         key=f"{key_prefix}_family_select",
     )
     family_grades = [g for g in grades if g.pu_material_family_id == family.id]
     return {
         "mode": "family",
-        "label": family.name,
+        "label": pu_material_family_label(family),
         "grade_ids": [g.id for g in family_grades],
         "plant_id": family.plant_id,
         "link_type": "pu_material_family",
@@ -233,6 +233,41 @@ def analysis_unit_picker(grades, key_prefix):
         "state_key": f"family-{family.id}",
         "member_grade_names": sorted(g.grade_name for g in family_grades),
     }
+
+
+def pu_material_family_label(family, include_plant=True):
+    """Display name for a PU Material Family.
+
+    R1 (2026-08-21) made family names deliberately non-unique. Before it, a
+    plant's families were free text and in practice distinct - "Cold Room
+    Panels", "Insulation", "Rigid PIR Foam". After it, every rigid-foam plant
+    in the database has a family called exactly "Rigid", so a picker rendering
+    families by name alone offers two or more identical options and the user
+    is choosing blind.
+
+    That is not hypothetical. During the v0.76.1 browser check a Product Grade
+    was re-parented to the wrong plant's family through exactly such a picker,
+    leaving a grade whose family sat at one plant and whose equipment sat at
+    another. See views/2_Product_Grades.py's save guard for the second half of
+    the fix - a label a user can read is necessary but not sufficient, because
+    a label cannot stop a rerun from resolving to the wrong identical option.
+
+    A PU Material Family is plant-scoped, so the plant is what distinguishes
+    one from another and it is shown unconditionally rather than only when a
+    collision happens to exist. A label that sometimes carries the plant
+    teaches the reader nothing about which one they are looking at.
+
+    include_plant=False is for contexts that already name the plant in an
+    adjacent field - report headers, for instance - where repeating it adds
+    width without adding information."""
+    if family is None:
+        return "—"
+    name = family.name or "—"
+    if not include_plant:
+        return name
+    plant = getattr(family, "plant", None)
+    plant_name = getattr(plant, "name", None)
+    return f"{name} — {plant_name}" if plant_name else name
 
 
 def page_setup(title: str):

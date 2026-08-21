@@ -223,12 +223,12 @@ ALLOWED_FOAM_FAMILY_HITS = {
     ("views/17_Process_Property_Correlation.py", 109),
     ("views/19_Machine_Settings_Optimization.py", 105),
     ("views/20_Expert_Notes.py", 6), ("views/20_Expert_Notes.py", 38),
-    ("views/20_Expert_Notes.py", 146),
+    ("views/20_Expert_Notes.py", 147),
     # Line numbers shifted again by the CR-22 / F22-01, F22-02 Product
     # scope rename + reorder edits, and again by the CR-22 focused closeout
     # correction (2026-08-16) which added an explanatory comment above
     # render_function_action_intro() on this page.
-    ("views/5_Physical_Property_Result.py", 641),
+    ("views/5_Physical_Property_Result.py", 642),
     # Line number shifted by the CR-22 correction (2026-08-16, Charlie's
     # focused closeout return on F22-06): "Record against" was reordered
     # before the issue-type picker and a production_method_controlled_id
@@ -238,7 +238,7 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # "Breakdown by issue" chart, which replaced a single-line taxonomy
     # lookup with a multi-line quality_issue_registry.lookup() call above
     # this comment.
-    ("views/6_Quality_Observation.py", 630),
+    ("views/6_Quality_Observation.py", 631),
 }
 
 # A hit whose line contains any of these is a live customer-facing string
@@ -375,7 +375,7 @@ def test_quality_pages_product_scope_control_says_pu_material_family():
         assert 'st.caption("No PU Material Family available for these grades yet.")' in source, (
             f"{page_name}'s empty-state caption is not 'No PU Material Family available...'"
         )
-        assert '"PU Material Family", families, format_func=lambda f: f.name' in source, (
+        assert '"PU Material Family", families, format_func=pu_material_family_label' in source, (
             f"{page_name}'s family selectbox label is not 'PU Material Family'"
         )
         assert '"Foam family"' not in source, f"{page_name} still constructs a 'Foam family' string"

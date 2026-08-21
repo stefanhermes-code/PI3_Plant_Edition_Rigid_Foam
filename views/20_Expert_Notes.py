@@ -79,6 +79,7 @@ from helpers import (
     expert_note_plant_id_for_link,
     log_export_click,
     page_setup,
+    pu_material_family_label,
     render_data_table,
     render_function_action_intro,
     set_pending_banner,
@@ -238,7 +239,7 @@ with tab_create:
         elif entity_type == "pu_material_family":
             if not families:
                 st.warning("No PU Material Families yet - create one on the PU Material Families page first.")
-            entity = st.selectbox("PU Material Family *", families, format_func=lambda f: f.name)
+            entity = st.selectbox("PU Material Family *", families, format_func=pu_material_family_label)
         elif entity_type == "customer_trial":
             if not customer_trials:
                 st.warning(

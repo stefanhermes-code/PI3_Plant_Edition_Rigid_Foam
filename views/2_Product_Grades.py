@@ -54,6 +54,7 @@ from helpers import (
     delete_with_confirm,
     grade_production_method_label,
     machines_for_plant_across_activated_methods,
+    pu_material_family_label,
     page_setup,
     render_data_table,
     render_function_action_intro,
@@ -153,12 +154,12 @@ else:
     family_filter_options = [None] + families
     selected_family_filter = st.selectbox(
         "Filter by PU Material Family", family_filter_options,
-        format_func=lambda f: "All PU Material Families" if f is None else f.name,
+        format_func=lambda f: "All PU Material Families" if f is None else pu_material_family_label(f),
         key="pgr_family_filter",
     )
     if selected_family_filter is not None:
         st.caption(
-            f"Showing product grades for **{selected_family_filter.name}** only. "
+            f"Showing product grades for **{pu_material_family_label(selected_family_filter)}** only. "
             "Choose 'All PU Material Families' above to see every grade."
         )
 
@@ -185,7 +186,10 @@ else:
                 # methods is offered up front, labeled by its own
                 # method, rather than forcing one method choice before
                 # any machine can be picked.
-                family = st.selectbox("PU Material Family *", families, format_func=lambda f: f.name, key="add_grade_family")
+                family = st.selectbox(
+                    "PU Material Family *", families,
+                    format_func=pu_material_family_label, key="add_grade_family",
+                )
                 assignable_machines = machines_for_plant_across_activated_methods(session, family.plant_id)
                 if not assignable_machines:
                     st.warning(
@@ -302,7 +306,7 @@ else:
             grade_rows = [
                 {
                     "Grade": grade.grade_name,
-                    "Family": grade.pu_material_family.name,
+                    "Family": pu_material_family_label(grade.pu_material_family),
                     # R1-WP5 (2026-08-21): shown here because the family table
                     # no longer carries it - if it appeared nowhere the column
                     # would be enterable and invisible.
@@ -338,7 +342,7 @@ else:
                     e_family = st.selectbox(
                         "PU Material Family *", families,
                         index=next((i for i, f in enumerate(families) if f.id == selected_grade.pu_material_family_id), 0),
-                        format_func=lambda f: f.name, key=f"edit_grade_family_{selected_grade.id}",
+                        format_func=pu_material_family_label, key=f"edit_grade_family_{selected_grade.id}",
                     )
                     # No Production Method gate here either (see Add form
                     # above and helpers.machines_for_plant_across_activated_methods
@@ -382,8 +386,37 @@ else:
                         )
                         e_notes = st.text_area("Notes", value=selected_grade.notes or "", key=f"edit_grade_notes_{selected_grade.id}")
                         if st.form_submit_button("Save changes"):
+                            # R1 correction (2026-08-21): a grade's PU Material
+                            # Family and its Production Units/Cells must sit at
+                            # the same plant. R1 made family names non-unique -
+                            # every rigid plant's family is called "Rigid" - and
+                            # during the v0.76.1 browser check this form
+                            # re-parented a grade to the other plant's identical
+                            # "Rigid", leaving its equipment behind at the
+                            # original plant. Disambiguating the picker's labels
+                            # (helpers.pu_material_family_label) makes the
+                            # options readable; this refuses the write outright,
+                            # which is the half that holds even when a rerun
+                            # resolves the widget to the wrong identical option.
+                            #
+                            # Moving a grade between families at the SAME plant
+                            # stays allowed, and so does moving a grade that has
+                            # no machines assigned yet.
+                            _target_plant_id = getattr(e_family, "plant_id", None)
+                            _stranded = [
+                                m for m in (e_assigned_machines or [])
+                                if m.plant_id != _target_plant_id
+                            ]
                             if not e_grade_name.strip():
                                 st.error("Grade name is required.")
+                            elif _stranded:
+                                st.error(
+                                    f"'{pu_material_family_label(e_family)}' is at a different plant "
+                                    f"than this grade's production unit(s): "
+                                    + ", ".join(sorted(m.name for m in _stranded))
+                                    + ". Move or clear the production units first, or pick a PU "
+                                    "Material Family at their plant. Nothing was saved."
+                                )
                             else:
                                 selected_grade.pu_material_family_id = e_family.id
                                 selected_grade.grade_name = e_grade_name.strip()

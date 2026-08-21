@@ -8389,6 +8389,70 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.76.2, 2026-08-21: R1 correction 2 - the picker collision R1 created.
+Redesign Migration Plan v3, Package B.
+
+WHAT HAPPENED
+
+While proving the new Customer Segment field end to end on the deployed
+application, the Product Grades edit form re-parented RF-COLDROOM-001 from the
+HTC Global - Phase 1 Plant PU Material Family to the PTU Korat one. The grade
+ended up under a family at one plant with its production unit - Panel Foamer 1,
+Discontinuous Panel & Board Production - still at the other. Restored by direct
+UPDATE (foam_grades id 7, pu_material_family_id 4 -> 3) and verified: family
+plant and machine plant agree again for every grade.
+
+WHY IT HAPPENED, WHICH IS THE PART THAT MATTERS
+
+R1-WP2 made PU Material Family names deliberately non-unique. Before it a
+plant's families were free text and distinct in practice - Cold Room Panels,
+Insulation, Rigid PIR Foam. After it every rigid-foam plant has a family named
+exactly "Rigid". That is correct and intended.
+
+What nobody traced - not the migration plan, not Charlie's rulings, not the R1
+return - is that on the same day, every surface identifying a family by name
+alone became ambiguous. The Product Grades edit picker, its create picker, the
+"Filter by PU Material Family" selectbox, the grade table's Family column, the
+Expert Notes entity picker, the Report page filter, the two Quality pages'
+family scope and the shared Analyze-by control all rendered a family as
+format_func=lambda f: f.name. With two families named "Rigid" they offered two
+identical options. A user choosing between them is guessing, and a rerun
+resolving the widget between them is a coin toss - which is what happened here,
+with no human choosing anything.
+
+TWO DEFENSES, NOT ONE
+
+helpers.pu_material_family_label() renders "Rigid — HTC Global - Phase 1 Plant".
+The plant is shown unconditionally rather than only when a collision exists: a
+label that sometimes carries the plant teaches the reader nothing about which
+one they are looking at. include_plant=False exists for contexts that already
+name the plant in an adjacent field. All nine surfaces above now use it.
+
+The Product Grades edit form additionally refuses to save a family whose plant
+differs from the plant of the grade's assigned production units, naming the
+stranded units and saving nothing. This is the half that holds when the widget
+resolves to the wrong identical option without a human involved - a label
+cannot prevent that, it can only make it visible afterwards. Moving a grade
+between families at the SAME plant stays allowed, and so does moving a grade
+with no units assigned.
+
+Mutation-tested three ways, each caught by its intended test and only by it:
+removing the guard, widening the guard to refuse every family change, and
+dropping the plant from the label.
+
+THE GENERAL SHAPE OF THIS
+
+v0.76.1 recorded that a rename needs its own scanner. This is the same lesson
+one level up: introducing a controlled vocabulary does not only constrain what
+can be entered, it collapses a uniqueness the rest of the application was
+quietly relying on. Every display that identified a record by the field being
+controlled has to be re-checked at that moment. R2 tags Application Areas with
+the same seven-value vocabulary and will create the same collision among
+Application Area names - the R2-WP1 mapping evidence should carry a
+disambiguation column from the start rather than discovering this again.
+
+Full regression: 966 passed, 6 skipped, 0 failed.
+
 v0.76.1, 2026-08-21: R1 correction - the two halves of R1 the deploy check
 found unfinished. Redesign Migration Plan v3, Package B.
 
@@ -8937,4 +9001,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.76.1"
+APP_VERSION = "0.76.2"

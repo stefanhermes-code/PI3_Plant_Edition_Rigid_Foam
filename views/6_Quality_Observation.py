@@ -41,6 +41,7 @@ from helpers import (
     log_export_click,
     page_setup,
     production_method_label,
+    pu_material_family_label,
     render_data_table,
     render_function_action_intro,
     render_pareto_chart,
@@ -575,10 +576,10 @@ with tab_edit_delete:
                 scope_label = "—"
             else:
                 scope_family = st.selectbox(
-                    "PU Material Family", families, format_func=lambda f: f.name, key="qi_foam_scope_family"
+                    "PU Material Family", families, format_func=pu_material_family_label, key="qi_foam_scope_family"
                 )
                 scope_grade_ids = [g.id for g in scoped_grades if g.pu_material_family_id == scope_family.id]
-                scope_label = scope_family.name
+                scope_label = pu_material_family_label(scope_family)
 
     observations_query = session.query(QualityObservation).filter(QualityObservation.severity.in_(severity_filter))
     if active_company_id is not None:
