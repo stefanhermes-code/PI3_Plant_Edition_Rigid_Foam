@@ -8389,6 +8389,114 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.79.0, 2026-08-21: R2 complete - the master finished, the legacy field gone.
+Redesign Migration Plan v5, Package C, gate R-G2.
+
+THE MAPPING ERROR THAT NEARLY SHIPPED
+
+R2-WP1 required every legacy Production Method code to resolve to an
+Application Area. Five had no obvious destination, so the mapping proposed
+creating one record per code, each named after the code:
+
+  Field-installed cavity insulation, Sprayed insulation, Block and
+  cut-to-shape insulation, Pre-insulated pipe, Structural and composite
+  element.
+
+That made the destination list a copy of the list being retired. The same
+document had warned Charlie that production method and application are
+different axes; the error was in JC's own work, not in his plan. He approved
+it, and two of the five were marked create-now.
+
+Stefan's test is what killed it: WHAT IS THE END PRODUCT - what leaves the
+plant? "Sprayed insulation" has no answer. Spraying is how; a roof is what.
+
+Nothing had been created - migration 0011 only ever inserted APP-350 - so the
+correction cost nothing but a re-read.
+
+WHAT THE MASTER ACTUALLY NEEDED, PER STEFAN'S RULINGS OF 21 AUGUST
+
+  Sprayed insulation      -> the end use is a ROOF. APP-110 Roof Spray Foam,
+                             its OWN record and deliberately not a rename of
+                             APP-100: APP-100 carries eight PIR board/panel
+                             reference formulations and two families, none of
+                             them sprayed, and narrowing it to roofs would
+                             mis-describe all ten.
+  Field cavity            -> "it can be a room but it can also be in mining."
+                             So not APP-330 and not a field-cavity record; the
+                             missing END USE was mining. APP-510 Mining Rock
+                             Stabilisation - not an insulation application at
+                             all, the end product is stabilised ground.
+  Block and cut-to-shape  -> "definitely a separate application area, it is
+                             not always insulation." APP-220 Block and
+                             Cut-to-Shape, with the word insulation left OUT
+                             on purpose: cut shapes serve tooling board,
+                             buoyancy and packaging too.
+  Pre-insulated pipe      -> "definitely a separate application area."
+                             APP-410 Pre-insulated Pipe.
+  Structural & composite  -> dropped. Too vague to classify anything
+                             consistently, and Stefan agreed.
+
+Created now rather than on first use. Charlie had ruled the empty ones should
+wait; Stefan overruled on 21 August - "that is nonsense, we create now."
+Recorded because it reverses an accepted ruling and R-G2 must carry it.
+
+APP-210 AND APP-330, AND WHY THE BOUNDARY IS WHERE IT IS
+
+0013 gave APP-330 its industrial-refrigeration meaning, which then overlapped
+APP-210 - a cold store is a cold room, and two people would classify a panel
+for one differently. Stefan drew the line on the end product rather than the
+market: "APP-210 is a wall, where APP-330 is a room. So the end product for
+APP-210 is a sandwich panel, and the end product for APP-330 is a chemical
+being put in a room in a building."
+
+That test decides every future case without judgement, so 0014 wrote it into
+both descriptions rather than leaving it in a conversation.
+
+Also corrected: the APP-330 rename was Stefan's, not Charlie's. It arrived
+inside Charlie's ruling document and was attributed to him in the R2-WP2
+return without checking whose decision it was.
+
+THE MASTER, TEN RECORDS
+
+  APP-100  Building insulation                  APP-330  Industrial Refrigeration
+  APP-110  Roof Spray Foam                      APP-340  Water-Heater Insulation
+  APP-210  Cold-room wall or ceiling panel      APP-350  Cool Box Insulation
+  APP-220  Block and Cut-to-Shape               APP-410  Pre-insulated Pipe
+  APP-310  Refrigerator/Freezer Insulation      APP-510  Mining Rock Stabilisation
+
+R2-WP4 - THE DESTRUCTIVE STEP
+
+migrations/0016 drops pu_material_families.application and deletes APP-300 and
+APP-320. Both removals are irreversible from the file that made them, so the
+artifact records the three captured values verbatim - including the trailing
+space that is really in the data - and where each one went, rather than
+relying on 0009's earlier capture that someone would have to know to look for.
+
+Two guards, both mutation-tested and both confirmed to fire on the intended
+path: a retired record that anything still points at, and a product grade
+sitting under an Application-bearing family with no Application Area of its
+own. The second is the one that matters - dropping the column while such a
+grade existed would lose the information rather than move it.
+
+The free-text family Application field is what allowed one family to hold an
+application, a market and a chemistry at once. That is the defect R1 started
+from, and this is the last of it.
+
+TESTS
+
+The R2-WP4 end state is held rather than assumed: the model may not regrow
+the column, no live code may name a deleted record, and the master may not
+contain a name that describes a method. That last one is the mapping error
+turned into a rule.
+
+One test failure worth recording. The "no live code names a deleted record"
+scan first ran on raw text and failed on four docstrings that correctly
+describe the retirement as history. Rebuilt on the AST, excluding prose by
+node identity - the same fix, for the same reason, as the R1 terminology
+scanner two releases ago.
+
+Full regression: 998 passed, 6 skipped, 0 failed.
+
 v0.78.0, 2026-08-21: the Application Area master gets its own page.
 Redesign Migration Plan v5, Package C.
 
@@ -9187,4 +9295,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.78.0"
+APP_VERSION = "0.79.0"

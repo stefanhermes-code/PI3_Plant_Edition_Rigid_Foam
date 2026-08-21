@@ -39,11 +39,30 @@ may manufacture the same PU Material Family on more than one unit" - so a
 family cannot have one unit as its parent, and the two branches meet again at
 Product Grade, which names the units that can make it.
 
-Whether Production Unit is meant as a level of ONE chain instead is an open
-question with Stefan; if it is, pu_material_families re-parents from plant to
-unit and the row-level access path moves with it, which is R3 work and larger
-than Plan v5 currently describes. Nothing here depends on that answer - the
-family tag and the grade link behave identically either way.
+Settled with Stefan on 21 August by asking both directions rather than one.
+A Production Unit can make more than one PU Material Family - his example is a
+mixing vessel used for several. And a PU Material Family can be made on more
+than one unit: the plain case is a plant with two identical panel lines, both
+making Rigid. Both directions many, so neither record is the other's parent and
+the six levels are depth, not a single chain.
+
+Stefan also ruled, same day, that Production Units PARTITION equipment: a
+specific machine - vessel A - belongs to exactly one unit and cannot appear in
+two. The schema already matches that, machines.production_unit_id being single
+valued with no link table, so R3 needs nothing extra to enforce it.
+
+One consequence survives the ruling. production_runs records machine_id and no
+unit, so a run's unit is derived from its machine. That is unambiguous now that
+units partition, but it is not stable: machines.production_unit_id is mutable,
+and ProductionUnit's own docstring anticipates a machine being re-piped to a
+different line. Re-point a machine and every past run through it silently
+reports the new unit. v5's migration rules require the opposite - "keep
+completed production-run history immutable", and a completed run retains the
+Application Area that applied when it completed.
+
+The precedent is already in the table: production_runs carries its own
+production_method_id rather than reading the machine's. The unit wants the same
+treatment, and that is an R3 item.
 
 Every level is owned by somebody except one. Company, Plant and
 PU Material Family are tenant data - a plant's families are its own. Product

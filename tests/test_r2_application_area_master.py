@@ -42,6 +42,7 @@ rediscovered:
 
 Usage: python -m pytest tests/test_r2_application_area_master.py -v
 """
+import ast
 import os
 import sys
 import uuid
@@ -60,26 +61,40 @@ import tenant_scope
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGE_GRADES = os.path.join(APP_DIR, "views", "2_Product_Grades.py")
 PAGE_AREAS = os.path.join(APP_DIR, "views", "34_Application_Areas.py")
-MIGRATION = os.path.join(APP_DIR, "migrations", "0011_r2wp2_application_area_master.sql")
+MIGRATIONS_DIR = os.path.join(APP_DIR, "migrations")
+MIGRATION = os.path.join(MIGRATIONS_DIR, "0011_r2wp2_application_area_master.sql")
 
 # The active master after R2-WP2, from Charlie's ruling section 4.
+# The controlled master after R2-WP2 completed and R2-WP4 removed the two
+# retired records. Ten end uses, each named for WHAT LEAVES THE PLANT rather
+# than for how the foam is made - Stefan's test, and the one that caught the
+# original mapping proposing "Sprayed insulation" and "Field-installed cavity
+# insulation" as if a method were an application.
 EXPECTED_ACTIVE = {
     "APP-100": "Building insulation",
+    "APP-110": "Roof Spray Foam",
     "APP-210": "Cold-room wall or ceiling panel",
+    "APP-220": "Block and Cut-to-Shape",
     "APP-310": "Refrigerator/Freezer Insulation",
     "APP-330": "Industrial Refrigeration Insulation",
     "APP-340": "Water-Heater Insulation",
     "APP-350": "Cool Box Insulation",
+    "APP-410": "Pre-insulated Pipe",
+    "APP-510": "Mining Rock Stabilisation",
 }
-EXPECTED_RETIRED = {"APP-300", "APP-320"}
 
-# A retired area that is STILL TAGGED Rigid. Migration 0011 deliberately leaves
-# APP-300 and APP-320 untagged, which means a picker filtering only by family
-# would exclude them for the wrong reason and look correct while doing it -
-# that is exactly what happened here: removing the is_active filter from
-# selectable_application_areas() passed the whole suite. This row makes the two
-# filters independently observable, and it is not hypothetical: a later
-# migration can retire an area that was already tagged.
+# Deleted by R2-WP4 (migration 0016). They must not come back: APP-300 was an
+# umbrella with no end product of its own, and APP-320 (door) was merged into
+# APP-310 when cabinet and door became one Application Area.
+DELETED_BY_R2WP4 = {"APP-300", "APP-320"}
+
+# Retired-but-present records no longer exist in the live master, but the
+# application still has to handle one correctly - R2-WP2 retires before R2-WP4
+# deletes, so the state is real for the length of a work package, and any
+# future retirement passes through it again. The fixture therefore keeps two
+# synthetic ones rather than dropping the coverage with the live rows.
+SYNTHETIC_RETIRED = {"APP-800", "APP-810"}
+
 RETIRED_BUT_TAGGED = "APP-360"
 
 
@@ -115,7 +130,7 @@ def seeded():
             is_active=True, pu_material_family="Rigid",
         )
         session.add(a); areas[cid] = a
-    for cid in sorted(EXPECTED_RETIRED):
+    for cid in sorted(SYNTHETIC_RETIRED):
         a = db.Application(
             controlled_id=cid, name=f"retired {cid}", sort_order=int(cid.split("-")[1]),
             is_active=False, pu_material_family=None,
@@ -187,7 +202,7 @@ def test_migration_exists_and_is_the_only_source_of_the_master():
         if not name.endswith(".py") or name == "version.py":
             continue
         text = open(os.path.join(APP_DIR, name), encoding="utf-8").read()
-        for cid in EXPECTED_RETIRED:
+        for cid in DELETED_BY_R2WP4:
             for line in text.splitlines():
                 if cid in line and "insert" in line.lower():
                     offenders.append(f"{name}: {line.strip()}")
@@ -239,7 +254,7 @@ def test_selectable_areas_exclude_retired_and_other_families(seeded):
     assert offered_ids == set(EXPECTED_ACTIVE), (
         f"Expected exactly the six active Rigid areas, got {sorted(offered_ids)}"
     )
-    assert not (offered_ids & EXPECTED_RETIRED), "a retired area was offered"
+    assert not (offered_ids & SYNTHETIC_RETIRED), "a retired area was offered"
     assert RETIRED_BUT_TAGGED not in offered_ids, (
         "A retired Application Area that still carries the right family tag was "
         "offered. The is_active filter is what must exclude it - the family "
@@ -455,7 +470,7 @@ def test_save_refuses_an_area_from_another_pu_material_family(seeded):
 
 
 def test_save_refuses_a_retired_area(seeded):
-    _point_grade_at(seeded["grade_id"], "APP-320")
+    _point_grade_at(seeded["grade_id"], "APP-800")
     at, errors = _save_changes_and_collect_errors(seeded["grade_id"])
 
     assert "retired" in errors.lower(), (
@@ -465,7 +480,7 @@ def test_save_refuses_a_retired_area(seeded):
 
     session = db.get_session()
     grade = session.get(db.FoamGrade, seeded["grade_id"])
-    assert grade.application.controlled_id == "APP-320"
+    assert grade.application.controlled_id == "APP-800"
     session.close()
 
 
@@ -603,7 +618,7 @@ def test_page_separates_active_from_retired(seeded):
         f"Active and retired are not shown as separate sections: {headings}"
     )
     text = _page_text(at)
-    for retired in EXPECTED_RETIRED:
+    for retired in SYNTHETIC_RETIRED:
         assert retired in text, f"{retired} disappeared from the master page"
 
 
@@ -638,7 +653,7 @@ def test_page_warns_about_an_active_untagged_area(seeded):
 
 def test_page_flags_a_retired_area_that_still_has_grades(seeded):
     session = db.get_session()
-    retired = session.query(db.Application).filter_by(controlled_id="APP-320").one()
+    retired = session.query(db.Application).filter_by(controlled_id="APP-800").one()
     grade = session.get(db.FoamGrade, seeded["grade_id"])
     grade.application_id = retired.id
     session.commit(); session.close()
@@ -647,7 +662,7 @@ def test_page_flags_a_retired_area_that_still_has_grades(seeded):
     at = _run(PAGE_AREAS)
     assert not at.exception
     errors = " ".join(e.value for e in at.error)
-    assert "APP-320" in errors, (
+    assert "APP-800" in errors, (
         f"A retired area still carrying grades was not flagged. Errors: {errors!r}"
     )
 
@@ -665,3 +680,141 @@ def test_page_offers_no_create_or_delete(seeded):
         assert not any(forbidden in l for l in labels), (
             f"Application Areas offers a {forbidden!r} control: {labels}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Section 7 - R2-WP4, the destructive step
+# ---------------------------------------------------------------------------
+#
+# Two things go away and neither can be undone from the file that removed them:
+# pu_material_families.application, the last free-text Application Area content
+# in the system, and the two retired records APP-300 and APP-320.
+#
+# Migration 0016 carries the captured values verbatim - that is the artifact's
+# job - and refuses to run if either precondition fails. These tests hold the
+# END STATE, so the removals cannot be quietly undone by a later model change.
+
+
+def test_legacy_family_application_field_is_gone():
+    """The free-text field on PU Material Family was what let one family hold
+    an application, a market and a chemistry at once - the defect R1 started
+    from. R2-WP4 removes the last of it, and the Application Area now lives on
+    the Product Grade."""
+    cols = {c.name for c in db.PUMaterialFamily.__table__.columns}
+    assert "application" not in cols, (
+        "pu_material_families.application is back on the model. R2-WP4 dropped it; "
+        "the Application Area belongs to the Product Grade."
+    )
+    assert "customer_segment" not in cols, (
+        "customer_segment belongs to FoamGrade since R1-WP5."
+    )
+
+
+def test_r2wp4_migration_captures_before_it_destroys():
+    """A capture that lives only in an earlier artifact is a capture someone
+    has to know to go looking for. 0016 drops the column, so 0016 records the
+    values - including the trailing space that is really in the data."""
+    path = os.path.join(MIGRATIONS_DIR, "0016_r2wp4_retire_legacy_application_representations.sql")
+    assert os.path.exists(path), "migration 0016 is missing"
+    sql = open(path, encoding="utf-8").read()
+    for value in ("Cold-room wall/ceiling panel", "Refrigerator "):
+        assert value in sql, f"0016 does not record the captured value {value!r}"
+    assert "APP-210" in sql and "APP-310" in sql, (
+        "0016 must record where each captured value went, not only what it was."
+    )
+    for guard in ("still referenced by", "have no Application Area of"):
+        assert guard in sql, f"0016 is missing its {guard!r} guard"
+
+
+def _used_string_literals(path):
+    """String literals that are USED, excluding prose.
+
+    Same technique and same reason as tests/test_r1_pu_material_family_labels.py:
+    a docstring saying "APP-320 was retired" is a record of history and must
+    stay, while a literal passed to an insert is a record being recreated.
+    Scanning raw text cannot tell them apart - the first version of the test
+    below failed on four docstrings, which is exactly the false positive the R1
+    scanner was rebuilt on the AST to avoid."""
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=path)
+    prose = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            first = node.body[0] if node.body else None
+            if (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                prose.add(id(first.value))
+        if (isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)):
+            prose.add(id(node.value))
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and id(node) not in prose):
+            yield node.lineno, node.value
+
+
+def test_deleted_records_are_not_recreated_anywhere():
+    """APP-300 and APP-320 are gone. A seeder that recreates one would undo
+    R2-WP4 on the next boot, silently."""
+    offenders = []
+    for name in sorted(os.listdir(APP_DIR)):
+        if not name.endswith(".py") or name == "version.py":
+            continue
+        path = os.path.join(APP_DIR, name)
+        for lineno, literal in _used_string_literals(path):
+            for cid in DELETED_BY_R2WP4:
+                if cid in literal:
+                    offenders.append(f"{name}:{lineno}: {literal!r}")
+    assert not offenders, (
+        "A record deleted by R2-WP4 is referenced in live code:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_master_names_end_uses_not_methods():
+    """The mapping error, held as a rule.
+
+    R2-WP1 proposed five new Application Areas named after the Production
+    Method codes they came from - "Sprayed insulation", "Field-installed
+    cavity insulation", "Block and cut-to-shape insulation". Stefan's test
+    killed three of them: what leaves the plant? Spraying is how, a roof is
+    what.
+
+    This scans the shipped master for names that describe a process. It cannot
+    catch every case - naming is a judgement - but it catches the specific
+    shape that got through once, which is a method word standing where an end
+    product should be."""
+    method_words = (
+        "sprayed", "spray foam application", "field-installed", "field cavity",
+        "cut-to-shape insulation", "discontinuous", "continuous panel",
+        "moulding", "molding", "processing",
+    )
+    offenders = []
+    for cid, name in EXPECTED_ACTIVE.items():
+        lowered = name.lower()
+        for word in method_words:
+            if word in lowered:
+                offenders.append(f"{cid} {name!r} contains {word!r}")
+    assert not offenders, (
+        "An Application Area is named for a method rather than an end product:\n  "
+        + "\n  ".join(offenders)
+        + "\nAsk what leaves the plant."
+    )
+
+
+def test_block_record_deliberately_omits_insulation():
+    """Stefan: "Block and Cut to shape is definitely a separate application
+    area, it is not always insulation." The name carries that - cut shapes
+    serve tooling board, buoyancy and packaging too - so calling the record
+    "Block and cut-to-shape insulation", as the mapping proposed, would have
+    narrowed it wrongly on day one."""
+    assert EXPECTED_ACTIVE["APP-220"] == "Block and Cut-to-Shape"
+    assert "insulation" not in EXPECTED_ACTIVE["APP-220"].lower()
+
+
+def test_roof_spray_is_its_own_record_not_a_rename_of_building_insulation():
+    """APP-100 carries eight PIR board/panel reference formulations and two
+    families, none of them sprayed. Narrowing it to roofs would mis-describe
+    all ten, which is why roof spray foam became APP-110 instead."""
+    assert EXPECTED_ACTIVE["APP-100"] == "Building insulation"
+    assert EXPECTED_ACTIVE["APP-110"] == "Roof Spray Foam"

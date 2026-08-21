@@ -758,7 +758,7 @@ class PUMaterialFamily(Base):
     # R1 (2026-08-21): "application" and "customer_segment" are gone from this
     # record. The free-text application was the only Application Area content
     # in the system and its three values are captured in migration 0009's own
-    # comments before 0011 drops the column; the controlled Application Area
+    # comments before 0016 drops the column; the controlled Application Area
     # master arrives in R2. Customer segment moved DOWN to FoamGrade, because
     # within one application area there can be several grades serving
     # different segments - Stefan's ruling of 20 August.
