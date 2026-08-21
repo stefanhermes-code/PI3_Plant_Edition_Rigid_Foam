@@ -97,6 +97,36 @@ SYNTHETIC_RETIRED = {"APP-800", "APP-810"}
 
 RETIRED_BUT_TAGGED = "APP-360"
 
+# Charlie's ruled APP-110 wording, migration 0018. Held here as a constant and
+# checked against the artifact by test_seeded_app110_wording_matches_0018, so
+# the fixture cannot drift away from what the migration actually writes.
+APP110_RULED_DESCRIPTION = (
+    "Rigid polyurethane foam spray-applied in place to roofs or comparable "
+    "building surfaces for thermal insulation. Use APP-110 when the intended "
+    "downstream application is site-applied roof or building-surface "
+    "insulation. Manufactured board and panel products for the building "
+    "envelope remain under APP-100."
+)
+
+# WHY THE FIXTURE CARRIES DESCRIPTIONS AT ALL
+#
+# It did not, until 0018. Every seeded Application Area had description=None,
+# so test_no_active_area_description_teaches_the_overruled_rule scanned ten
+# rows of NULL and found no offender - not because the master was clean, but
+# because there was no text in it. The test had never been able to fail.
+#
+# That is the R1 lesson restated: a check whose fixture cannot produce the
+# state it is checking for is not a check. Every active record now gets text
+# phrased the ruled way, and test_the_overruled_rule_scanner_can_fail plants
+# an offender to prove the scanner still bites.
+def _seed_description(controlled_id, name):
+    if controlled_id == "APP-110":
+        return APP110_RULED_DESCRIPTION
+    return (
+        f"Rigid polyurethane foam for {name.lower()}. Use {controlled_id} when "
+        f"the intended downstream application is {name.lower()}."
+    )
+
 
 def _clear_relevant_caches():
     tenant_scope.plant_ids_for_company.clear()
@@ -128,6 +158,7 @@ def seeded():
         a = db.Application(
             controlled_id=cid, name=name, sort_order=int(cid.split("-")[1]),
             is_active=True, pu_material_family="Rigid",
+            description=_seed_description(cid, name),
         )
         session.add(a); areas[cid] = a
     for cid in sorted(SYNTHETIC_RETIRED):
@@ -147,6 +178,7 @@ def seeded():
     other = db.Application(
         controlled_id="APP-900", name="Shoe sole", sort_order=900,
         is_active=True, pu_material_family="Elastomers",
+        description=_seed_description("APP-900", "Shoe sole"),
     )
     session.add(other); areas["APP-900"] = other
     session.flush()
@@ -1016,12 +1048,21 @@ def test_no_application_area_is_named_after_a_customer():
 # a master carrying the overruled rule teaches it. Migration 0017 corrected the
 # five records Charlie listed, using his wording verbatim.
 
-OVERRULED_RULE_PHRASES = ("leaves the plant", "leaving the plant")
+# "end product" is on this list from 0018 onward. It is not a synonym of the
+# other two - it is the same overruled rule wearing different words. APP-110
+# carried it after 0017 and read as correct, which is exactly the danger: a
+# master that explains itself two ways teaches two rules, and the reader picks
+# whichever record is in front of them.
+OVERRULED_RULE_PHRASES = ("leaves the plant", "leaving the plant", "end product")
 
 
-def test_no_active_area_description_teaches_the_overruled_rule():
+def test_no_active_area_description_teaches_the_overruled_rule(seeded):
     """Scanned across the whole active master rather than the five corrected
-    records, because the point is that the rule must not come back on a sixth."""
+    records, because the point is that the rule must not come back on a sixth.
+
+    Takes the fixture explicitly. It used to run on whatever database the
+    previous test happened to leave behind, which is how it went a whole work
+    package scanning NULL descriptions and reporting a clean master."""
     session = db.get_session()
     offenders = [
         f"{a.controlled_id}: {a.description!r}"
@@ -1068,19 +1109,16 @@ def test_correction_migration_changes_descriptions_only():
         )
 
 
-def test_app110_is_deliberately_untouched():
-    """APP-110's description still uses the old phrasing, and that is a
-    recorded decision rather than an oversight.
+def test_0017_left_app110_alone_and_said_why():
+    """0017's scope, held as a historical fact about an applied artifact.
 
-    Its SUBSTANCE is already Charlie's rule - it says the material ships as
-    chemical while the application is a roof, which is his own example. He
-    listed five records to correct and APP-110 was not among them. Correcting
-    a sixth record on a controlled master without authority is scope creep, so
-    it stays and is raised for his ruling.
-
-    This test exists so the decision is visible: if APP-110 is later corrected
-    on his word, this is the test that says so out loud rather than a silent
-    diff."""
+    Charlie listed five records to correct and APP-110 was not among them.
+    Correcting a sixth record on a controlled master without authority is
+    scope creep, so 0017 left it and raised it for his ruling instead. He
+    then ruled it in, and 0018 carries the correction - but 0017 is applied
+    and ledgered and does not change. This test guards that boundary: the
+    reason APP-110 sat out of 0017 must stay readable in 0017.
+    """
     path = os.path.join(
         MIGRATIONS_DIR, "0017_r2_description_correction_downstream_application.sql"
     )
@@ -1092,4 +1130,159 @@ def test_app110_is_deliberately_untouched():
     statements = [x for x in code.split(";") if x.strip().lower().startswith("update applications")]
     assert not any("APP-110" in x for x in statements), (
         "APP-110 was modified by 0017; Charlie authorised five records and this is not one."
+    )
+
+
+def test_0018_aligns_app110_and_changes_nothing_else():
+    """Charlie's APP-110 ruling, 21 August 2026:
+
+        "Bring APP-110 into the same wording standard. Its current description
+         points to the correct application, but still explains the distinction
+         through physical end product and delivery form. The controlled master
+         should use one rule throughout."
+
+    Scope was explicit - description only, ID, name, PU Material Family tag,
+    active state and links unchanged. That is what is asserted here, from the
+    artifact rather than from the outcome, because an outcome check alone
+    cannot tell a narrow migration from a wide one that happened to land in
+    the same place.
+    """
+    path = os.path.join(MIGRATIONS_DIR, "0018_r2_app110_description_alignment.sql")
+    assert os.path.exists(path), "migration 0018 is missing"
+    sql = open(path, encoding="utf-8").read()
+
+    import re as _re
+    code = "\n".join(l for l in sql.splitlines() if not l.lstrip().startswith("--"))
+    statements = [
+        x.strip() for x in code.split(";")
+        if x.strip().lower().startswith("update applications")
+    ]
+    assert len(statements) == 1, (
+        f"0018 must contain exactly one UPDATE, found {len(statements)}"
+    )
+    stmt = statements[0]
+    assert "APP-110" in stmt, "0018's UPDATE does not target APP-110"
+    assigned = _re.findall(r"set\s+(\w+)\s*=", stmt, _re.IGNORECASE)
+    assert assigned == ["description"], (
+        f"0018 writes something other than description: {assigned}"
+    )
+    for forbidden in ("alter table", "insert into applications", "delete from"):
+        assert forbidden not in code.lower(), (
+            f"0018 contains {forbidden!r} - it must change description text only"
+        )
+
+
+# Deliberately a duplicate of OVERRULED_RULE_PHRASES, not a reference to it.
+#
+# The negative control below first read the list under test and planted
+# whatever was in it. That made it self-referential: a mutation deleting
+# "end product" from OVERRULED_RULE_PHRASES deleted its own coverage in the
+# same stroke, and all 42 tests stayed green. A control that takes its input
+# from the thing it is controlling is not a control.
+#
+# These are the three phrasings of the rule Charlie overruled - two from his
+# v3 release, "end product" added by his APP-110 ruling of 21 August 2026.
+# Removing one from the list under test now fails here, loudly.
+PHRASES_THAT_MUST_BE_CAUGHT = ("leaves the plant", "leaving the plant", "end product")
+
+
+def test_the_overruled_rule_scanner_can_fail(seeded):
+    """Negative control for the test above.
+
+    Plants each overruled phrase on a live-shaped record and asserts the scan
+    catches it. Without this, the scanner passing means either "the master is
+    clean" or "the scanner is looking at nothing", and those are not the same
+    result.
+    """
+    for phrase in PHRASES_THAT_MUST_BE_CAUGHT:
+        session = db.get_session()
+        area = (
+            session.query(db.Application)
+            .filter(db.Application.controlled_id == "APP-100")
+            .one()
+        )
+        original = area.description
+        area.description = f"Classify by what {phrase} - the {phrase} decides."
+        session.commit()
+
+        offenders = [
+            a.controlled_id
+            for a in session.query(db.Application)
+            .filter(db.Application.is_active.is_(True))
+            .all()
+            if a.description
+            and any(p in a.description.lower() for p in OVERRULED_RULE_PHRASES)
+        ]
+
+        area.description = original
+        session.commit()
+        session.close()
+
+        assert "APP-100" in offenders, (
+            f"The scanner missed a planted {phrase!r}. Either it is not capable "
+            "of failing, or the phrase has been dropped from "
+            "OVERRULED_RULE_PHRASES - both let the overruled rule back into the "
+            "controlled master."
+        )
+
+
+def _description_written_by(migration_filename, controlled_id):
+    """Recover the description text a controlled migration writes.
+
+    Postgres adjacent-string-literal concatenation, so the value is spread over
+    several quoted chunks; they are joined in order."""
+    import re as _re
+    path = os.path.join(MIGRATIONS_DIR, migration_filename)
+    sql = open(path, encoding="utf-8").read()
+    code = "\n".join(l for l in sql.splitlines() if not l.lstrip().startswith("--"))
+    for stmt in code.split(";"):
+        if not stmt.strip().lower().startswith("update applications"):
+            continue
+        if controlled_id not in stmt:
+            continue
+        body = stmt.split("where", 1)[0]
+        chunks = _re.findall(r"'([^']*)'", body)
+        return "".join(chunks)
+    raise AssertionError(
+        f"{migration_filename} has no UPDATE targeting {controlled_id}"
+    )
+
+
+def test_seeded_app110_wording_matches_0018(seeded):
+    """The suite runs on SQLite; the controlled master lives in Postgres and is
+    written by migration files this suite never executes. So the strongest
+    thing assertable here is that the wording the fixture (and therefore every
+    picker and page test below) uses is byte-identical to what 0018 writes.
+
+    Deployment itself is verified in the browser, per Charlie's instruction to
+    "verify the deployed wording in the Application Areas page" - a test file
+    cannot stand in for that, and should not pretend to.
+    """
+    from_artifact = _description_written_by(
+        "0018_r2_app110_description_alignment.sql", "APP-110"
+    )
+    assert from_artifact == APP110_RULED_DESCRIPTION, (
+        "The APP-110 wording in this test file has drifted from migration 0018.\n"
+        f"  artifact: {from_artifact!r}\n"
+        f"  fixture:  {APP110_RULED_DESCRIPTION!r}"
+    )
+
+    session = db.get_session()
+    app110 = (
+        session.query(db.Application)
+        .filter(db.Application.controlled_id == "APP-110")
+        .one()
+    )
+    name, active, tag, desc = (
+        app110.name, app110.is_active, app110.pu_material_family, app110.description
+    )
+    session.close()
+
+    assert name == "Roof Spray Foam", "0018 was scoped to description; the name moved"
+    assert active is True, "0018 was scoped to description; the active state moved"
+    assert tag == "Rigid", "0018 was scoped to description; the family tag moved"
+    assert desc == APP110_RULED_DESCRIPTION
+    assert "intended downstream application" in desc, (
+        "APP-110's description must state the downstream rule explicitly, "
+        "not merely be compatible with it."
     )

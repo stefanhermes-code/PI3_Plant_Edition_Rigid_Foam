@@ -8389,6 +8389,74 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.79.3, 2026-08-21: APP-110 brought onto the one rule, and a scanner that had
+never been able to fail.
+Charlie's R3 Section 2 Acceptance and APP-110 Ruling to JC v1, section 2.
+
+WHAT CHARLIE RULED
+
+v0.79.2 corrected five Application Area descriptions and deliberately left
+APP-110 alone, because he had listed five records and APP-110 was not among
+them. That was raised for his ruling rather than decided here. He ruled it in:
+
+  "Bring APP-110 into the same wording standard. Its current description
+   points to the correct application, but still explains the distinction
+   through physical end product and delivery form. The controlled master
+   should use one rule throughout: the downstream polyurethane application
+   for which the Product Grade or formulation is intended."
+
+The point is not that APP-110 said anything false - its substance was already
+the downstream rule. The point is that a controlled master explaining itself
+two different ways teaches two rules, and the reader classifying a grade picks
+whichever record happens to be in front of them.
+
+Migration 0018 carries the correction, APP-110's description only, his wording
+verbatim. ID, name, PU Material Family tag, active state and links unchanged:
+proved by diffing the migrated probe schema against live, where exactly one row
+differed and only in description. Proved on disposable schema r3_probe2, re-run
+for idempotency (table fingerprint a96a7c06 identical across both passes),
+applied live, ledger row 18, checksum d5e50cf7ce96.
+
+0017 was not edited. It is applied and ledgered, and the reason it left APP-110
+alone stays readable inside it - test_0017_left_app110_alone_and_said_why now
+guards that boundary explicitly rather than asserting a decision that has since
+been superseded.
+
+THE TEST THAT HAD NEVER BEEN ABLE TO FAIL
+
+test_no_active_area_description_teaches_the_overruled_rule scans every active
+Application Area for the overruled "what leaves the plant" phrasing. It has
+been green since v0.79.2. It was green for nothing: the fixture seeded ten
+Application Areas with description=None, so the scan ran over ten NULLs and
+reported a clean master. There was no text in it to be dirty.
+
+That is the R1 lesson again, in its purest form - a check whose fixture cannot
+produce the state it checks for is not a check. The fixture now seeds real
+descriptions phrased the ruled way, and a negative control plants each
+overruled phrase and asserts the scan bites.
+
+THE NEGATIVE CONTROL THAT ALSO COULD NOT FAIL
+
+Its first version read OVERRULED_RULE_PHRASES and planted whatever was in it.
+The mutation removing "end product" from that list left all 42 tests green,
+because deleting a phrase deleted its own coverage in the same stroke. A
+control that takes its input from the thing it is controlling is not a control.
+The planted phrases are now a deliberate literal duplicate, and that mutation
+now fails.
+
+"end product" joins the two "leaves the plant" phrasings on the list. It is not
+a synonym - it is the same overruled rule wearing different words, which is
+exactly why APP-110 read as correct and was not.
+
+Deployment verified in the browser on the Application Areas page, per his
+instruction. No separate return document: "No separate return is required
+unless this correction exposes a conflict or needs a change beyond the
+description field." The evidence goes into the R-G3 pack.
+
+Full regression: 1008 passed, 6 skipped, 0 failed. Was 1005 / 6 at v0.79.2:
+one test removed (test_app110_is_deliberately_untouched, whose decision Charlie
+has now superseded) and four added.
+
 v0.79.2, 2026-08-21: the classification rule the master was teaching was wrong.
 Charlie's Package C Acceptance and Consolidated R3 Release v3, section 2.
 
@@ -9438,4 +9506,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.79.2"
+APP_VERSION = "0.79.3"
