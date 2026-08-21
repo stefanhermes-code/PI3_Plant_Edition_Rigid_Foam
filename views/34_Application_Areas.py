@@ -106,6 +106,7 @@ from helpers import (
     view_only_notice,
 )
 from helpers import PU_MATERIAL_FAMILIES
+from tenant_scope import apply_scope, grade_ids_for_company
 
 page_setup("Application Areas")
 init_db()
@@ -154,12 +155,42 @@ if not areas:
     )
     st.stop()
 
-# Grade counts are global on purpose. The master is global, so "how many
-# grades use this area" is a question about the whole database, not about the
-# viewer's own plants - and a platform owner deciding whether an area can be
-# retired needs the real number, not their slice of it.
+# ---------------------------------------------------------------------------
+# GRADE COUNTS ARE SCOPED. THE FIRST VERSION OF THIS PAGE LEAKED.
+# ---------------------------------------------------------------------------
+# v0.78.0 counted grades across the WHOLE database and showed the number to
+# anyone who could open the page, with a comment arguing that a global master
+# deserves a global count. That was wrong, and it was a cross-company data
+# leak: a user at one company could read how many product grades another
+# company had put on each Application Area, and watch those numbers move.
+#
+# Stefan, 21 August 2026: "There can be absolutely no leaking between
+# companies."
+#
+# The distinction the first version missed. The Application Area LIST is
+# shared vocabulary - the same six Rigid records for everyone, like a unit-of-
+# measure master. That is not company data. How many grades a company has put
+# on each one IS company data, and it does not stop being company data because
+# it is expressed as an integer.
+#
+# So the count is scoped to the plants the viewer can reach, by the same
+# Plant -> PU Material Family -> Product Grade path every other page uses.
+# A platform owner sees the true total, because cross-company scope is exactly
+# what that role is, and the column says which of the two is on screen.
+_is_platform_owner = bool(user["is_platform_owner"])
+if _is_platform_owner:
+    _scoped_grade_ids = None          # apply_scope: None means no filter
+    _count_label = "Product grades"
+else:
+    _scoped_grade_ids = grade_ids_for_company(session, user["company_id"])
+    _count_label = "Your product grades"
+
 grade_counts = dict(
-    session.query(FoamGrade.application_id, func.count(FoamGrade.id))
+    apply_scope(
+        session.query(FoamGrade.application_id, func.count(FoamGrade.id)),
+        FoamGrade.id,
+        _scoped_grade_ids,
+    )
     .group_by(FoamGrade.application_id)
     .all()
 )
@@ -170,7 +201,7 @@ retired_areas = [a for a in areas if not a.is_active]
 c1, c2, c3 = st.columns(3)
 c1.metric("Active Application Areas", len(active_areas))
 c2.metric("Retired", len(retired_areas))
-c3.metric("Product grades assigned", sum(grade_counts.get(a.id, 0) for a in areas))
+c3.metric(f"{_count_label} assigned", sum(grade_counts.get(a.id, 0) for a in areas))
 
 
 def _rows(rows_in):
@@ -179,7 +210,7 @@ def _rows(rows_in):
             "Controlled ID": a.controlled_id or "—",
             "Application Area": a.name,
             "PU Material Family": a.pu_material_family or "— not tagged —",
-            "Product grades": grade_counts.get(a.id, 0),
+            _count_label: grade_counts.get(a.id, 0),
             "Description": a.description or "—",
         }
         for a in rows_in
@@ -213,6 +244,9 @@ if retired_areas:
         "their controlled removal so that anything still pointing at one stays visible."
     )
     render_data_table(pd.DataFrame(_rows(retired_areas)))
+    # Scoped like the counts above, and for the same reason: naming another
+    # company's stranded grade count in an error message leaks it just as well
+    # as putting it in a column.
     stranded = [a for a in retired_areas if grade_counts.get(a.id, 0)]
     if stranded:
         st.error(
@@ -277,6 +311,10 @@ else:
             )
             if st.form_submit_button("Save changes"):
                 new_family = None if e_family == "— not tagged —" else e_family
+                # Platform-owner only branch, so this count is the true global
+                # one - which is the correct number here: re-tagging breaks the
+                # family match for EVERY company's grades on that area, not
+                # only the ones this viewer can see.
                 assigned = grade_counts.get(selected.id, 0)
                 # Re-tagging an area that grades already use would break the
                 # family-match rule for every one of them at once, and the

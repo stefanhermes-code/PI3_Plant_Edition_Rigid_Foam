@@ -8389,6 +8389,76 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.79.1, 2026-08-21: cross-company leak on the Application Areas page.
+Redesign Migration Plan v5, Package C.
+
+WHAT LEAKED
+
+v0.78.0 counted product grades per Application Area across the WHOLE database
+and showed the number to anyone who could open the page. The comment in the
+code argued for it: a global master deserves a global count, and a platform
+owner deciding whether to retire an area needs the real number.
+
+The first half of that is wrong. A user at one company could read how many
+grades every other company had assigned to each Application Area, and watch
+those numbers move over time. Same for the "retired area still has grades"
+error, which named the count in its message.
+
+Stefan, 21 August 2026: "There can be absolutely no leaking between companies."
+
+THE DISTINCTION THE ORIGINAL MISSED
+
+The Application Area LIST is shared vocabulary - the same six Rigid records for
+every tenant, like a unit-of-measure master. Charlie's ruling requires it: "All
+tenants and plants use this one controlled master." That is not company data.
+
+How many grades a company has put on each one IS company data, and it does not
+stop being company data because it is expressed as an integer rather than a
+row. The page had conflated "the master is global" with "everything about the
+master is global".
+
+Counts are now scoped through the same Plant -> PU Material Family ->
+Product Grade path every other page uses, and the column says whose number it
+is - "Your product grades" for a company user, "Product grades" for the
+platform owner, who still sees the true total because cross-company scope is
+what that role IS. A number a viewer cannot verify is worse than no number, so
+the label is part of the fix rather than decoration.
+
+The re-tag guard keeps the global count deliberately: it runs only in the
+platform-owner branch, and re-tagging an Application Area breaks the
+family-match rule for EVERY company's grades on it, not only the ones the
+viewer can see.
+
+A NEW GUARD ON THE VOCABULARY ITSELF
+
+The shared list has one way it could leak on its own: an Application Area
+created for a named customer would turn the master into a directory of who is
+doing what, visible to every tenant. A test now checks every name against the
+companies and customers actually in the database, rather than against a fixed
+word list, so it keeps working as customers are added.
+
+TWO HOLLOW TESTS, FOUND BY MUTATION, IN ONE RELEASE
+
+The leak test first scanned every metric's value for the leaked number and
+failed on the "Retired" count - a property of the shared master, not company
+data. A false positive that would have sent me to fix correct code. Rewritten
+to find the metric by its label.
+
+Worse, and the one worth remembering: the test proving the platform owner still
+sees the true total used the plain AUTH_DISABLED entry point, where company_id
+is None - and tenant_scope.plant_ids_for_company(None) means UNFILTERED. So
+scoping the platform owner produced the same output as not scoping them, the
+branch was never observable, and a mutation that scoped everybody passed the
+entire suite. Fixed by giving the owner a real company_id, which makes the two
+branches differ: scoped shows 1, global shows 4.
+
+That is the second time in three releases that a mutation survived because a
+fixture made two different code paths produce the same result. The pattern is
+worth naming: when a mutation survives, the fixture is the first suspect, not
+the last.
+
+Full regression: 1002 passed, 6 skipped, 0 failed.
+
 v0.79.0, 2026-08-21: R2 complete - the master finished, the legacy field gone.
 Redesign Migration Plan v5, Package C, gate R-G2.
 
@@ -9295,4 +9365,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.79.0"
+APP_VERSION = "0.79.1"

@@ -818,3 +818,177 @@ def test_roof_spray_is_its_own_record_not_a_rename_of_building_insulation():
     all ten, which is why roof spray foam became APP-110 instead."""
     assert EXPECTED_ACTIVE["APP-100"] == "Building insulation"
     assert EXPECTED_ACTIVE["APP-110"] == "Roof Spray Foam"
+
+
+# ---------------------------------------------------------------------------
+# Section 8 - cross-company leakage
+# ---------------------------------------------------------------------------
+#
+# The first version of the Application Areas page counted product grades across
+# the WHOLE database and showed the number to anyone who could open it, with a
+# comment arguing that a global master deserves a global count. That was a
+# cross-company leak: a user at company A could read how many grades company B
+# had assigned to each Application Area, and watch those numbers change.
+#
+# Stefan, 21 August 2026: "There can be absolutely no leaking between
+# companies."
+#
+# The distinction that version missed. The Application Area LIST is shared
+# vocabulary - the same six Rigid records for everyone, like a unit-of-measure
+# master, and not company data. How many grades a company has put on each one
+# IS company data, and it does not stop being company data because it is
+# expressed as an integer.
+#
+# These tests run with the platform-owner bypass OFF. AUTH_DISABLED sets
+# is_super_admin and is_platform_owner True, so a leak test written the easy
+# way passes while proving nothing - the viewer would be entitled to see
+# everything. The dev bypass only setdefault()s those keys, so presetting them
+# before .run() is what makes the test a real one.
+
+
+def _run_as_company_user(page_path, company_id):
+    at = AppTest.from_file(page_path, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.session_state["is_super_admin"] = False
+    at.session_state["is_platform_owner"] = False
+    at.session_state["company_id"] = company_id
+    at.run()
+    return at
+
+
+@pytest.fixture()
+def two_companies_one_area(seeded):
+    """Company B puts three grades on APP-350. Company A must not be able to
+    count them."""
+    session = db.get_session()
+    area_id = session.query(db.Application).filter_by(controlled_id="APP-350").one().id
+
+    other = db.Company(name="Other Co", is_platform_owner=False)
+    session.add(other); session.flush()
+    other_plant = db.Plant(company_id=other.id, name="Other Plant")
+    session.add(other_plant); session.flush()
+    other_family = db.PUMaterialFamily(plant_id=other_plant.id, name="Rigid")
+    session.add(other_family); session.flush()
+    for i in range(3):
+        session.add(db.FoamGrade(
+            pu_material_family_id=other_family.id,
+            grade_name=f"OTHER-GRADE-{i}",
+            application_id=area_id,
+        ))
+    session.commit()
+    ids = {"other_company_id": other.id, "area_id": area_id}
+    session.close()
+    _clear_relevant_caches()
+    return ids
+
+
+def test_grade_counts_do_not_leak_another_companys_data(seeded, two_companies_one_area):
+    """The leak itself. Company A opens the page; company B's three grades on
+    APP-350 must be invisible, as a count as much as as a row."""
+    at = _run_as_company_user(PAGE_AREAS, seeded["company_id"])
+    assert not at.exception
+
+    text = _page_text(at)
+    assert "APP-350" in text, "APP-350 should still be listed - the vocabulary is shared"
+
+    # Find the count metric by its LABEL. The first version of this test
+    # scanned every metric's value for the number 3 and failed on the "Retired"
+    # count, which is a property of the shared master and not company data - a
+    # false positive that would have sent me to fix code that was already
+    # correct.
+    counts = {m.label: str(m.value) for m in at.metric}
+    own = next((v for k, v in counts.items() if "product grades" in k.lower()), None)
+    assert own is not None, f"No grade-count metric on the page: {counts}"
+    assert own == "1", (
+        f"Company A should see only its own 1 grade; saw {own}. Company B's three "
+        f"grades on APP-350 are leaking. All metrics: {counts}"
+    )
+    assert "4" not in counts.values(), (
+        f"The global total is on screen for a company user: {counts}"
+    )
+
+
+def test_scoped_count_column_is_labelled_as_the_viewers_own(seeded, two_companies_one_area):
+    """A number a viewer cannot verify is worse than no number. If the count
+    is their own slice, the column has to say so - otherwise it reads as the
+    global total and the page lies quietly."""
+    at = _run_as_company_user(PAGE_AREAS, seeded["company_id"])
+    assert not at.exception
+    text = _page_text(at)
+    assert "Your product grades" in text, (
+        "A company user's grade count is not labelled as their own."
+    )
+
+
+def _run_as_platform_owner_of(page_path, company_id):
+    """A platform owner WITH a company of their own.
+
+    Written this way after a mutation survived. The obvious version used the
+    plain AUTH_DISABLED entry point, where company_id is None - and
+    tenant_scope.plant_ids_for_company(None) means "unfiltered". So scoping
+    the platform owner produced the same result as not scoping them, the
+    branch was never observable, and a mutation that scoped EVERYONE passed
+    the whole suite. Giving the owner a real company_id is what makes the two
+    branches differ: scoped would show 1, global shows 4."""
+    at = AppTest.from_file(page_path, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.session_state["is_super_admin"] = True
+    at.session_state["is_platform_owner"] = True
+    at.session_state["company_id"] = company_id
+    at.run()
+    return at
+
+
+def test_platform_owner_still_sees_the_true_total(seeded, two_companies_one_area):
+    """Scoping must not blind the one role whose job IS cross-company scope.
+    Without this, the two tests above would pass just as well against a page
+    that showed nobody anything."""
+    at = _run_as_platform_owner_of(PAGE_AREAS, seeded["company_id"])
+    assert not at.exception
+    text = _page_text(at)
+    assert "Your product grades" not in text, (
+        "The platform owner's column should read as the global total, not a slice."
+    )
+    counts = {m.label: str(m.value) for m in at.metric}
+    total = next((v for k, v in counts.items() if "product grades" in k.lower()), None)
+    assert total == "4", (
+        f"Platform owner should see all 4 assigned grades (1 seeded + 3 other), "
+        f"got {total}. Metrics: {counts}"
+    )
+
+
+def test_no_application_area_is_named_after_a_customer():
+    """The one way the shared vocabulary itself could leak.
+
+    The master is global by ruling - "All tenants and plants use this one
+    controlled master" - so every company reads every name. That is fine while
+    the names are generic end uses. It stops being fine the moment one is
+    created for a named customer, because the master then becomes a directory
+    of who is doing what.
+
+    Checked against the customers actually in the database rather than against
+    a word list, so it keeps working as customers are added."""
+    session = db.get_session()
+    customer_names = {
+        c.company_name.strip().lower()
+        for c in session.query(db.Customer).all()
+        if c.company_name and c.company_name.strip()
+    }
+    company_names = {
+        c.name.strip().lower()
+        for c in session.query(db.Company).all()
+        if c.name and c.name.strip()
+    }
+    session.close()
+
+    offenders = []
+    for cid, name in EXPECTED_ACTIVE.items():
+        lowered = name.lower()
+        for owner in customer_names | company_names:
+            if len(owner) > 3 and owner in lowered:
+                offenders.append(f"{cid} {name!r} contains the name {owner!r}")
+    assert not offenders, (
+        "An Application Area is named after a company or customer. The master is "
+        "shared by every tenant, so that name is visible to all of them:\n  "
+        + "\n  ".join(offenders)
+    )
