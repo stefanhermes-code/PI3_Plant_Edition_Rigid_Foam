@@ -8389,6 +8389,95 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.78.0, 2026-08-21: the Application Area master gets its own page.
+Redesign Migration Plan v5, Package C.
+
+WHAT WAS MISSING
+
+v0.77.0 promoted the applications table into the single controlled Application
+Area master, added the link to it on Product Grades, and stopped. There was no
+page for the master itself. Stefan caught it: an Application Area is a level of
+the architecture, not a field on another record, and when Production Method
+retires in R3 it is one of the records taking over that role.
+
+This is the third time the same shape of defect has appeared in two days -
+customer_segment reached the schema with no field, application_id had a column
+and no picker, and now a promoted master had no page. The common cause is
+finishing at the data layer and calling the work package done. The common fix
+is to ask, at the end of every work package, what a user would have to click to
+see the thing that was just built.
+
+views/34_Application_Areas.py, sidebar entry between PU Material Families and
+Product Grades - which is where it sits in the structure. Shows the six active
+records with their PU Material Family tag, controlled ID, description and grade
+count; the two retired records listed separately rather than hidden, so
+anything still pointing at one stays findable before R2-WP4 removes it.
+
+Two warnings the page raises on its own:
+
+  An ACTIVE area with no family tag can be selected by nobody, because the
+  Product Grades picker filters on the tag. It would sit in the master looking
+  available and be unreachable - the same defect as a column with no field.
+
+  A RETIRED area that still has grades assigned is named with its count, so it
+  is fixed before the record is dropped rather than after.
+
+READ-MOSTLY, DELIBERATELY
+
+Every other master in this application is edited freely. This one is not. PU
+Material Family is plant-scoped - a plant's families are its own. Application
+Area is GLOBAL: one row is shared by every company, plant and tenant in the
+database, so an edit changes everyone's vocabulary at once and a delete can
+strand another tenant's grades.
+
+The page therefore offers no create and no delete. New records and retirements
+arrive as controlled changes with migration evidence - the route APP-350,
+APP-300 and APP-320 all took. A platform owner can correct a description or a
+family tag, and re-tagging an area that grades already use is refused with the
+count, because it would break the family-match rule for all of them at once and
+the failure would surface later on the Product Grades form where the cause is
+invisible.
+
+THE HIERARCHY, WRITTEN DOWN PROPERLY
+
+Stefan's ordering, given 21 August after an earlier description here started at
+PU Material Family and was rightly called half a hierarchy:
+
+  Company -> Plant -> Production Unit -> PU Material Family
+                                      -> Application Area -> Product Grade
+
+Read as depth rather than one parent chain. The Plant branches: Production Unit
+carries the operational side, PU Material Family the product side, and the two
+meet again at Product Grade, which names the units that can make it. Plan v5
+keeps the family plant-scoped and states that "a plant may manufacture the same
+PU Material Family on more than one unit", so a family cannot have one unit as
+its parent.
+
+Whether Production Unit is instead meant as a level of ONE chain is an open
+question with Stefan. If it is, pu_material_families re-parents from plant to
+unit and the row-level access path moves with it - R3 work, and larger than
+Plan v5 describes. Nothing in this release depends on the answer.
+
+That branching is also why the hierarchy is enforced by validation rather than
+by parentage. Access runs down Company -> Plant, and a Product Grade reaches
+its plant through its PU Material Family. Application Area is the one global
+level in the structure; make it the grade's parent and the permission path has
+no plant left to follow.
+
+APP-340 CORRECTED
+
+Renamed to "Water-Heater Insulation", matching its three siblings and the
+ruling's own spelling. v0.77.0 left it alone and raised the capitalisation as a
+question; Stefan's answer was that the meaning was obvious and asking was
+making work out of nothing. He is right.
+
+Carried in migration 0012 rather than by editing 0011, which is applied and
+ledgered. The comment in 0011 explaining the original decision stands as
+written - an applied artifact records what ran that day, and corrections travel
+forward.
+
+Full regression: 992 passed, 6 skipped, 0 failed.
+
 v0.77.0, 2026-08-21: R2-WP2 and R2-WP3 - the Application Area master.
 Redesign Migration Plan v5, Package C.
 
@@ -9098,4 +9187,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.77.0"
+APP_VERSION = "0.78.0"

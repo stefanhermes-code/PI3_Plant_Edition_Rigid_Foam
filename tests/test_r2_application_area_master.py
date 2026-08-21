@@ -59,6 +59,7 @@ import tenant_scope
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGE_GRADES = os.path.join(APP_DIR, "views", "2_Product_Grades.py")
+PAGE_AREAS = os.path.join(APP_DIR, "views", "34_Application_Areas.py")
 MIGRATION = os.path.join(APP_DIR, "migrations", "0011_r2wp2_application_area_master.sql")
 
 # The active master after R2-WP2, from Charlie's ruling section 4.
@@ -67,7 +68,7 @@ EXPECTED_ACTIVE = {
     "APP-210": "Cold-room wall or ceiling panel",
     "APP-310": "Refrigerator/Freezer Insulation",
     "APP-330": "Industrial Refrigeration Insulation",
-    "APP-340": "Water-heater insulation",
+    "APP-340": "Water-Heater Insulation",
     "APP-350": "Cool Box Insulation",
 }
 EXPECTED_RETIRED = {"APP-300", "APP-320"}
@@ -503,3 +504,164 @@ def test_unset_is_allowed(seeded):
     grade = session.get(db.FoamGrade, seeded["grade_id"])
     assert grade.application_id is None
     session.close()
+
+
+# ---------------------------------------------------------------------------
+# Section 6 - the master has a page, and the hierarchy is stated in full
+# ---------------------------------------------------------------------------
+#
+# v0.77.0 shipped the LINK to the Application Area master and no page for the
+# master itself. Stefan caught it: an Application Area is a level of the
+# architecture, not a field on another record, and once Production Method
+# retires in R3 it is one of the records taking over that role.
+#
+# He also corrected how the hierarchy had been described. It is not
+# "PU Material Family -> Application Area -> Product Grade". It is:
+#
+#     Company -> Plant -> Production Unit -> PU Material Family
+#                                         -> Application Area -> Product Grade
+#
+# Read as depth, not as one parent chain: the Plant branches into the
+# operational side (Production Unit) and the product side (PU Material Family),
+# and the two meet again at Product Grade, which names the units that can make
+# it. v5 keeps the family plant-scoped - "a plant may manufacture the same PU
+# Material Family on more than one unit" - so a family cannot have a single
+# unit as its parent.
+#
+# That start matters and is not decoration. Company and Plant are where
+# row-level access begins, and a Product Grade reaches its plant through its
+# PU Material Family. Application Area is the one level that is global rather
+# than tenant-owned, which is exactly why the hierarchy is enforced by
+# validation instead of by making the area the grade's parent - a global
+# record has no plant for the permission path to follow.
+
+
+def test_application_areas_page_exists_and_is_registered():
+    assert os.path.exists(PAGE_AREAS), "views/34_Application_Areas.py is missing"
+    assert access_control.PAGE_CATALOG.get("application_areas") == "Application Areas"
+
+
+def test_nav_places_the_master_in_hierarchy_order():
+    """Between PU Material Families and Product Grades, because that is where
+    it sits in the chain. A master filed anywhere else teaches the wrong
+    shape."""
+    source = open(os.path.join(APP_DIR, "app_rigid_foam.py"), encoding="utf-8").read()
+    start = source.index("production_method_pages = [")
+    block = source[start:source.index("]", start)]
+    order = ["pu_material_families", "application_areas", "product_grades"]
+    positions = [block.index(f'"{key}"') for key in order]
+    assert positions == sorted(positions), (
+        f"Application Areas is out of hierarchy order in the sidebar: {positions} for {order}"
+    )
+    assert 'title="Application Areas"' in source
+
+
+def test_the_page_states_the_hierarchy_from_the_top():
+    """The chain starts at Company, not at PU Material Family.
+
+    This is a documentation test on purpose. The truncated version - starting
+    at PU Material Family - is what made the design look like it had lost a
+    level, and the reason re-parenting is refused only makes sense once Company
+    and Plant are in the sentence."""
+    source = open(PAGE_AREAS, encoding="utf-8").read()
+    assert "Company -> Plant -> Production Unit -> PU Material Family" in source, (
+        "The page must state the structure from the top, starting at Company and "
+        "including Production Unit - Stefan's ordering of 21 August 2026."
+    )
+    for term in ("Company", "Plant", "Production Unit", "global"):
+        assert term in source, f"{term!r} missing from the structure description"
+
+
+def _page_text(at):
+    """helpers.render_data_table() builds its own HTML and emits it through
+    st.markdown rather than st.dataframe, so the listing is in the markdown
+    stream. Reading the wrong stream is how the first version of this test
+    passed while looking at the edit panel's table instead of the listing."""
+    parts = [str(el.value) for el in at.markdown]
+    parts += [str(el.value) for el in at.subheader]
+    parts += [str(el.value) for el in at.caption]
+    return " ".join(parts)
+
+
+def test_application_areas_page_renders_and_lists_the_master(seeded):
+    at = _run(PAGE_AREAS)
+    assert not at.exception
+    text = _page_text(at)
+    for cid in EXPECTED_ACTIVE:
+        assert cid in text, f"{cid} is not listed on the Application Areas page"
+    assert "Refrigerator/Freezer Insulation" in text
+    assert "Cool Box Insulation" in text
+
+
+def test_page_separates_active_from_retired(seeded):
+    """A retired area must stay visible rather than vanish - anything still
+    pointing at one has to be findable before R2-WP4 removes it."""
+    at = _run(PAGE_AREAS)
+    assert not at.exception
+    headings = [str(el.value) for el in at.subheader]
+    assert "Active" in headings and "Retired" in headings, (
+        f"Active and retired are not shown as separate sections: {headings}"
+    )
+    text = _page_text(at)
+    for retired in EXPECTED_RETIRED:
+        assert retired in text, f"{retired} disappeared from the master page"
+
+
+def test_page_shows_the_grade_count_per_area(seeded):
+    """Retiring an area is only safe if you can see what uses it."""
+    at = _run(PAGE_AREAS)
+    assert not at.exception
+    text = _page_text(at)
+    assert "Product grades" in text, "No grade count column on the master page"
+
+
+def test_page_warns_about_an_active_untagged_area(seeded):
+    """An active area with no family tag can be selected by nobody, because
+    the Product Grades picker filters on the tag. It would sit in the master
+    looking available and be unreachable - the same shape as a column with no
+    field, which is the defect this whole work package exists to correct."""
+    session = db.get_session()
+    session.add(db.Application(
+        controlled_id="APP-990", name="Untagged and active",
+        sort_order=990, is_active=True, pu_material_family=None,
+    ))
+    session.commit(); session.close()
+    _clear_relevant_caches()
+
+    at = _run(PAGE_AREAS)
+    assert not at.exception
+    warnings = " ".join(w.value for w in at.warning)
+    assert "APP-990" in warnings, (
+        f"An active, untagged Application Area was not flagged. Warnings: {warnings!r}"
+    )
+
+
+def test_page_flags_a_retired_area_that_still_has_grades(seeded):
+    session = db.get_session()
+    retired = session.query(db.Application).filter_by(controlled_id="APP-320").one()
+    grade = session.get(db.FoamGrade, seeded["grade_id"])
+    grade.application_id = retired.id
+    session.commit(); session.close()
+    _clear_relevant_caches()
+
+    at = _run(PAGE_AREAS)
+    assert not at.exception
+    errors = " ".join(e.value for e in at.error)
+    assert "APP-320" in errors, (
+        f"A retired area still carrying grades was not flagged. Errors: {errors!r}"
+    )
+
+
+def test_page_offers_no_create_or_delete(seeded):
+    """A global master is not edited like tenant data. New records and
+    retirements arrive as controlled changes with migration evidence - the
+    route APP-350, APP-300 and APP-320 all took. A create button here would
+    let one tenant change every tenant's vocabulary with no artifact behind
+    it."""
+    at = _run(PAGE_AREAS)
+    assert not at.exception
+    labels = [b.label.lower() for b in at.button if b.label]
+    for forbidden in ("add", "create", "delete", "remove"):
+        assert not any(forbidden in l for l in labels), (
+            f"Application Areas offers a {forbidden!r} control: {labels}"
+        )

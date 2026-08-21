@@ -498,6 +498,14 @@ production_method_pages = [
     ("production_methods", st.Page("views/30_Production_Methods.py", title="Production Methods", icon="🧭")),
     ("plant_overview", st.Page("views/31_Production_Equipment.py", title="Production Equipment", icon="🏭")),
     ("pu_material_families", st.Page("views/2_Product_Families.py", title="PU Material Families", icon="🧬")),
+    # R2-WP2 (2026-08-21): the Application Area master gets its own entry, in
+    # hierarchy order between PU Material Family and Product Grade - which is
+    # where it sits in the architecture. It was missing from v0.77.0: the link
+    # to it reached Product Grades and the master itself had no page at all.
+    # This section is still called "Production Methods"; R3 retires that record
+    # and the section is renamed then, with Production Unit / Cell and
+    # Application Area taking over the role it used to fill.
+    ("application_areas", st.Page("views/34_Application_Areas.py", title="Application Areas", icon="🎯")),
     ("product_grades", st.Page("views/2_Product_Grades.py", title="Product Grades", icon="🏷️")),
 ]
 

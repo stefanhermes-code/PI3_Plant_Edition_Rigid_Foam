@@ -205,6 +205,7 @@ PAGE_CATALOG = {
     "plant_overview": "Plants",
     "production_methods": "Production Methods",
     "pu_material_families": "PU Material Families",
+    "application_areas": "Application Areas",
     "product_grades": "Product Grades",
     "raw_materials": "Raw Materials",
     "suppliers": "Suppliers",
