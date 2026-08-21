@@ -8389,6 +8389,79 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.79.2, 2026-08-21: the classification rule the master was teaching was wrong.
+Charlie's Package C Acceptance and Consolidated R3 Release v3, section 2.
+
+WHAT WAS WRONG
+
+Migration 0014 wrote a classification rule into five Application Area
+descriptions: decide by the END PRODUCT, by what leaves the plant. Charlie
+replaced it:
+
+  "Application Area is the downstream polyurethane application for which a
+   Product Grade or formulation is intended. A system house may ship chemical
+   even when the intended application is refrigerator insulation, roof spray
+   foam, pre-insulated pipe or another downstream use."
+
+He is right, and not as a matter of taste. Applied literally to PTU the old
+rule returns NOTHING - PTU ships chemical, so no end product leaves its plant
+matching any record. RF-Refrigerator-001 is correctly on APP-310 only because
+Stefan told us the intended use is a refrigerator cabinet and door, which is
+the downstream rule and not the leaves-the-plant one. The rule I wrote would
+have misclassified the pilot customer's own grade.
+
+Descriptions are what the next person reads while classifying, so a master
+carrying the overruled rule teaches it. This was found by raising it rather
+than by anyone tripping over it: Charlie's acceptance stated the new rule, and
+the acknowledgement asked what to do about the five records already carrying
+the old one. He ruled it an R2 wording defect exposed before R3 and directed
+one controlled migration before R3 structural work starts.
+
+SCOPE, DELIBERATELY NARROW
+
+migrations/0017 changes description TEXT only, on exactly the five records
+Charlie listed, using his wording verbatim rather than a paraphrase - the point
+being that the master carries the ruling's own words. No ID, name, family tag
+or Product Grade link is touched, and a test enforces that every UPDATE in the
+artifact writes description and nothing else.
+
+Nothing was reclassified. RF-COLDROOM-001 stays on APP-210 and
+RF-Refrigerator-001 on APP-310.
+
+APP-110 IS NOT CORRECTED, AND THAT IS A DECISION
+
+APP-110 Roof Spray Foam still reads "The end product is the finished roof, and
+the material is delivered as chemical rather than as a component". The phrasing
+is old-style; the SUBSTANCE is Charlie's new rule - it says the material ships
+as chemical while the application is a roof, which is his own example.
+
+He listed five records and APP-110 was not among them. Correcting a sixth
+record on a controlled master without authority is scope creep, so it stays and
+goes back to him as a question. A test asserts 0017 does not touch it and that
+the artifact records why, so the decision is visible rather than a silent
+omission.
+
+THE HANDSHAKE EARNED ITS KEEP IMMEDIATELY
+
+Stefan set the acknowledgement protocol with Charlie one document earlier. The
+first use of it caught two things before any R3 work started:
+
+  Charlie had filed two handover documents four minutes apart, and v2 was not a
+  corrected v1 - it was a condensed rewrite that DROPPED the process-setting
+  applicability instruction, including the 37 method-only / 9 machine-plus-
+  method / 4 global rule mapping. Those figures were measured against the live
+  database and are exactly right, with 0 machine-only rules. Executing from v2
+  would have lost a correct, load-bearing R3-WP5 instruction. He has now issued
+  v3, which supersedes both.
+
+  And the description defect above, which would otherwise have sat in the
+  master through R3 teaching the wrong rule.
+
+Both were raised before implementation rather than reported after it, which is
+the whole point of the protocol.
+
+Full regression: 1005 passed, 6 skipped, 0 failed.
+
 v0.79.1, 2026-08-21: cross-company leak on the Application Areas page.
 Redesign Migration Plan v5, Package C.
 
@@ -9365,4 +9438,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.79.1"
+APP_VERSION = "0.79.2"

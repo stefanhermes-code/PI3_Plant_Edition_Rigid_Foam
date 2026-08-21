@@ -992,3 +992,104 @@ def test_no_application_area_is_named_after_a_customer():
         "shared by every tenant, so that name is visible to all of them:\n  "
         + "\n  ".join(offenders)
     )
+
+
+# ---------------------------------------------------------------------------
+# Section 9 - the classification rule, after Charlie overruled mine
+# ---------------------------------------------------------------------------
+#
+# Migration 0014 wrote a rule into five descriptions: classify by the END
+# PRODUCT, by what leaves the plant. Charlie replaced it in his v3 release:
+#
+#   "Application Area is the downstream polyurethane application for which a
+#    Product Grade or formulation is intended. A system house may ship
+#    chemical even when the intended application is refrigerator insulation,
+#    roof spray foam, pre-insulated pipe or another downstream use."
+#
+# He is right, and not as a matter of taste. Applied literally to PTU the old
+# rule returns NOTHING - PTU ships chemical, so no end product leaves its plant
+# matching any record. RF-Refrigerator-001 is correctly on APP-310 only because
+# Stefan told us the intended use is a refrigerator cabinet and door, which is
+# the downstream rule, not the leaves-the-plant one.
+#
+# The descriptions are what the next person reads while classifying a grade, so
+# a master carrying the overruled rule teaches it. Migration 0017 corrected the
+# five records Charlie listed, using his wording verbatim.
+
+OVERRULED_RULE_PHRASES = ("leaves the plant", "leaving the plant")
+
+
+def test_no_active_area_description_teaches_the_overruled_rule():
+    """Scanned across the whole active master rather than the five corrected
+    records, because the point is that the rule must not come back on a sixth."""
+    session = db.get_session()
+    offenders = [
+        f"{a.controlled_id}: {a.description!r}"
+        for a in session.query(db.Application).filter(db.Application.is_active.is_(True)).all()
+        if a.description and any(p in a.description.lower() for p in OVERRULED_RULE_PHRASES)
+    ]
+    session.close()
+    assert not offenders, (
+        "An Application Area description still teaches the overruled "
+        '"what leaves the plant" rule:\n  ' + "\n  ".join(offenders)
+    )
+
+
+def test_correction_migration_changes_descriptions_only():
+    """Charlie's scope limit, held as a test: "Do not change Application Area
+    IDs, names, PU Material Family tags, Product Grade links or any other
+    classification data."
+
+    A migration that quietly renamed or re-tagged a record while correcting
+    its prose would be reclassifying the master under cover of a wording fix,
+    and the browser evidence would not show it."""
+    path = os.path.join(
+        MIGRATIONS_DIR, "0017_r2_description_correction_downstream_application.sql"
+    )
+    assert os.path.exists(path), "migration 0017 is missing"
+    sql = open(path, encoding="utf-8").read()
+
+    import re
+    # Strip whole-line comments first. Without this the leading comment block
+    # is glued to the first UPDATE and the statement count comes out one short
+    # - the test failed that way on its first run, which is the same
+    # prose-versus-code trap as the R1 terminology scanner.
+    code = "\n".join(l for l in sql.splitlines() if not l.lstrip().startswith("--"))
+    statements = [x.strip() for x in code.split(";") if x.strip().lower().startswith("update applications")]
+    assert len(statements) == 5, f"Expected exactly 5 UPDATE statements, found {len(statements)}"
+    for stmt in statements:
+        assigned = re.findall(r"set\s+(\w+)\s*=", stmt, re.IGNORECASE)
+        assert assigned == ["description"], (
+            f"An UPDATE in 0017 writes something other than description: {assigned}"
+        )
+    for forbidden in ("alter table", "insert into applications", "delete from"):
+        assert forbidden not in code.lower(), (
+            f"0017 contains {forbidden!r} - it must change description text only"
+        )
+
+
+def test_app110_is_deliberately_untouched():
+    """APP-110's description still uses the old phrasing, and that is a
+    recorded decision rather than an oversight.
+
+    Its SUBSTANCE is already Charlie's rule - it says the material ships as
+    chemical while the application is a roof, which is his own example. He
+    listed five records to correct and APP-110 was not among them. Correcting
+    a sixth record on a controlled master without authority is scope creep, so
+    it stays and is raised for his ruling.
+
+    This test exists so the decision is visible: if APP-110 is later corrected
+    on his word, this is the test that says so out loud rather than a silent
+    diff."""
+    path = os.path.join(
+        MIGRATIONS_DIR, "0017_r2_description_correction_downstream_application.sql"
+    )
+    sql = open(path, encoding="utf-8").read()
+    assert "APP-110 IS NOT TOUCHED" in sql, (
+        "0017 must record why APP-110 was left alone, not simply omit it."
+    )
+    code = "\n".join(l for l in sql.splitlines() if not l.lstrip().startswith("--"))
+    statements = [x for x in code.split(";") if x.strip().lower().startswith("update applications")]
+    assert not any("APP-110" in x for x in statements), (
+        "APP-110 was modified by 0017; Charlie authorised five records and this is not one."
+    )
