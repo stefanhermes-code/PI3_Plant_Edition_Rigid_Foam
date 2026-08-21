@@ -8299,6 +8299,99 @@ surfaced as 27 unexplained failures. Caught, reverted, redone against the real
 repository, and the copy deleted. The lesson is to anchor paths absolutely
 rather than trusting an inherited cwd.
 
+v0.75.0, 2026-08-21: R0 - baseline, restore point, evidence inventory and the
+application-facing rename. Redesign Migration Plan v3, Package B.
+
+R0-WP1 BASELINE CONFIRMED
+
+HEAD e63643a, v0.74.3, working tree clean and level with origin/main. The
+migration ledger holds eight entries; 0001-0003 baselined from Phase 8,
+0004-0008 applied by R-PRE. This is the release R0 freezes as the redesign
+migration baseline.
+
+R0-WP2 A RESTORE POINT THAT WAS ACTUALLY RESTORED FROM
+
+Charlie's gate requires demonstrated recovery evidence, not an assumed
+capability. The Supabase organisation is on the Pro plan, which carries daily
+backups; point-in-time recovery is a paid add-on whose status cannot be read
+from the tools available here, and JC does not read the connection secret. So
+rather than assert a mechanism, R0 built one it could prove.
+
+rigid_foam_r0_baseline is a complete data snapshot of all 100 tables taken at
+v0.74.3 - 4,564 rows, 2 MB, verified table by table against the live schema
+with zero mismatches. Structure is not copied: the repository rebuilds that
+from the migration chain, which is what P8-OWR-003 exists for. The snapshot
+holds the part the repository cannot regenerate.
+
+Then it was used. In a disposable schema, production_runs and
+physical_property_definitions were copied from live, fingerprinted, emptied to
+simulate a migration destroying them, and restored from the snapshot:
+
+    production_runs                 8 rows  bf613a35af47500d
+      after simulated loss          0 rows  d41d8cd98f00b204
+      after restore                 8 rows  bf613a35af47500d
+    physical_property_definitions  59 rows  082c7553e9598da0
+      after simulated loss          0 rows  d41d8cd98f00b204
+      after restore                59 rows  082c7553e9598da0
+
+Content fingerprints, not row counts. A row count proves something came back;
+a fingerprint proves the same thing came back. The disposable schema was
+dropped afterwards; the snapshot stays until the redesign release is accepted.
+
+R0-WP3 A CORRECTION TO A NUMBER THIS PROJECT HAS BEEN REPEATING
+
+The inventory was meant to record the before-state. It also caught JC's own
+error, now propagated into two of Charlie's documents.
+
+JC's engineering review said Production Method was referenced by "twelve
+foreign key columns across nine tables", and Migration Plan v3 R3-WP6 inherited
+it as "all twelve foreign-key paths across the nine affected tables". Measured
+directly against pg_constraint: NINE foreign key constraints across NINE
+tables, one column each. The nine-table figure was always right; twelve was
+wrong and nobody re-derived it because it appeared in a table that looked
+measured.
+
+R3-WP6's exit condition is written in terms of twelve paths. Nine exist. That
+has to be corrected before R3, or the gate cannot be satisfied as worded.
+
+A tenth column named production_method_id exists and is NOT one of the nine: it
+sits in _backup_recipe_versions_20260819, a backup table with no foreign key.
+Two such tables live in the rigid_foam schema - _backup_recipe_versions_
+20260819 (1 row) and _backup_recipe_components_20260819 (14 rows), left from
+the Decision 3 work on 19 August. They are inside the application's schema but
+outside its ORM, they inflate the table count from 98 to 100, and an FK sweep
+will not see the legacy reference one of them carries. Raised for a ruling
+rather than deleted: JC does not remove data nobody has agreed to lose.
+
+R0-WP4 THE APPLICATION-FACING NAME
+
+"Rigid Foam" becomes "Polyurethane Company Intelligence" per Stefan's ruling.
+Six user-facing surfaces, in three files, all of which name the application to
+somebody: the browser tab title, the dashboard header, the navigation group
+label, the sidebar line, the login screen, and the password-reset email a
+locked-out user reads in their own mail client with nothing else to say which
+system it came from.
+
+The sidebar keeps its three-line shape. That middle line was added in v0.70.2
+for a specific reason - with Rigid and Flexible open side by side there was
+nothing at a glance to tell them apart - and the rename gives it the new name
+rather than deleting it.
+
+The header caption named the edition twice, once in the title and again
+directly beneath it. The repeat is dropped.
+
+Deliberately unchanged: the repository, the directory, app_rigid_foam.py and
+the rigid_foam schema. This is an application-facing rename, not a
+restructure, and a test asserts the internals did not move. Also left alone -
+the "PI3 Plant Edition - Annual" examples on the Subscription Types page,
+which are illustrations of a CUSTOMER's subscription naming, not this
+application's name. Renaming those would have been a false positive dressed up
+as thoroughness.
+
+Full regression: 951 passed, 6 skipped, 0 failed of 957 collected. The six new
+tests are mutation-checked, including reverting the sidebar line, deleting it
+outright, and missing the password-reset email.
+
 v0.74.3, 2026-08-20: R-PRE correction 3 - the metering module explained
 itself and then offered the form anyway.
 
@@ -8673,4 +8766,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.74.3"
+APP_VERSION = "0.75.0"

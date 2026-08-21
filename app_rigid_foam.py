@@ -3,7 +3,7 @@ PI3 Plant Edition
 Main entry point / navigation router.
 
 HTC Global Co. Ltd - rigid foam expert system, commercialised
-as PI3 - Rigid Foam Intelligence.
+as PI3 - Polyurethane Company Intelligence.
 
 This file sets page config, sidebar branding, and global styling once (it
 always runs first, on every page view, under st.navigation), then routes to
@@ -107,7 +107,7 @@ LOGO_PATH = "assets/htc_global_logo_blue_steel.png"
 # tab, before giving up and letting the error surface to the user.
 _MAX_SESSION_RECOVERY_ATTEMPTS = 2
 
-st.set_page_config(page_title="PI3 - Rigid Foam Intelligence", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PI3 - Polyurethane Company Intelligence", page_icon="🏗️", layout="wide")
 
 # Light styling on top of the .streamlit/config.toml color theme.
 st.markdown(
@@ -213,9 +213,9 @@ def render_overview():
     with header_logo:
         st.image(LOGO_PATH, width=90)
     with header_text:
-        st.title("PI3 — Rigid Foam Intelligence")
+        st.title("PI3 — Polyurethane Company Intelligence")
         st.caption(
-            "Plant Intelligence Dashboard | PI3 Plant Edition, Rigid Foam | "
+            "Plant Intelligence Dashboard | PI3 Plant Edition | "
             "HTC Global Co. Ltd"
         )
     render_function_action_intro(
@@ -699,7 +699,7 @@ if _visible("report"):
 # always renders its automatic nav menu first, before any other sidebar
 # content, regardless of where in the script that content is written.
 pg = st.navigation(
-    {"PI3 Plant Edition - Rigid Foam": top_pages, **nav_sections},
+    {"PI3 Plant Edition - Polyurethane Company Intelligence": top_pages, **nav_sections},
     position="hidden",
 )
 
@@ -712,7 +712,15 @@ with st.sidebar:
         # version, matching Flexible Foam (v2.9.1, 19 Aug 2026). Both editions
         # share the product name and a near-identical sidebar, so with one of
         # each open there was nothing at a glance to say which was which.
-        st.markdown("Rigid Foam")
+        #
+        # R0-WP4 (2026-08-21): "Rigid Foam" becomes "Polyurethane Company
+        # Intelligence" per Stefan's ruling. The line keeps its original job -
+        # telling this application apart from Flexible Foam at a glance - and
+        # now carries the application-facing name the redesign gives it. The
+        # platform name above it is unchanged; the repository, the directory
+        # and the rigid_foam schema are all untouched, so nothing internal
+        # moved with it.
+        st.markdown("Polyurethane Company Intelligence")
         st.caption(f"v{APP_VERSION}")
     st.divider()
 

@@ -211,7 +211,7 @@ def _render_forced_password_reset():
     content is reachable with the temporary import password still active.
     The AUTH_DISABLED dev bypass and legacy secrets.toml sessions never set
     must_reset_password in the first place, so they never reach this."""
-    st.title("PI3 Plant Edition - Rigid Foam")
+    st.title("PI3 Plant Edition - Polyurethane Company Intelligence")
     st.warning(
         "This account was created from a bulk import and is still using its temporary "
         "password. Set a new password to continue."
@@ -279,7 +279,7 @@ def require_login():
     db_has_users = _db_has_any_users(session)
     legacy_users = {} if db_has_users else _legacy_users_from_secrets()
 
-    st.title("PI3 Plant Edition - Rigid Foam")
+    st.title("PI3 Plant Edition - Polyurethane Company Intelligence")
     st.caption("Rigid foam expert system")
 
     if not db_has_users and not legacy_users:
@@ -340,9 +340,9 @@ def require_login():
                     contact = _find_company_admin_contact(session, forgot_email)
                     if contact:
                         admin_name, admin_email = contact
-                        subject = quote("PI3 Plant Edition - Rigid Foam - password reset request")
+                        subject = quote("PI3 Plant Edition - Polyurethane Company Intelligence - password reset request")
                         body = quote(
-                            f"Hi {admin_name},\n\nI'm locked out of my PI3 Plant Edition - Rigid Foam account "
+                            f"Hi {admin_name},\n\nI'm locked out of my PI3 Plant Edition - Polyurethane Company Intelligence account "
                             f"({forgot_email}) and need my password reset.\n\nThanks"
                         )
                         st.markdown(
