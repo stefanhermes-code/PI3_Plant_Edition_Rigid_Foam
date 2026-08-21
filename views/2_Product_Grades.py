@@ -3,7 +3,7 @@
 CR-10 (Split Product Families and Product Grades into Separate Pages,
 Charlie's instruction, 2026-08-12): this page is the Product Grades half
 of what used to be one combined page (views/2_Product_Family_Foam_Grade.py,
-"Product Families & Product Grades", two tabs) - see
+"PU Material Families & Product Grades", two tabs) - see
 views/2_Product_Families.py for the other half and the shared design notes
 (context handoff, access_control page_key retirement) that apply to both.
 
@@ -11,19 +11,19 @@ Every Product Grade read/write/cascade-delete behavior below - manual add,
 CSV/Excel import, machine assignment, and the full Product Grade Property
 Targets editor - is carried over unchanged from the old combined page's
 "Product grades" tab (CR-10 section 6, "Functional Preservation"). The one
-genuinely new thing this page adds is the "Filter by product family"
+genuinely new thing this page adds is the "Filter by PU Material Family"
 selectbox just below (CR-10 acceptance criterion 11, "Direct entry to
 Product Grades supports normal family selection or filtering") - the old
 combined page had no equivalent, since the "Product family" column on its
 grades table was the only family-facing context previously available here.
 
-Context handoff FROM Product Families (CR-10 acceptance criteria 10/11):
+Context handoff FROM PU Material Families (CR-10 acceptance criteria 10/11):
 if st.session_state["pfg_family_context_id"] is present (set by that page's
 "Open Product Grades for ..." button right before switching here), it is
 popped and used to seed the filter selectbox's initial value for this run
 - a one-time inheritance, not a permanent link, so navigating from a
 different family later always re-targets the filter, and the user is
-always free to change it (or pick "All product families") once they're
+always free to change it (or pick "All PU Material Families") once they're
 here, exactly like a direct visit to this page would allow."""
 
 import pandas as pd
@@ -41,7 +41,7 @@ from db import (
     PhysicalPropertyDefinition,
     PhysicalPropertyMethod,
     PhysicalPropertyUOM,
-    ProductFamily,
+    PUMaterialFamily,
     TestCondition,
     get_session,
     init_db,
@@ -63,7 +63,17 @@ from helpers import (
 )
 from tenant_scope import apply_scope, clear_scope_cache, company_picker, family_ids_for_plants, plant_ids_for_company
 
-GRADE_REQUIRED_COLUMNS = ["product_family_id", "grade_name"]
+GRADE_REQUIRED_COLUMNS = ["pu_material_family_id", "grade_name"]
+
+# R1-WP3 (2026-08-21). The canonical import header is pu_material_family_id.
+# For ONE compatibility release the legacy product_family_id header is accepted
+# and renamed on read, so a customer who kept a template built before the
+# rename is not met with "missing required column" on a file that was correct
+# yesterday. Charlie's ruling of 21 August; both paths are regression-tested.
+#
+# Retire this alias in the final redesign cleanup, at the same time as the
+# legacy page route - not before, and not silently.
+GRADE_COLUMN_ALIASES = {"product_family_id": "pu_material_family_id"}
 # CR-07 (2026-08-11, Product Grade Physical Property Target Architecture and
 # Quality Alignment): target_density/target_hardness dropped from the CSV
 # import's optional columns along with the manual Add/Edit form fields below
@@ -79,7 +89,7 @@ logout_button()
 st.title("Product Grades")
 render_function_action_intro(
     function_text=(
-        "A product grade is a specific product within a product family, and it's where a new grade "
+        "A product grade is a specific product within a PU Material Family, and it's where a new grade "
         "starts its life in the system. Each grade carries its own Product Grade Property Targets - a "
         "dynamic list you build from the same controlled Physical Property Master Quality results are "
         "recorded against, so a grade can be specified by exactly the properties that matter for it "
@@ -88,14 +98,14 @@ render_function_action_intro(
         "downstream is tied to one of these product grades."
     ),
     action_text=(
-        "Use the family filter below to work within one product family at a time, or leave it on 'All "
-        "product families' to see everything. Add each product grade one at a time, or bring in a "
+        "Use the family filter below to work within one PU Material Family at a time, or leave it on 'All "
+        "PU Material Families' to see everything. Add each product grade one at a time, or bring in a "
         "batch through the CSV/Excel import tab if you're loading many grades at once. On the edit "
         "screen, use 'Add a property target' to pick a controlled property and set its target type, "
         "value, and unit - repeat for every property this grade needs to hit; a property already added "
         "drops out of the picker until you remove it. Click a row in the table to edit or delete it - "
         "deleting a product grade cascades to everything recorded under it, with the count shown before "
-        "you confirm. Need a new product family first? Use the Product Families page."
+        "you confirm. Need a new PU Material Family first? Use the PU Material Families page."
     ),
 )
 session = get_session()
@@ -110,21 +120,21 @@ company_id = company.id if company else None
 plant_ids = plant_ids_for_company(session, company_id)
 family_ids = family_ids_for_plants(session, plant_ids)
 
-families = apply_scope(session.query(ProductFamily), ProductFamily.plant_id, plant_ids).all()
+families = apply_scope(session.query(PUMaterialFamily), PUMaterialFamily.plant_id, plant_ids).all()
 property_defs = (
     session.query(PhysicalPropertyDefinition)
     .order_by(PhysicalPropertyDefinition.is_common.desc(), PhysicalPropertyDefinition.sort_order)
     .all()
 )
 if not families:
-    st.warning("Add a product family first, on the Product Families page.")
+    st.warning("Add a PU Material Family first, on the PU Material Families page.")
 else:
     # CR-10 acceptance criterion 11 ("Direct entry to Product Grades
     # supports normal family selection or filtering") - the old combined
     # page had no equivalent of this; a grade's "Family" column on the
     # table below was the only family-facing context it offered.
     #
-    # Context handoff from Product Families (acceptance criteria 10):
+    # Context handoff from PU Material Families (acceptance criteria 10):
     # setting session_state[key] directly, BEFORE the selectbox with that
     # same key is instantiated below, is what makes Streamlit treat it as
     # this widget's current value on this run - popped immediately so it
@@ -138,14 +148,14 @@ else:
 
     family_filter_options = [None] + families
     selected_family_filter = st.selectbox(
-        "Filter by product family", family_filter_options,
-        format_func=lambda f: "All product families" if f is None else f.name,
+        "Filter by PU Material Family", family_filter_options,
+        format_func=lambda f: "All PU Material Families" if f is None else f.name,
         key="pgr_family_filter",
     )
     if selected_family_filter is not None:
         st.caption(
             f"Showing product grades for **{selected_family_filter.name}** only. "
-            "Choose 'All product families' above to see every grade."
+            "Choose 'All PU Material Families' above to see every grade."
         )
 
     # CR-11 (Standardize Record Create, Edit/Delete and CSV/Excel Import
@@ -175,7 +185,7 @@ else:
                 assignable_machines = machines_for_plant_across_activated_methods(session, family.plant_id)
                 if not assignable_machines:
                     st.warning(
-                        "This product family's plant has no activated Production Methods (or no "
+                        "This PU Material Family's plant has no activated Production Methods (or no "
                         "production units or cells tagged with one) yet. Enable a Production "
                         "Method and add a production unit or cell on the Production Equipment "
                         "page first."
@@ -201,7 +211,7 @@ else:
                             st.error("Grade name is required.")
                         else:
                             new_grade = FoamGrade(
-                                product_family_id=family.id,
+                                pu_material_family_id=family.id,
                                 grade_name=grade_name,
                                 notes=notes,
                             )
@@ -218,37 +228,40 @@ else:
             st.caption("View-only access - importing product grades is restricted for your role.")
         else:
             show_pending_banner("grade_import_msg")
-            df, filename = csv_excel_uploader(GRADE_REQUIRED_COLUMNS, GRADE_OPTIONAL_COLUMNS, key="grade_upload")
+            df, filename = csv_excel_uploader(
+                GRADE_REQUIRED_COLUMNS, GRADE_OPTIONAL_COLUMNS, key="grade_upload",
+                column_aliases=GRADE_COLUMN_ALIASES,
+            )
             if df is not None:
                 valid_family_ids = {f.id for f in families}
                 good_rows, bad_rows = [], []
                 for _, row in df.iterrows():
-                    if row.get("product_family_id") in valid_family_ids and str(row.get("grade_name", "")).strip():
+                    if row.get("pu_material_family_id") in valid_family_ids and str(row.get("grade_name", "")).strip():
                         good_rows.append(row)
                     else:
                         bad_rows.append(row)
 
                 st.write(f"Rows ready to import: **{len(good_rows)}** | Rows flagged/rejected: **{len(bad_rows)}**")
                 if bad_rows:
-                    st.warning("Flagged rows reference an unknown product_family_id or have no grade_name.")
+                    st.warning("Flagged rows reference an unknown pu_material_family_id or have no grade_name.")
                     render_data_table(pd.DataFrame(bad_rows), max_height="300px")
 
                 if good_rows and st.button("Confirm import", key="confirm_grade_import"):
                     existing_keys = {
-                        (g.product_family_id, g.grade_name.strip().lower())
+                        (g.pu_material_family_id, g.grade_name.strip().lower())
                         for g in apply_scope(
-                            session.query(FoamGrade), FoamGrade.product_family_id, family_ids
+                            session.query(FoamGrade), FoamGrade.pu_material_family_id, family_ids
                         ).all()
                     }
                     new_rows, dup_rows = dedupe_import_rows(
                         good_rows,
                         existing_keys,
-                        key_func=lambda row: (int(row["product_family_id"]), str(row["grade_name"]).strip().lower()),
+                        key_func=lambda row: (int(row["pu_material_family_id"]), str(row["grade_name"]).strip().lower()),
                     )
                     for row in new_rows:
                         session.add(
                             FoamGrade(
-                                product_family_id=int(row["product_family_id"]),
+                                pu_material_family_id=int(row["pu_material_family_id"]),
                                 grade_name=str(row["grade_name"]).strip(),
                                 notes=str(row.get("notes", "") or ""),
                             )
@@ -257,23 +270,23 @@ else:
                     clear_scope_cache()
                     msg = f"Imported {len(new_rows)} product grade(s) from {filename}."
                     if dup_rows:
-                        msg += f" Skipped {len(dup_rows)} row(s) already recorded for their product family (likely a repeat click)."
+                        msg += f" Skipped {len(dup_rows)} row(s) already recorded for their PU Material Family (likely a repeat click)."
                     set_pending_banner("grade_import_msg", msg)
                     st.rerun()
 
 
     with tab_edit_delete:
         st.divider()
-        grades = apply_scope(session.query(FoamGrade), FoamGrade.product_family_id, family_ids).all()
+        grades = apply_scope(session.query(FoamGrade), FoamGrade.pu_material_family_id, family_ids).all()
         if selected_family_filter is not None:
-            grades = [g for g in grades if g.product_family_id == selected_family_filter.id]
+            grades = [g for g in grades if g.pu_material_family_id == selected_family_filter.id]
         if not grades:
             st.info("No product grades recorded yet.")
         else:
             grade_rows = [
                 {
                     "Grade": grade.grade_name,
-                    "Family": grade.product_family.name,
+                    "Family": grade.pu_material_family.name,
                     # Derived from the grade's assigned Machines (many-to-many),
                     # never from the deprecated FoamGrade.production_method_id -
                     # see helpers.grade_production_method_label().
@@ -304,7 +317,7 @@ else:
                 else:
                     e_family = st.selectbox(
                         "Product family *", families,
-                        index=next((i for i, f in enumerate(families) if f.id == selected_grade.product_family_id), 0),
+                        index=next((i for i, f in enumerate(families) if f.id == selected_grade.pu_material_family_id), 0),
                         format_func=lambda f: f.name, key=f"edit_grade_family_{selected_grade.id}",
                     )
                     # No Production Method gate here either (see Add form
@@ -328,7 +341,7 @@ else:
                             e_machine_options.append(m)
                     if not e_machine_options:
                         st.caption(
-                            "This product family's plant has no activated Production Methods (or no "
+                            "This PU Material Family's plant has no activated Production Methods (or no "
                             "production units or cells tagged with one) yet."
                         )
                     e_assigned_machines = st.multiselect(
@@ -346,7 +359,7 @@ else:
                             if not e_grade_name.strip():
                                 st.error("Grade name is required.")
                             else:
-                                selected_grade.product_family_id = e_family.id
+                                selected_grade.pu_material_family_id = e_family.id
                                 selected_grade.grade_name = e_grade_name.strip()
                                 selected_grade.notes = e_notes
                                 # production_method_id intentionally left untouched -

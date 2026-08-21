@@ -39,7 +39,7 @@ def _seed_grade(session):
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"WP4 Achieve Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"Cold Room Panels {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"Cold Room Panels {u}")
     session.add(family); session.flush()
 
     chem = db.Chemistry(controlled_id=f"CHM-010-A-{u}", name="Rigid polyurethane foam")
@@ -50,7 +50,7 @@ def _seed_grade(session):
     # Reset and Clean UAT Baseline" instruction) - chemistry_id alone is
     # what this test needs to exercise the rigid branch.
     grade = db.FoamGrade(
-        product_family_id=family.id, grade_name=f"RF-COLD-ACHIEVE-{u}",
+        pu_material_family_id=family.id, grade_name=f"RF-COLD-ACHIEVE-{u}",
         chemistry_id=chem.id, status="UAT_ONLY",
     )
     session.add(grade); session.flush()

@@ -2,7 +2,7 @@
 JC action 7 (Charlie's WP6-S09 sequence, 2026-08-09): "Export one live page
 output each for UAT-015 through UAT-019."
 
-Seeds one realistic rigid-grade fixture (Company/Plant/Machine/ProductFamily/
+Seeds one realistic rigid-grade fixture (Company/Plant/Machine/PUMaterialFamily/
 Chemistry/ProductionMethod/FoamGrade/RecipeVersion/RecipeComponent/
 GradeSpecification/8 ProductionRuns each with a Finalized ProductionPhase +
 Sample + PhysicalPropertyResult + RawMaterialLotUse, plus one QualityObservation
@@ -45,7 +45,7 @@ def seed():
     s.add(plant); s.flush()
     machine = db.Machine(plant_id=plant.id, name=f"WP6S09 Live Machine {u}")
     s.add(machine); s.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"Cold Room Panels {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"Cold Room Panels {u}")
     s.add(family); s.flush()
     chem = db.Chemistry(controlled_id=f"CHM-LIVE-{u}", name="Rigid polyurethane foam")
     method = db.ProductionMethod(controlled_id=f"PM-LIVE-{u}", name="Closed-mold panel injection")
@@ -54,7 +54,7 @@ def seed():
     # FoamGrade.production_method_id removed 2026-08-10 (Charlie's "Database
     # Reset and Clean UAT Baseline" instruction).
     grade = db.FoamGrade(
-        product_family_id=family.id, grade_name=f"RF-LIVE-UAT-{u}",
+        pu_material_family_id=family.id, grade_name=f"RF-LIVE-UAT-{u}",
         chemistry_id=chem.id, status="UAT_ONLY",
     )
     s.add(grade); s.flush()

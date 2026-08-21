@@ -53,7 +53,7 @@ MANDATORY TEMPLATE: tests/test_cr11_functional_evidence_group_d.py (AUTH_
 DISABLED/sqlite:// boilerplate, _clear_relevant_caches() cache-collision
 defense, seeded_grade_chain -> seeded_run -> seeded_setup_phase/seeded_
 finalized_phase fixture chain, widget-key-not-label lookups) and tests/
-test_cr18_product_family_terminology.py (source-grep-with-allowlist
+test_cr18_pu_material_family_terminology.py (source-grep-with-allowlist
 pattern for part A).
 
 Usage: python -m pytest tests/test_wp7_phase0_containment.py -v
@@ -134,9 +134,9 @@ def seeded_grade_chain():
     )
     session.add(machine); session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"WP7P0 Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"WP7P0 Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"WP7P0 Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"WP7P0 Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()
@@ -231,7 +231,7 @@ _ACTIVE_CODE_TOKEN_RE = re.compile(
 
 
 def _active_code_hits(path):
-    """Mirrors test_cr18_product_family_terminology.py's scan technique:
+    """Mirrors test_cr18_pu_material_family_terminology.py's scan technique:
     walk every physical line, strip full-line comments, and report (line
     number, stripped text) for any line that still contains one of the
     in-scope tokens OUTSIDE of a comment/docstring. This is intentionally

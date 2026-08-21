@@ -54,7 +54,7 @@ render_function_action_intro(
         "then turn the ranked pattern into a plain-language read."
     ),
     action_text=(
-        "Pick the product grade (or a product family to pool several grades together) and the property "
+        "Pick the product grade (or a PU Material Family to pool several grades together) and the property "
         "you want to optimize toward, then read the ranked table - the setting at the top "
         "separates good from bad outcomes most clearly and is the one most worth reviewing on the "
         "floor. Use the PI3 synthesis further down for a plain-language interpretation before "
@@ -91,7 +91,7 @@ unit = analysis_unit_picker(grades, key_prefix="mso")
 pooling_grades = unit["mode"] == "family"
 if pooling_grades:
     st.caption(
-        f"Pooling {len(unit['grade_ids'])} grade(s) in product family **{unit['label']}**: "
+        f"Pooling {len(unit['grade_ids'])} grade(s) in PU Material Family **{unit['label']}**: "
         f"{', '.join(unit['member_grade_names'])}. Because grades in a family can have different "
         "target values for the same property, the ranking and drill-down below are computed "
         "against **% of each run's own target** instead of the property's raw unit - this keeps "
@@ -297,7 +297,7 @@ else:
 plant_id = unit["plant_id"]
 subject_desc = (
     f"product grade {unit['label']}" if unit["mode"] == "grade"
-    else f"product family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
+    else f"PU Material Family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
 )
 docx_grade_id = unit["entity_id"] if unit["mode"] == "grade" else None
 

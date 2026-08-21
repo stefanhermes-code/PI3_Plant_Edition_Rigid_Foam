@@ -73,7 +73,7 @@ def _reset_schema():
 
 @pytest.fixture()
 def certificate_chain():
-    """Company -> Plant -> Machine -> ProductFamily -> FoamGrade ->
+    """Company -> Plant -> Machine -> PUMaterialFamily -> FoamGrade ->
     RecipeVersion WITH a component carrying the planted values -> ProductionRun
     -> Sample. The recipe is fully populated on purpose: the point is that the
     data exists and the certificate still does not show it."""
@@ -88,9 +88,9 @@ def certificate_chain():
     session.add(plant); session.flush()
     machine = db.Machine(plant_id=plant.id, name=f"RPRE Machine {u}", active=True)
     session.add(machine); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"RPRE Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"RPRE Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"RPRE Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"RPRE Grade {u}")
     session.add(grade); session.flush()
 
     recipe = db.RecipeVersion(

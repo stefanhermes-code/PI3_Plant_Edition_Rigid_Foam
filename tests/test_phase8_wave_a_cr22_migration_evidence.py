@@ -139,9 +139,9 @@ def cr22_migration_fixture():
     session.add(plant); session.flush()
     machine = db.Machine(plant_id=plant.id, name=f"CR22 Machine {u}", production_method_id=pm800.id, active=True)
     session.add(machine); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR22 Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR22 Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR22 Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR22 Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()

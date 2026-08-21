@@ -1,7 +1,7 @@
 """Shared cascade-delete helpers.
 
 Deleting anything above a production run in the master-data hierarchy
-(Plant -> Product Family -> Foam Grade -> Recipe Version) ultimately has
+(Plant -> PU Material Family -> Foam Grade -> Recipe Version) ultimately has
 to delete every production run underneath it too, since
 ProductionRun.plant_id, foam_grade_id, and recipe_version_id are all
 NOT NULL foreign keys - there is no way to delete a Foam Grade, say,
@@ -34,7 +34,7 @@ from db import (
     Plant,
     PlantProductionMethod,
     ProcessParameterValue,
-    ProductFamily,
+    PUMaterialFamily,
     ProductionCycle,
     ProductionEvent,
     ProductionOutputSummary,
@@ -441,25 +441,25 @@ def delete_foam_grade_cascade(session, foam_grade_id):
 # Product family
 # ---------------------------------------------------------------------------
 
-def _grade_ids_for_family(session, product_family_id):
+def _grade_ids_for_family(session, pu_material_family_id):
     return [
         g.id for g in session.query(FoamGrade.id)
-        .filter(FoamGrade.product_family_id == product_family_id).all()
+        .filter(FoamGrade.pu_material_family_id == pu_material_family_id).all()
     ]
 
 
-def product_family_dependency_counts(session, product_family_id):
-    grade_ids = _grade_ids_for_family(session, product_family_id)
+def pu_material_family_dependency_counts(session, pu_material_family_id):
+    grade_ids = _grade_ids_for_family(session, pu_material_family_id)
     counts = {"product grade(s)": len(grade_ids)}
     for grade_id in grade_ids:
         _merge_counts(counts, foam_grade_dependency_counts(session, grade_id))
     return counts
 
 
-def delete_product_family_cascade(session, product_family_id):
-    for grade_id in _grade_ids_for_family(session, product_family_id):
+def delete_pu_material_family_cascade(session, pu_material_family_id):
+    for grade_id in _grade_ids_for_family(session, pu_material_family_id):
         delete_foam_grade_cascade(session, grade_id)
-    session.query(ProductFamily).filter(ProductFamily.id == product_family_id).delete(synchronize_session=False)
+    session.query(PUMaterialFamily).filter(PUMaterialFamily.id == pu_material_family_id).delete(synchronize_session=False)
 
 
 # ---------------------------------------------------------------------------
@@ -468,21 +468,21 @@ def delete_product_family_cascade(session, product_family_id):
 
 def plant_dependency_counts(session, plant_id):
     family_ids = [
-        f.id for f in session.query(ProductFamily.id).filter(ProductFamily.plant_id == plant_id).all()
+        f.id for f in session.query(PUMaterialFamily.id).filter(PUMaterialFamily.plant_id == plant_id).all()
     ]
-    counts = {"product family(ies)": len(family_ids)}
+    counts = {"PU Material Family(ies)": len(family_ids)}
     already_counted_run_ids = set()
     already_counted_ct_ids = set()
     already_counted_ot_ids = set()
     for family_id in family_ids:
-        _merge_counts(counts, product_family_dependency_counts(session, family_id))
+        _merge_counts(counts, pu_material_family_dependency_counts(session, family_id))
         for grade_id in _grade_ids_for_family(session, family_id):
             already_counted_run_ids.update(_run_ids_for_foam_grade(session, grade_id))
             already_counted_ct_ids.update(_customer_trial_ids_for_foam_grade(session, grade_id))
             already_counted_ot_ids.update(_optimization_trial_ids_for_foam_grade(session, grade_id))
 
     # Runs keyed directly to this plant that weren't already reached via a
-    # product family/foam grade above (shouldn't normally happen given how
+    # PU Material Family/foam grade above (shouldn't normally happen given how
     # runs are created, but a direct plant_id FK exists, so check for it).
     direct_run_ids = set(
         r.id for r in session.query(ProductionRun.id).filter(ProductionRun.plant_id == plant_id).all()
@@ -527,7 +527,7 @@ def plant_dependency_counts(session, plant_id):
 
 def delete_plant_cascade(session, plant_id):
     family_ids = [
-        f.id for f in session.query(ProductFamily.id).filter(ProductFamily.plant_id == plant_id).all()
+        f.id for f in session.query(PUMaterialFamily.id).filter(PUMaterialFamily.plant_id == plant_id).all()
     ]
     already_deleted_run_ids = set()
     already_deleted_ct_ids = set()
@@ -537,7 +537,7 @@ def delete_plant_cascade(session, plant_id):
             already_deleted_run_ids.update(_run_ids_for_foam_grade(session, grade_id))
             already_deleted_ct_ids.update(_customer_trial_ids_for_foam_grade(session, grade_id))
             already_deleted_ot_ids.update(_optimization_trial_ids_for_foam_grade(session, grade_id))
-        delete_product_family_cascade(session, family_id)
+        delete_pu_material_family_cascade(session, family_id)
 
     remaining_run_ids = set(
         r.id for r in session.query(ProductionRun.id).filter(ProductionRun.plant_id == plant_id).all()

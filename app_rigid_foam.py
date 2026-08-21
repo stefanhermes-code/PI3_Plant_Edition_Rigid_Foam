@@ -78,7 +78,7 @@ from db import (
     OptimizationTrial,
     PhysicalPropertyResult,
     Plant,
-    ProductFamily,
+    PUMaterialFamily,
     ProductionMethod,
     ProductionRun,
     QualityObservation,
@@ -155,7 +155,7 @@ def render_overview():
     3) - each cascading into the next exactly like the Production
     Equipment / Product Grade forms already do elsewhere in the app
     (helpers.activated_methods_for_plant / machines_for_plant_and_method
-    / machines_for_plant_across_activated_methods). Product Family is
+    / machines_for_plant_across_activated_methods). PU Material Family is
     demoted to an optional "Advanced filter" (CR-02: "a commercial/product
     classification... shall not replace Production Method, Production
     Unit/Cell or Product Grade in the primary operating filter sequence")
@@ -164,12 +164,12 @@ def render_overview():
 
     CR-16 (Consolidate Overview Dashboard Filters into a Unified Layout,
     2026-08-13): removed that "Advanced filter (optional)" expander -
-    Product Family now sits directly in the visible filter area, on its
+    PU Material Family now sits directly in the visible filter area, on its
     own second row alongside Product Grade and Date range (Row 1: Plant,
-    Production Method, Production Unit / Cell; Row 2: Product Family,
+    Production Method, Production Unit / Cell; Row 2: PU Material Family,
     Product Grade, Date range), so all six filters are visible without
     an extra click. This is presentation-only: every cascading rule and
-    KPI-scoping rule below (including Product Family narrowing Product
+    KPI-scoping rule below (including PU Material Family narrowing Product
     Grade without independently scoping any KPI) is unchanged from CR-02.
 
     KPI aggregation rules (CR-02 section 6): the old "Meters produced /
@@ -239,11 +239,11 @@ def render_overview():
     # replaces the old "Advanced filter (optional)" expander (Product
     # Family alone) plus a separate 5-column primary row with one visible
     # two-row, three-column filter area - Row 1: Plant, Production Method,
-    # Production Unit / Cell; Row 2: Product Family, Product Grade, Date
+    # Production Unit / Cell; Row 2: PU Material Family, Product Grade, Date
     # range. This is a presentation-only change: every cascading rule
     # below is byte-for-byte the same logic CR-02 established (Plant ->
     # Production Method -> Production Unit / Cell -> Product Grade, with
-    # Product Family narrowing Product Grade only, never an independent
+    # PU Material Family narrowing Product Grade only, never an independent
     # KPI scope) - only the widget layout moved. -------------------------
     row1_col1, row1_col2, row1_col3 = st.columns(3)
 
@@ -279,34 +279,34 @@ def render_overview():
 
     row2_col1, row2_col2, row2_col3 = st.columns(3)
 
-    # Product Family (CR-02: a commercial classification, not part of the
+    # PU Material Family (CR-02: a commercial classification, not part of the
     # primary operating hierarchy - only narrows Product Grade below,
     # never a separate KPI scope; CR-16: moved out of the removed
     # "Advanced filter" expander into this same visible row as Product
     # Grade so their relationship is immediately understandable).
     with row2_col1:
         family_filter = st.selectbox(
-            "Product Family", [None] + session.query(ProductFamily).all(),
-            format_func=lambda f: "All product families" if f is None else f.name,
+            "PU Material Family", [None] + session.query(PUMaterialFamily).all(),
+            format_func=lambda f: "All PU Material Families" if f is None else f.name,
             help="Optional classification - narrows Product Grade below, does not scope KPIs on its own.",
         )
 
     # Plant scoping is applied whenever a Plant is picked (via the grade's
-    # ProductFamily.plant_id), independently of Method/Unit, since
+    # PUMaterialFamily.plant_id), independently of Method/Unit, since
     # ProductionMethod is a global controlled vocabulary shared across
     # plants - filtering grades by method alone would otherwise leak in
     # another plant's machines that happen to share the same method.
     grades_query = session.query(FoamGrade)
     if plant_filter:
-        grades_query = grades_query.join(ProductFamily, FoamGrade.product_family_id == ProductFamily.id).filter(
-            ProductFamily.plant_id == plant_filter.id
+        grades_query = grades_query.join(PUMaterialFamily, FoamGrade.pu_material_family_id == PUMaterialFamily.id).filter(
+            PUMaterialFamily.plant_id == plant_filter.id
         )
     if machine_filter:
         grades_query = grades_query.filter(FoamGrade.machines.any(Machine.id == machine_filter.id))
     elif method_filter:
         grades_query = grades_query.filter(FoamGrade.machines.any(Machine.production_method_id == method_filter.id))
     if family_filter:
-        grades_query = grades_query.filter(FoamGrade.product_family_id == family_filter.id)
+        grades_query = grades_query.filter(FoamGrade.pu_material_family_id == family_filter.id)
     grades = grades_query.all()
     with row2_col2:
         grade_filter = st.selectbox(
@@ -475,7 +475,7 @@ report_page = st.Page("views/21_Report.py", title="Reports", icon="🖨️")
 # 2026-08-10: sidebar restructured to Charlie's approved target structure -
 # Production Method is now a first-class nav section (plant_setup_pages
 # holds only Plants; production_method_pages holds the new Production
-# Methods + Production Equipment pages plus Product Families & Product
+# Methods + Production Equipment pages plus PU Material Families & Product
 # Grades, since equipment and grades both resolve inside a Production
 # Method's context per CR-01). Formulations (Raw Materials, Recipes,
 # Reference Formulations) stays its own section, reused as-is - CR-01
@@ -483,10 +483,10 @@ report_page = st.Page("views/21_Report.py", title="Reports", icon="🖨️")
 # docstrings for the page-level split rationale.
 #
 # CR-10 (Split Product Families and Product Grades into Separate Pages),
-# implemented 2026-08-12: the single "Product Families & Product Grades"
+# implemented 2026-08-12: the single "PU Material Families & Product Grades"
 # entry (formerly views/2_Product_Family_Foam_Grade.py, two tabs) is
 # replaced by two direct entries, in the exact order CR-10 section 3
-# mandates (Production Methods, Production Equipment, Product Families,
+# mandates (Production Methods, Production Equipment, PU Material Families,
 # Product Grades) - see views/2_Product_Families.py and
 # views/2_Product_Grades.py for the split page-level rationale, including
 # the context handoff between them and the access_control key change.
@@ -497,7 +497,7 @@ plant_setup_pages = [
 production_method_pages = [
     ("production_methods", st.Page("views/30_Production_Methods.py", title="Production Methods", icon="🧭")),
     ("plant_overview", st.Page("views/31_Production_Equipment.py", title="Production Equipment", icon="🏭")),
-    ("product_families", st.Page("views/2_Product_Families.py", title="Product Families", icon="🧬")),
+    ("pu_material_families", st.Page("views/2_Product_Families.py", title="PU Material Families", icon="🧬")),
     ("product_grades", st.Page("views/2_Product_Grades.py", title="Product Grades", icon="🏷️")),
 ]
 
@@ -612,13 +612,13 @@ platform_admin_pages = [
 # CR-01 target sidebar structure (2026-08-10): Overview (Overview, Reports
 # - handled separately below as top_pages, not a nav_sections entry) / Plant
 # Setup (Plants) / Production Methods (Production Methods, Production
-# Equipment, Product Families & Product Grades) / Formulations (Raw
+# Equipment, PU Material Families & Product Grades) / Formulations (Raw
 # Materials, Recipes, Reference Formulations) / Production (Production
 # Runs) / Samples & Trials / Quality (Test Results, Quality Issues) /
 # Industrial Intelligence (unchanged). Company Admin stays as-is - out of
 # CR-01's scope (rigid-foam terminology/navigation for the operational app),
 # not a customer-facing production-method concept. CR-10 (2026-08-12) later
-# split "Product Families & Product Grades" into its own two direct entries
+# split "PU Material Families & Product Grades" into its own two direct entries
 # within this same Production Methods section - see production_method_pages
 # above.
 #

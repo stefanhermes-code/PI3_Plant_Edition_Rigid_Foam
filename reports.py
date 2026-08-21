@@ -12,7 +12,7 @@ test) and a Word (.docx) renderer (PDF/Excel renderers were removed
 2026-08-04; every report now exports to Word only):
 
 - build_period_summary_data() / render_period_summary_docx()
-  One plant/product family/date range: KPIs, pass rate, recurring issues,
+  One plant/PU Material Family/date range: KPIs, pass rate, recurring issues,
   the run list, and a breakdown by product grade.
 - build_trial_report_data() / render_trial_report_docx()
   One closed Customer Trial or Optimization Trial (see db.CustomerTrial /
@@ -234,7 +234,7 @@ from db import (
     Plant,
     PhysicalPropertyMethod,
     PhysicalPropertyResult,
-    ProductFamily,
+    PUMaterialFamily,
     ProductionEvent,
     ProductionMethod,
     ProductionPhase,
@@ -497,10 +497,10 @@ def plant_label(session, plant_id):
     return p.name if p else "—"
 
 
-def product_family_label(session, product_family_id):
-    if product_family_id is None:
-        return "All product families"
-    f = session.get(ProductFamily, product_family_id)
+def pu_material_family_label(session, pu_material_family_id):
+    if pu_material_family_id is None:
+        return "All PU Material Families"
+    f = session.get(PUMaterialFamily, pu_material_family_id)
     return f.name if f else "—"
 
 
@@ -509,7 +509,7 @@ def product_family_label(session, product_family_id):
 # ---------------------------------------------------------------------------
 
 def build_period_summary_data(
-    session, plant_id=None, product_family_id=None, date_from=None, date_to=None,
+    session, plant_id=None, pu_material_family_id=None, date_from=None, date_to=None,
     allowed_plant_ids=None, production_method_id=None,
 ):
     """allowed_plant_ids is the tenant-scope guardrail (see tenant_scope.py):
@@ -534,9 +534,9 @@ def build_period_summary_data(
         runs_q = runs_q.filter(ProductionRun.plant_id.in_(allowed_plant_ids))
     if plant_id:
         runs_q = runs_q.filter(ProductionRun.plant_id == plant_id)
-    if product_family_id:
+    if pu_material_family_id:
         runs_q = runs_q.join(FoamGrade, ProductionRun.foam_grade_id == FoamGrade.id).filter(
-            FoamGrade.product_family_id == product_family_id
+            FoamGrade.pu_material_family_id == pu_material_family_id
         )
     if date_from:
         runs_q = runs_q.filter(ProductionRun.run_date >= date_from)
@@ -678,7 +678,7 @@ def build_period_summary_data(
 
     return {
         "plant": plant_label(session, plant_id),
-        "product_family": product_family_label(session, product_family_id),
+        "pu_material_family": pu_material_family_label(session, pu_material_family_id),
         "production_method": production_method_label_text,
         "date_from": date_from,
         "date_to": date_to,
@@ -709,7 +709,7 @@ def render_period_summary_pdf(data):
     def build(story):
         _title_block(
             story, "Plant / Period Summary Report",
-            f"{data['plant']} · {data['product_family']} · {data['date_from'] or 'earliest'} to {data['date_to'] or 'latest'}",
+            f"{data['plant']} · {data['pu_material_family']} · {data['date_from'] or 'earliest'} to {data['date_to'] or 'latest'}",
         )
         story.append(_key_value_table([
             ("Production runs", data["total_runs"]),
@@ -725,7 +725,7 @@ def render_period_summary_pdf(data):
 
 def render_period_summary_docx(data):
     doc = Document()
-    subtitle = f"{data['plant']} · {data['product_family']} · {data['date_from'] or 'earliest'} to {data['date_to'] or 'latest'}"
+    subtitle = f"{data['plant']} · {data['pu_material_family']} · {data['date_from'] or 'earliest'} to {data['date_to'] or 'latest'}"
     if data.get("production_method") and data["production_method"] != "All methods":
         subtitle = f"{subtitle} · Production Method: {data['production_method']}"
     reference_dataset_label = customer_presentation.customer_facing_reference_dataset_label(
@@ -1002,7 +1002,7 @@ def build_recipe_formulation_record_data(session, recipe_version_id, date_from=N
     if rv is None:
         return None
     grade = rv.foam_grade
-    family = grade.product_family if grade else None
+    family = grade.pu_material_family if grade else None
 
     ordered_components = sorted(
         rv.components,
@@ -1064,7 +1064,7 @@ def build_recipe_formulation_record_data(session, recipe_version_id, date_from=N
         "recipe_version_id": rv.id,
         "version_label": rv.version_label,
         "foam_grade": grade.grade_name if grade else "—",
-        "product_family": family.name if family else "—",
+        "pu_material_family": family.name if family else "—",
         "approval_status": rv.approval_status,
         "is_active": rv.is_active,
         "effective_date": rv.effective_date,
@@ -1086,7 +1086,7 @@ def render_recipe_formulation_record_pdf(data):
     def build(story):
         _title_block(
             story, f"Recipe / Formulation Record — {data['version_label']}",
-            f"{data['foam_grade']} · {data['product_family']} · "
+            f"{data['foam_grade']} · {data['pu_material_family']} · "
             f"{'Active recipe' if data['is_active'] else 'Retired version'}",
         )
         story.append(_key_value_table([
@@ -1121,7 +1121,7 @@ def render_recipe_formulation_record_docx(data):
     doc = Document()
     _docx_report_header(
         doc, f"Recipe / Formulation Record — {data['version_label']}",
-        f"{data['foam_grade']} · {data['product_family']} · "
+        f"{data['foam_grade']} · {data['pu_material_family']} · "
         f"{'Active recipe' if data['is_active'] else 'Retired version'}",
     )
     _docx_kv_table(doc, [
@@ -1187,7 +1187,7 @@ def build_where_used_report_data(session, raw_material_id):
     for c in sorted(components, key=_sort_key):
         v = version_by_id.get(c.recipe_version_id)
         grade = v.foam_grade if v else None
-        family = grade.product_family if grade else None
+        family = grade.pu_material_family if grade else None
         if grade:
             grade_ids.add(grade.id)
         if family:
@@ -1246,7 +1246,7 @@ def build_where_used_report_data(session, raw_material_id):
         "active": rm.active,
         "recipe_version_count": len(recipe_version_ids),
         "foam_grade_count": len(grade_ids),
-        "product_family_count": len(family_names),
+        "pu_material_family_count": len(family_names),
         "usage_rows": usage_rows,
         "target_rows": target_rows,
         "trial_rows": trial_rows,
@@ -1263,7 +1263,7 @@ def render_where_used_report_pdf(data):
         story.append(_key_value_table([
             ("Recipe versions using this material", data["recipe_version_count"]),
             ("Product grades affected", data["foam_grade_count"]),
-            ("Product families affected", data["product_family_count"]),
+            ("Product families affected", data["pu_material_family_count"]),
             ("", ""),
         ]))
         _section(story, "Recipes using this material", data["usage_rows"])
@@ -1282,7 +1282,7 @@ def render_where_used_report_docx(data):
     _docx_kv_table(doc, [
         ("Recipe versions using this material", data["recipe_version_count"]),
         ("Product grades affected", data["foam_grade_count"]),
-        ("Product families affected", data["product_family_count"]),
+        ("Product families affected", data["pu_material_family_count"]),
     ])
     _docx_section(doc, "Recipes using this material", data["usage_rows"])
     _docx_section(doc, "Target properties of affected product grades", data["target_rows"])
@@ -1519,7 +1519,7 @@ def build_batch_release_record_data(session, run_id):
     if run is None:
         return None
     grade = run.foam_grade
-    family = grade.product_family if grade else None
+    family = grade.pu_material_family if grade else None
     recipe = run.recipe_version
 
     ordered_components = (
@@ -1640,7 +1640,7 @@ def build_batch_release_record_data(session, run_id):
     return {
         "run_id": run.id,
         "plant": run.plant.name if run.plant else "—",
-        "product_family": family.name if family else "—",
+        "pu_material_family": family.name if family else "—",
         "foam_grade": grade.grade_name if grade else "—",
         "machine": run.machine.name if run.machine else "—",
         # Immutable snapshot taken at run creation (db.py ProductionRun.
@@ -1688,7 +1688,7 @@ def render_batch_release_record_pdf(data):
         # CR-22 / F22-04 (AF22-01): "Block reference" row omitted entirely
         # for every method except PM-500 Rigid Block Production.
         batch_release_kv = [
-            ("Plant", data["plant"]), ("Product family", data["product_family"]),
+            ("Plant", data["plant"]), ("Product family", data["pu_material_family"]),
             ("Product grade", data["foam_grade"]), ("Production Unit or Cell", data["machine"]),
             ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
         ]
@@ -1756,7 +1756,7 @@ def render_batch_release_record_docx(data):
     # CR-22 / F22-04 (AF22-01): "Block reference" row omitted entirely for
     # every method except PM-500 Rigid Block Production.
     batch_release_docx_kv = [
-        ("Plant", data["plant"]), ("Product family", data["product_family"]),
+        ("Plant", data["plant"]), ("Product family", data["pu_material_family"]),
         ("Product grade", data["foam_grade"]), ("Production Unit or Cell", data["machine"]),
         ("Production method", data["production_method"]),
         ("Run date", data["run_date"]), ("Batch reference", data["batch_reference"]),
@@ -3290,8 +3290,8 @@ def build_recipe_optimization_report_data(
     ingredient-correlation drill-down. actual_ranked: DataFrame from
     analytics.rank_component_actual_correlations() for corr_property."""
     plant_name = None
-    if grade.product_family and grade.product_family.plant:
-        plant_name = grade.product_family.plant.name
+    if grade.pu_material_family and grade.pu_material_family.plant:
+        plant_name = grade.pu_material_family.plant.name
 
     cost_per_kg = None
     if current_cost.get("total_cost") is not None and current_cost.get("total_php"):
@@ -3422,8 +3422,8 @@ def build_rigid_recipe_optimization_report_data(
     rank_component_actual_correlations(), so the correlation section below
     needs no rigid-specific handling either."""
     plant_name = None
-    if grade.product_family and grade.product_family.plant:
-        plant_name = grade.product_family.plant.name
+    if grade.pu_material_family and grade.pu_material_family.plant:
+        plant_name = grade.pu_material_family.plant.name
 
     cost_per_kg = None
     if current_cost.get("total_cost") is not None and current_cost.get("total_php"):
@@ -3692,7 +3692,7 @@ def build_trend_analysis_report_data(
     page already assembled."""
     subject_desc = (
         f"product grade {unit['label']}" if unit["mode"] == "grade"
-        else f"product family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
+        else f"PU Material Family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
     )
 
     control_categories, control_series = [], []
@@ -3947,7 +3947,7 @@ def build_correlation_report_data(session, unit, property_name, ranked, pooling_
     field)."""
     subject_desc = (
         f"product grade {unit['label']}" if unit["mode"] == "grade"
-        else f"product family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
+        else f"PU Material Family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
     )
 
     ranked_with_data = ranked.dropna(subset=["correlation"]) if ranked is not None else pd.DataFrame()
@@ -4521,7 +4521,7 @@ def build_machine_settings_report_data(session, unit, property_name, ranked, poo
     best_range_setting/best_range_avg_dev_pct/spread_pct/field)."""
     subject_desc = (
         f"product grade {unit['label']}" if unit["mode"] == "grade"
-        else f"product family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
+        else f"PU Material Family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
     )
 
     ranked_with_data = ranked.dropna(subset=["spread_pct"]) if ranked is not None else pd.DataFrame()
@@ -4657,7 +4657,7 @@ def build_expert_notes_report_data(session, notes, scope_label):
     link_type_counts = {}
     in_pi3_count = 0
     link_type_labels = {
-        "production_run": "Production Run", "foam_grade": "Product Grade", "product_family": "Product Family",
+        "production_run": "Production Run", "foam_grade": "Product Grade", "pu_material_family": "PU Material Family",
     }
     for n in notes:
         conf = n.confidence_level or "—"

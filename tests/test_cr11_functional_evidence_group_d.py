@@ -65,7 +65,7 @@ before writing anything here, per instruction):
               production_phase_id FK) - Production Event attaches directly
               to the run, not via a phase, and never depends on Setup Data
               or Runtime Data existing first.
-  ProductionRun itself depends on Plant -> ProductFamily -> FoamGrade
+  ProductionRun itself depends on Plant -> PUMaterialFamily -> FoamGrade
   (+ an assigned Machine, +an active RecipeVersion for that grade) - the
   same chain test_pm_hierarchy_pages_smoke.py's seeded_pm_hierarchy fixture
   builds for this same page, reused below as seeded_grade_chain().
@@ -85,7 +85,7 @@ before writing anything here, per instruction):
   Reading, Production Event, and Production Run, which list potentially-many
   rows via helpers.clickable_table() and need the CR-10-correction-derived
   "preset the dataframe widget's own on_select state before .run()"
-  technique - see test_cr10_product_family_grade_split.py's module
+  technique - see test_cr10_pu_material_family_grade_split.py's module
   docstring for why setting the derived "..._selected_id" key directly does
   NOT work, only presetting the table's own key does).
 - Production Run's own Edit form has an extra wrinkle not present on any
@@ -99,10 +99,10 @@ before writing anything here, per instruction):
   presetting session_state["runs_overview_table"]'s own selection state -
   it must be re-preset before every single .run() call where that form
   needs to be visible (mirrored in the delete step below, exactly like
-  test_cr10_product_family_grade_split.py's own delete flow re-presets its
+  test_cr10_pu_material_family_grade_split.py's own delete flow re-presets its
   table selection before deleting).
 
-MANDATORY TEMPLATE: tests/test_cr10_product_family_grade_split.py (see that
+MANDATORY TEMPLATE: tests/test_cr10_pu_material_family_grade_split.py (see that
 file for the accepted DATABASE_URL/sys.path boilerplate, the cache-clearing
 defense, the dataframe-preset-selection technique, and the file_uploader
 technique - all copied here unchanged).
@@ -130,9 +130,9 @@ PAGE4 = os.path.join(APP_DIR, "views", "4_Production_Run_Trial_Record.py")
 
 def _clear_relevant_caches():
     """Same cross-test/cross-file @st.cache_data id-collision defense
-    test_cr10_product_family_grade_split.py's own _clear_relevant_caches()
+    test_cr10_pu_material_family_grade_split.py's own _clear_relevant_caches()
     documents and uses - every fixture below creates a fresh Company/Plant/
-    ProductFamily/FoamGrade/ProductionRun after _reset_schema() restarts
+    PUMaterialFamily/FoamGrade/ProductionRun after _reset_schema() restarts
     autoincrement ids at 1, and tenant_scope's id-scoping helpers are
     @st.cache_data'd on small-int keys (company_id/plant_ids/role_id) that
     repeat across tests/files once ids restart. run_ids_for_plants is
@@ -176,7 +176,7 @@ def _run(session_state=None):
 @pytest.fixture()
 def seeded_grade_chain():
     """Company -> Plant -> ProductionMethod (+ PlantProductionMethod
-    activation) -> Machine (tagged to that method, active) -> ProductFamily
+    activation) -> Machine (tagged to that method, active) -> PUMaterialFamily
     -> FoamGrade (assigned to the Machine via the foam_grade_machines
     many-to-many) -> RecipeVersion (is_active=True). Deliberately stops
     short of creating a ProductionRun - this is the exact chain
@@ -213,9 +213,9 @@ def seeded_grade_chain():
     )
     session.add(machine); session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR11D Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR11D Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11D Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR11D Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()
@@ -657,7 +657,7 @@ def test_stream_reading_create_via_form(seeded_finalized_phase):
 def test_stream_reading_selection_edit_and_delete_via_ui(seeded_stream_reading):
     """Presets the f"streams_table_{run_id}" dataframe widget's OWN
     on_select state to select row 0 before .run() - same CR-10-correction-
-    derived technique as test_cr10_product_family_grade_split.py, applied
+    derived technique as test_cr10_pu_material_family_grade_split.py, applied
     to Stream Reading's own table key and its own pr_selected_stream_id
     derived state. Edits the stream name through the real Edit form and
     confirms it persisted, then deletes it through the real
@@ -1067,7 +1067,7 @@ def _run_as_role(session_state, ids):
     (see auth.py's require_login docstring) with a real, restricted role -
     the dev bypass only setdefault()s these session_state keys, so
     presetting them BEFORE .run() makes require_login() leave them alone.
-    Mirrors test_cr10_product_family_grade_split.py's own _run_as_role,
+    Mirrors test_cr10_pu_material_family_grade_split.py's own _run_as_role,
     applied to this page (PAGE4) instead."""
     at = AppTest.from_file(PAGE4, default_timeout=30)
     at.secrets["AUTH_DISABLED"] = True

@@ -21,7 +21,7 @@ called out:
      only relabeled it) and the nested "Supplier" group inside the
      "Suppliers" tab (also pre-existing, also just relabeled).
 
-Copies tests/test_cr10_product_family_grade_split.py's established,
+Copies tests/test_cr10_pu_material_family_grade_split.py's established,
 already-accepted pattern exactly:
   - os.environ.setdefault("DATABASE_URL", "sqlite://") + sys.path boilerplate.
   - db.init_db() + db.Base.metadata.drop_all/create_all per fixture, with
@@ -136,7 +136,7 @@ PAGE_RAWMAT = os.path.join(APP_DIR, "views", "14_Raw_Materials.py")
 
 
 def _clear_relevant_caches():
-    """Same defensive clear as tests/test_cr10_product_family_grade_split.py's
+    """Same defensive clear as tests/test_cr10_pu_material_family_grade_split.py's
     own helper of this name - this file's fixtures each create a fresh
     Company/Role/User/RawMaterial/Supplier after _reset_schema() restarts
     autoincrement ids at 1, which is exactly the cross-test/cross-file
@@ -999,7 +999,7 @@ def test_role_permission_denied_role_cannot_delete_via_ui(seeded_role_for_edit_d
     to a real Role's name that is neither "Company Admin" nor "Platform
     Admin" BEFORE .run() - overriding the AUTH_DISABLED dev-bypass's own
     setdefault("role", "Platform Admin"), the same override technique
-    tests/test_cr10_product_family_grade_split.py's _run_as_role uses for
+    tests/test_cr10_pu_material_family_grade_split.py's _run_as_role uses for
     role_id/is_super_admin/is_platform_owner/company_id. Confirms
     auth.require_role()'s real, current enforcement (the only permission
     gate this page has - see module docstring) stops the whole script
@@ -1114,7 +1114,7 @@ def test_raw_material_view_only_role_cannot_delete_via_ui(view_only_role_fixture
     this file's Group C.3a tests above) alongside role_id/is_super_admin/
     is_platform_owner/company_id overriding the AUTH_DISABLED dev-bypass's
     setdefault() defaults - the same override technique
-    tests/test_cr10_product_family_grade_split.py's _run_as_role uses.
+    tests/test_cr10_pu_material_family_grade_split.py's _run_as_role uses.
     Confirms the row is genuinely selected (so this isn't merely "the
     delete button never rendered because nothing was selected"), then
     confirms neither the delete confirm-checkbox nor the delete button

@@ -38,7 +38,7 @@ from db import (
     GradeSpecification,
     OptimizationTrial,
     Plant,
-    ProductFamily,
+    PUMaterialFamily,
     ProductionMethod,
     ProductionRun,
     Sample,
@@ -209,9 +209,9 @@ with tab_period:
             "Plant", [None] + plants, format_func=lambda p: "All plants" if p is None else p.name,
             key="report_period_plant",
         )
-    families_q = apply_scope(session.query(ProductFamily), ProductFamily.id, scoped_family_ids)
+    families_q = apply_scope(session.query(PUMaterialFamily), PUMaterialFamily.id, scoped_family_ids)
     if plant:
-        families_q = families_q.filter(ProductFamily.plant_id == plant.id)
+        families_q = families_q.filter(PUMaterialFamily.plant_id == plant.id)
     with p2:
         family = st.selectbox(
             "Product family", [None] + families_q.all(),
@@ -243,7 +243,7 @@ with tab_period:
     if family:
         period_run_methods_q = period_run_methods_q.join(
             FoamGrade, ProductionRun.foam_grade_id == FoamGrade.id
-        ).filter(FoamGrade.product_family_id == family.id)
+        ).filter(FoamGrade.pu_material_family_id == family.id)
     if date_from:
         period_run_methods_q = period_run_methods_q.filter(ProductionRun.run_date >= date_from)
     if date_to:
@@ -268,14 +268,14 @@ with tab_period:
     data = reports.build_period_summary_data(
         session,
         plant_id=plant.id if plant else None,
-        product_family_id=family.id if family else None,
+        pu_material_family_id=family.id if family else None,
         date_from=date_from,
         date_to=date_to,
         allowed_plant_ids=scoped_plant_ids,
         production_method_id=period_method_id,
     )
 
-    st.subheader(f"{data['plant']} · {data['product_family']}")
+    st.subheader(f"{data['plant']} · {data['pu_material_family']}")
     if data.get("production_method") and data["production_method"] != "All methods":
         st.caption(f"Isolated to Production Method **{data['production_method']}**.")
     k1, k2, k3, k4 = st.columns(4)
@@ -300,7 +300,7 @@ with tab_period:
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         key="period_report_docx",
         on_click=log_export_click, args=("period_summary_report_docx",),
-        kwargs={"description": f"{data['plant']} · {data['product_family']} · {period_label}"},
+        kwargs={"description": f"{data['plant']} · {data['pu_material_family']} · {period_label}"},
     )
 
 # ---------------------------------------------------------------------------
@@ -468,8 +468,8 @@ with tab_wp3:
     )
     grades_with_specs = (
         apply_scope(
-            session.query(FoamGrade).join(ProductFamily, FoamGrade.product_family_id == ProductFamily.id),
-            ProductFamily.id, scoped_family_ids,
+            session.query(FoamGrade).join(PUMaterialFamily, FoamGrade.pu_material_family_id == PUMaterialFamily.id),
+            PUMaterialFamily.id, scoped_family_ids,
         )
         .join(GradeSpecification, GradeSpecification.foam_grade_id == FoamGrade.id)
         .distinct()

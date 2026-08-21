@@ -347,7 +347,7 @@ def _run_selector(runs, key):
 
 # --- Production run cascade delete (a run can have a lot hanging off it) ---
 # Shared with pages 1/2/3, which have to delete every run under a plant/
-# product family/product grade/recipe version being deleted - see cascades.py.
+# PU Material Family/product grade/recipe version being deleted - see cascades.py.
 
 def _delete_phase_cascade(session, phase):
     phase_id = phase.id
@@ -573,7 +573,7 @@ with tab_runs:
                     if machine and not assignable_grades:
                         st.caption(
                             "⚠️ This Production Unit or Cell has no Product Grade assigned yet - "
-                            "assign one on the Product Family & Product Grade page first."
+                            "assign one on the PU Material Family & Product Grade page first."
                         )
                     grade_idx = next(
                         (i for i, g in enumerate(assignable_grades) if g.id == selected_run.foam_grade_id), 0,
@@ -813,7 +813,7 @@ with tab_runs:
         if machine and not assignable_grades:
             st.caption(
                 "⚠️ This Production Unit or Cell has no Product Grade assigned yet - assign one on "
-                "the Product Family & Product Grade page first."
+                "the PU Material Family & Product Grade page first."
             )
 
         with st.form("add_run"):
@@ -1021,7 +1021,7 @@ with tab_runs:
                     )
                     imported_method = imported_machine.production_method if imported_machine else None
                     imported_run = ProductionRun(
-                        plant_id=grade_row.product_family.plant_id,
+                        plant_id=grade_row.pu_material_family.plant_id,
                         foam_grade_id=grade_row.id,
                         recipe_version_id=int(row["recipe_version_id"]),
                         run_date=final_run_date,

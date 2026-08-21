@@ -108,9 +108,9 @@ def seeded_grade_chain():
     machine = db.Machine(plant_id=plant.id, name=f"WP7P4RC Machine {u}", production_method_id=method.id, active=True)
     session.add(machine); session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"WP7P4RC Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"WP7P4RC Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"WP7P4RC Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"WP7P4RC Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()

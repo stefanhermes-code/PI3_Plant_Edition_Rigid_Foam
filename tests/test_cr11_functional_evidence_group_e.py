@@ -18,7 +18,7 @@ group:
 Per tenant_scope.py's own module docstring, both CustomerTrial and
 OptimizationTrial hang directly off Plant - "independent lab-trial flow,
 no ProductionRun underneath" - so unlike a production-run-backed page,
-seeding a trial needs nothing beyond Plant -> ProductFamily -> FoamGrade
+seeding a trial needs nothing beyond Plant -> PUMaterialFamily -> FoamGrade
 -> CustomerTrial/OptimizationTrial. Both pages' own "Manage samples"
 workspace lives INSIDE the outer "Create Trial" tab body (not a separate
 top-level tab): a trial is picked via a selectbox ("Trial *", key
@@ -30,8 +30,8 @@ standard three, which CR-11 explicitly allows and which this file does
 not touch.
 
 Conventions copied deliberately from
-tests/test_cr10_product_family_grade_split.py (the template Charlie
-already accepted for this exact kind of evidence, for Product Families /
+tests/test_cr10_pu_material_family_grade_split.py (the template Charlie
+already accepted for this exact kind of evidence, for PU Material Families /
 Product Grades):
 
   - os.environ.setdefault("DATABASE_URL", "sqlite://") + sys.path
@@ -124,7 +124,7 @@ def _clear_relevant_caches():
     """Every fixture below creates a fresh Company/Plant/FoamGrade (and
     usually a CustomerTrial/OptimizationTrial) right after _reset_schema()
     restarts autoincrement ids at 1 - the same cross-test cache-key
-    collision hazard test_cr10_product_family_grade_split.py's own
+    collision hazard test_cr10_pu_material_family_grade_split.py's own
     _clear_relevant_caches() documents (tenant_scope's id-scoping helpers
     and access_control.denied_page_keys are @st.cache_data'd with a
     leading _session param st.cache_data excludes from the hash key, so
@@ -163,7 +163,7 @@ def _run(page_path, session_state=None):
 def _run_as_role(page_path, ids, extra_session_state=None):
     """CR-11 correction v2 (2026-08-12, per Charlie's CR11_Closeout_
     Correction_Review_Return_to_JC.docx item 1) - copied from
-    tests/test_cr10_product_family_grade_split.py's identical helper (the
+    tests/test_cr10_pu_material_family_grade_split.py's identical helper (the
     template Charlie already accepted for this exact kind of evidence):
     same AUTH_DISABLED entry point every other test in this file uses, but
     overriding the dev-bypass's own is_super_admin=True default (see
@@ -192,7 +192,7 @@ def _run_as_role(page_path, ids, extra_session_state=None):
 
 @pytest.fixture()
 def seeded_ct_grade_only():
-    """Company -> Plant -> ProductFamily -> FoamGrade, zero trials yet.
+    """Company -> Plant -> PUMaterialFamily -> FoamGrade, zero trials yet.
     Both pages st.stop() with 'Add a product grade first' if there is no
     grade in scope, so this is the minimum needed just to open the page;
     used for the outer Trial 'create via form' test and the outer Trial
@@ -212,9 +212,9 @@ def seeded_ct_grade_only():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR11e CT Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR11e CT Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR11e CT Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11e-CT-Grade-{u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR11e-CT-Grade-{u}")
     session.add(grade); session.flush()
     customer = db.Customer(company_id=company.id, company_name=f"CR11e-Correction-New-Customer-{u}")
     session.add(customer); session.flush()
@@ -232,7 +232,7 @@ def seeded_ct_grade_only():
 def seeded_ct_trial():
     """Same as seeded_ct_grade_only, plus one CustomerTrial hanging
     directly off the plant (per tenant_scope.py's docstring - no
-    ProductFamily/FoamGrade/ProductionRun chain needed beyond the grade
+    PUMaterialFamily/FoamGrade/ProductionRun chain needed beyond the grade
     it targets, and no ProductionRun at all) with zero samples yet - the
     minimum for the outer Trial selection/edit/delete test (unambiguous
     single row) and for the nested Sample 'create via form' test (a
@@ -252,9 +252,9 @@ def seeded_ct_trial():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR11e CT Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR11e CT Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR11e CT Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11e-CT-Grade-{u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR11e-CT-Grade-{u}")
     session.add(grade); session.flush()
     customer = db.Customer(company_id=company.id, company_name=f"CR11e CT Customer {u}")
     session.add(customer); session.flush()
@@ -293,9 +293,9 @@ def seeded_ct_trial_with_sample():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR11e CT Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR11e CT Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR11e CT Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11e-CT-Grade-{u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR11e-CT-Grade-{u}")
     session.add(grade); session.flush()
     trial = db.CustomerTrial(
         plant_id=plant.id, foam_grade_id=grade.id,
@@ -329,9 +329,9 @@ def seeded_ot_grade_only():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR11e OT Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR11e OT Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR11e OT Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11e-OT-Grade-{u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR11e-OT-Grade-{u}")
     session.add(grade); session.flush()
     session.commit()
     ids = {
@@ -352,9 +352,9 @@ def seeded_ot_trial():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR11e OT Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR11e OT Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR11e OT Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11e-OT-Grade-{u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR11e-OT-Grade-{u}")
     session.add(grade); session.flush()
     trial = db.OptimizationTrial(
         plant_id=plant.id, foam_grade_id=grade.id,
@@ -381,9 +381,9 @@ def seeded_ot_trial_with_sample():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR11e OT Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR11e OT Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR11e OT Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11e-OT-Grade-{u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR11e-OT-Grade-{u}")
     session.add(grade); session.flush()
     trial = db.OptimizationTrial(
         plant_id=plant.id, foam_grade_id=grade.id,
@@ -430,7 +430,7 @@ def view_only_ct_role_fixture(seeded_ct_trial_with_sample):
     chain (one trial, one sample) - the minimum needed to exercise BOTH
     the outer Trial delete-permission test and the nested Sample
     delete-permission test off a single fixture, exactly as
-    tests/test_cr10_product_family_grade_split.py's view_only_role_fixture
+    tests/test_cr10_pu_material_family_grade_split.py's view_only_role_fixture
     does for its own two page keys."""
     ids = seeded_ct_trial_with_sample
     session = db.get_session()

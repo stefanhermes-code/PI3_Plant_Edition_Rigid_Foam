@@ -221,7 +221,7 @@ When the user asks for specifications, grades, ranges, limits, or property envel
 
 You MUST provide:
 - the relevant specification set directly
-- separated by material type, process type, or product family where relevant
+- separated by material type, process type, or PU Material Family where relevant
 - numeric ranges where reasonably supportable
 - distinction between typical industrial range, commercially achievable specialty range, and practical upper or lower limit where relevant
 
@@ -869,9 +869,9 @@ def _grade_in_plant(session, foam_grade_id, plant_id):
     server-injected plant filter, applied to this tool too. Returns the
     FoamGrade or None."""
     grade = session.query(FoamGrade).filter(FoamGrade.id == foam_grade_id).first()
-    if grade is None or grade.product_family is None:
+    if grade is None or grade.pu_material_family is None:
         return None
-    return grade if grade.product_family.plant_id == plant_id else None
+    return grade if grade.pu_material_family.plant_id == plant_id else None
 
 
 def _run_verified_analysis(session, plant_id, analysis_type, foam_grade_id, property_name=None):

@@ -123,7 +123,7 @@ grade_ids = grade_ids_for_company(session, active_company_id)
 
 grades = apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids).all()
 if not grades:
-    st.warning("Add a product grade first (Product Family & Product Grade page).")
+    st.warning("Add a product grade first (PU Material Family & Product Grade page).")
     st.stop()
 
 trials = (
@@ -184,7 +184,7 @@ with tab_create:
             if submitted:
                 session.add(
                     OptimizationTrial(
-                        plant_id=grade.product_family.plant_id,
+                        plant_id=grade.pu_material_family.plant_id,
                         foam_grade_id=grade.id,
                         recipe_version_id=_resolve_recipe_version(grade.id),
                         improvement_initiative_reference=improvement_initiative_reference,
@@ -439,7 +439,7 @@ with tab_import:
                 trial_date_val = pd.to_datetime(row.get("trial_date"), errors="coerce")
                 session.add(
                     OptimizationTrial(
-                        plant_id=grade_obj.product_family.plant_id,
+                        plant_id=grade_obj.pu_material_family.plant_id,
                         foam_grade_id=grade_id_val,
                         recipe_version_id=_resolve_recipe_version(grade_id_val),
                         improvement_initiative_reference=str(row.get("improvement_initiative_reference", "") or ""),

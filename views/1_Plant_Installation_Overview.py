@@ -63,7 +63,7 @@ render_function_action_intro(
         "This is where you set up and maintain the plants that every Production Method, product "
         "family, recipe, production run, and quality result in the system is ultimately traced "
         "back to. It records each plant's name, code, and location, and shows at a glance how many "
-        "product families and Production Units/Cells sit under each plant. Activating Production "
+        "PU Material Families and Production Units/Cells sit under each plant. Activating Production "
         "Methods for a plant and setting up its Production Equipment now live on the Production "
         "Methods and Production Equipment pages (Production Methods section) - this page is "
         "location/identity only."
@@ -232,7 +232,7 @@ with tab_edit_delete:
                 "Name": plant.name,
                 "Code": plant.plant_code or "—",
                 "Location": plant.location or "—",
-                "Product families": len(plant.product_families),
+                "Product families": len(plant.pu_material_families),
                 "Production Units/Cells": session.query(Machine).filter(Machine.plant_id == plant.id).count(),
                 "Notes": plant.notes or "",
             }

@@ -81,7 +81,7 @@ def _submit_key(at, form_key, label):
 
 @pytest.fixture()
 def seeded_run():
-    """Company -> Plant -> ProductionMethod -> Machine -> ProductFamily ->
+    """Company -> Plant -> ProductionMethod -> Machine -> PUMaterialFamily ->
     FoamGrade -> RecipeVersion -> ProductionRun chain, matching the
     convention already established in test_wp7_phase3_reconciliation.py."""
     db.init_db()
@@ -99,9 +99,9 @@ def seeded_run():
     session.flush()
     machine = db.Machine(plant_id=plant.id, name=f"WP7P5U Unit {u}", production_method_id=method.id, active=True)
     session.add(machine); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"WP7P5U Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"WP7P5U Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"WP7P5U Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"WP7P5U Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()

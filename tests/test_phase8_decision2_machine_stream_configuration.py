@@ -102,11 +102,11 @@ def plant_fixture(session):
     session.add(plant)
     session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name="Appliance Cavity")
+    family = db.PUMaterialFamily(plant_id=plant.id, name="Appliance Cavity")
     session.add(family)
     session.flush()
 
-    grade = db.FoamGrade(product_family_id=family.id, grade_name="RG-100")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name="RG-100")
     session.add(grade)
     session.flush()
 

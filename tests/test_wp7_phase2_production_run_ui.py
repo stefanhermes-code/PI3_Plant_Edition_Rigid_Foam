@@ -77,7 +77,7 @@ def _run(session_state=None):
 
 @pytest.fixture()
 def seeded_run():
-    """Same Company -> Plant -> ProductionMethod -> Machine -> ProductFamily
+    """Same Company -> Plant -> ProductionMethod -> Machine -> PUMaterialFamily
     -> FoamGrade -> RecipeVersion -> ProductionRun chain as
     test_cr11_functional_evidence_group_d.py's seeded_run, rebuilt directly
     here so this file has no cross-file fixture dependency."""
@@ -101,9 +101,9 @@ def seeded_run():
     )
     session.add(machine); session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"WP7P2 Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"WP7P2 Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"WP7P2 Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"WP7P2 Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()

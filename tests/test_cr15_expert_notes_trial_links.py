@@ -7,12 +7,12 @@ Links.docx).
 Covers, against the real views/20_Expert_Notes.py through AppTest (not a
 stand-in for the page's own logic):
   1. The "Link to *" selector offers exactly 5 options, in the required
-     order: Production Run, Product Grade, Product Family, Commercial
+     order: Production Run, Product Grade, PU Material Family, Commercial
      Trial, Optimization Trial.
   2. No customer-facing "Foam Family" string remains on this page or in
-     helpers.expert_note_link_label's product_family branch - "Product
+     helpers.expert_note_link_label's pu_material_family branch - "Product
      Family" throughout - while the internal linked_entity_type value
-     "product_family" (a CSV-import-documented identifier, not
+     "pu_material_family" (a CSV-import-documented identifier, not
      customer-facing wording) is unchanged, per CR-15 section 3's scope.
   3. Commercial Trial (-> CustomerTrial) and Optimization Trial (->
      OptimizationTrial) each: create + persist via the real Create tab,
@@ -35,10 +35,10 @@ stand-in for the page's own logic):
      pre-existing Expert Note/Plant/Production Equipment tests were
      re-run standalone against these changes before this file was
      written and pass unchanged (15 passed) - the LINK_TYPES dict rename
-     ("Foam Family" -> "Product Family") and reorder (Commercial
-     Trial/Optimization Trial appended after Product Family) did not
+     ("Foam Family" -> "PU Material Family") and reorder (Commercial
+     Trial/Optimization Trial appended after PU Material Family) did not
      break the Product Grade link path those tests already cover. This
-     file additionally re-proves the Product Family link path still
+     file additionally re-proves the PU Material Family link path still
      creates a note correctly post-rename (test 13 below), since no
      pre-existing test exercised that specific path end-to-end.
 
@@ -99,7 +99,7 @@ PAGE_EXPERT_NOTES = os.path.join(APP_DIR, "views", "20_Expert_Notes.py")
 REQUIRED_LINK_ORDER = [
     "Production Run",
     "Product Grade",
-    "Product Family",
+    "PU Material Family",
     "Commercial Trial",
     "Optimization Trial",
 ]
@@ -145,7 +145,7 @@ def _lock_company(company_id):
 # ---------------------------------------------------------------------------
 
 def _seed_chain(session, tag):
-    """Company -> Plant -> Product Family -> Product Grade -> Commercial
+    """Company -> Plant -> PU Material Family -> Product Grade -> Commercial
     Trial -> Optimization Trial, one full chain for one company. Returns a
     dict of every id/label a test might need."""
     u = uuid.uuid4().hex[:8]
@@ -153,9 +153,9 @@ def _seed_chain(session, tag):
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR15-{tag} Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR15-{tag} Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR15-{tag} Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR15-{tag}-Grade-{u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR15-{tag}-Grade-{u}")
     session.add(grade); session.flush()
     ct = db.CustomerTrial(
         plant_id=plant.id, foam_grade_id=grade.id,
@@ -270,13 +270,13 @@ def test_link_to_selector_has_exact_five_options_in_required_order(seeded_two_tr
 # 2. Terminology: no customer-facing "Foam Family" leak
 # ===========================================================================
 
-def test_product_family_terminology_not_leaked_in_ui(seeded_two_trial_targets):
+def test_pu_material_family_terminology_not_leaked_in_ui(seeded_two_trial_targets):
     ids = seeded_two_trial_targets
     at = _run(PAGE_EXPERT_NOTES)
     assert not at.exception
 
     link_sb = next(sb for sb in at.selectbox if sb.key == "new_note_link_type")
-    link_sb.set_value("Product Family")
+    link_sb.set_value("PU Material Family")
     at.run()
     assert not at.exception
 
@@ -294,10 +294,10 @@ def test_product_family_terminology_not_leaked_in_ui(seeded_two_trial_targets):
     )
 
     session = db.get_session()
-    label = expert_note_link_label("product_family", ids["family_id"], session)
+    label = expert_note_link_label("pu_material_family", ids["family_id"], session)
     session.close()
-    assert label.startswith("Product Family:"), (
-        f"helpers.expert_note_link_label must say 'Product Family:', not 'Foam Family:' - got {label!r}"
+    assert label.startswith("PU Material Family:"), (
+        f"helpers.expert_note_link_label must say 'PU Material Family:', not 'Foam Family:' - got {label!r}"
     )
 
 
@@ -650,22 +650,22 @@ def test_helper_functions_resolve_plant_company_grade_for_both_trial_types(seede
 
 
 # ===========================================================================
-# 11. Regression: Product Family link path still creates a note post-rename
+# 11. Regression: PU Material Family link path still creates a note post-rename
 # ===========================================================================
 
-def test_product_family_still_creatable_after_terminology_rename(seeded_two_trial_targets):
-    """No pre-existing test exercised the Product Family Create path
+def test_pu_material_family_still_creatable_after_terminology_rename(seeded_two_trial_targets):
+    """No pre-existing test exercised the PU Material Family Create path
     end-to-end (tests/test_cr11_functional_evidence_group_a.py's
     test_expert_note_create_via_form only covers Product Grade) - this
     directly re-proves it still works after LINK_TYPES' "Foam Family" ->
-    "Product Family" rename, alongside the already-re-run 15/15 CR-11
+    "PU Material Family" rename, alongside the already-re-run 15/15 CR-11
     Expert Note tests confirming the Product Grade path is unaffected."""
     ids = seeded_two_trial_targets
     at = _run(PAGE_EXPERT_NOTES)
     assert not at.exception
 
     link_sb = next(sb for sb in at.selectbox if sb.key == "new_note_link_type")
-    link_sb.set_value("Product Family")
+    link_sb.set_value("PU Material Family")
     at.run()
     assert not at.exception
 
@@ -683,7 +683,7 @@ def test_product_family_still_creatable_after_terminology_rename(seeded_two_tria
     created = (
         session.query(db.ExpertNote)
         .filter(
-            db.ExpertNote.linked_entity_type == "product_family",
+            db.ExpertNote.linked_entity_type == "pu_material_family",
             db.ExpertNote.linked_entity_id == ids["family_id"],
             db.ExpertNote.note_text == "CR15-Product-Family-Note",
         )

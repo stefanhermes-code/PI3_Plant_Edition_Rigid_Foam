@@ -246,7 +246,7 @@ recipe_components = [
 batch_release_data = {
     "run_id": 2,
     "plant": "WP3 UAT / Reference (no production release)",
-    "product_family": "Rigid PUR Cold-Room Panels (UAT/Reference)",
+    "pu_material_family": "Rigid PUR Cold-Room Panels (UAT/Reference)",
     "foam_grade": "DEMO-RCP-001 - UAT PUR HFO closed-mold panel",
     "machine": "High-pressure metering machine",
     "run_date": dt.date(2026, 8, 10),
@@ -334,7 +334,7 @@ coverage_pct = round(100 * total_scored / total_checks) if total_checks else Non
 
 period_summary_data = {
     "plant": "All plants",
-    "product_family": "All product families",
+    "pu_material_family": "All PU Material Families",
     "date_from": dt.date(2026, 7, 29),
     "date_to": dt.date(2026, 8, 24),
     "dataset_label": "Synthetic UAT / Reference Dataset",

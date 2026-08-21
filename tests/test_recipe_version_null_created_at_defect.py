@@ -63,9 +63,9 @@ def seeded_grade_with_null_created_at_recipe_version():
     session.add(plant); session.flush()
     machine = db.Machine(plant_id=plant.id, name=f"Null CreatedAt Machine {u}")
     session.add(machine); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"Null CreatedAt Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"Null CreatedAt Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"RF-COLDROOM-{u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"RF-COLDROOM-{u}")
     session.add(grade); session.flush()
 
     # The defect-reproducing line: created_at explicitly None, exactly the

@@ -23,8 +23,8 @@ net-new CSV/Excel importers:
      unchanged - covered explicitly below.
 
 Mandatory template and conventions, copied exactly from
-tests/test_cr10_product_family_grade_split.py (the pattern already
-accepted by Charlie for this exact kind of evidence, Product Families /
+tests/test_cr10_pu_material_family_grade_split.py (the pattern already
+accepted by Charlie for this exact kind of evidence, PU Material Families /
 Product Grades):
 
   - os.environ.setdefault("DATABASE_URL", "sqlite://") + sys.path
@@ -90,7 +90,7 @@ CR-11 CLOSEOUT CORRECTION v2 (2026-08-12, per Charlie's
 "CR11_Closeout_Correction_Review_Return_to_JC.docx" item 1 - the first
 correction round above was accepted except for one remaining gap):
 Charlie's return noted that referencing the CR-10 access-control pattern
-(tests/test_cr10_product_family_grade_split.py's
+(tests/test_cr10_pu_material_family_grade_split.py's
 view_only_role_fixture / _run_as_role) as supporting methodology is not
 itself page-specific CR-11 evidence, and that the correction did not
 directly verify the permission-denied/view-only DELETE behavior for each
@@ -142,7 +142,7 @@ PAGE_PRODUCTION_EQUIPMENT = os.path.join(APP_DIR, "views", "31_Production_Equipm
 
 
 def _clear_relevant_caches():
-    """Same defensive clear as tests/test_cr10_product_family_grade_split.py's
+    """Same defensive clear as tests/test_cr10_pu_material_family_grade_split.py's
     own helper of this name, called from every _reset_schema() in this file
     for the identical reason: this file's fixtures each create a fresh
     Company/Plant/etc. after ids restart at 1, and tenant_scope's
@@ -219,7 +219,7 @@ def seeded_one_plant():
 
 @pytest.fixture()
 def seeded_one_grade():
-    """Company -> Plant -> Product Family -> Product Grade, no Expert Note
+    """Company -> Plant -> PU Material Family -> Product Grade, no Expert Note
     yet. This is the minimum an Expert Note can link to (Create's "Link
     to: Product Grade" path, and both import tests' valid/invalid
     foreign-key checks all resolve against this same scoped grade)."""
@@ -231,9 +231,9 @@ def seeded_one_grade():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR11c Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR11c Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR11c Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11c-Grade-{u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR11c-Grade-{u}")
     session.add(grade); session.commit()
     ids = {
         "company_id": company.id, "plant_id": plant.id,
@@ -277,7 +277,7 @@ def seeded_plant_with_method():
     requires before a Production Unit/Cell can be added at all - same
     seeding shape as test_pm_hierarchy_pages_smoke.py's
     seeded_pm_hierarchy fixture, trimmed to just what this page's Create/
-    Import tabs touch (no Machine, no ProductFamily/FoamGrade)."""
+    Import tabs touch (no Machine, no PUMaterialFamily/FoamGrade)."""
     db.init_db()
     _reset_schema()
     u = uuid.uuid4().hex[:8]
@@ -852,7 +852,7 @@ def test_production_unit_csv_import_validation_rejects_invalid_row(seeded_plant_
 # that Save/Import controls are hidden (already covered above).
 
 def _run_as_role(page_path, ids, session_state=None):
-    """Same technique as tests/test_cr10_product_family_grade_split.py's
+    """Same technique as tests/test_cr10_pu_material_family_grade_split.py's
     own _run_as_role, run directly against this file's three pages: the
     AUTH_DISABLED dev-bypass (auth.py's require_login()) only
     setdefault()s role_id/is_super_admin/is_platform_owner/company_id in

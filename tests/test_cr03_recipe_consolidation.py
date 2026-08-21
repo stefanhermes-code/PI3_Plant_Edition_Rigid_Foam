@@ -59,9 +59,9 @@ def recipe_and_reference_fixture():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR03 Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR03 Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR03 Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR03 Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR03 Grade {u}")
     session.add(grade); session.flush()
     recipe = db.RecipeVersion(
         foam_grade_id=grade.id, version_label="v1", approval_status="Approved",

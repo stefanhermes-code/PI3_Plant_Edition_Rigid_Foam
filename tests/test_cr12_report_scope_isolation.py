@@ -24,7 +24,7 @@ test's own docstring) rather than assuming tenant_scope.py is wired in
 correctly just because it's imported.
 
 House style follows tests/test_cr12_reporting_parity.py and
-tests/test_cr10_product_family_grade_split.py: a drop/create SQLite
+tests/test_cr10_pu_material_family_grade_split.py: a drop/create SQLite
 schema per module-scoped fixture, AppTest for page-level widget proof
 where the widget itself is cheap to reach, and direct backend queries
 (replicating the exact application-code query/function, not a
@@ -113,7 +113,7 @@ def _run(page_filename, company_id, extra_secrets=None):
 
 def _build_company(session, label, u, run_date):
     """One full, self-contained tenant: plant, production method/machine,
-    product family, foam grade (+ a second rigid grade with a
+    PU Material Family, foam grade (+ a second rigid grade with a
     GradeSpecification for the WP3 tab), a recipe version with one
     component (and its own raw material), two production runs (so
     Root-Cause Assistant's run-vs-prior-run diff has something to compare),
@@ -137,10 +137,10 @@ def _build_company(session, label, u, run_date):
     machine = db.Machine(plant_id=plant.id, name=f"CR12 Iso Machine {label} {u}", production_method_id=method.id, active=True)
     session.add(machine); session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR12 Iso Family {label} {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR12 Iso Family {label} {u}")
     session.add(family); session.flush()
 
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR12 Iso Grade {label} {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR12 Iso Grade {label} {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()
@@ -218,7 +218,7 @@ def _build_company(session, label, u, run_date):
     chem = db.Chemistry(controlled_id=f"CHM-CR12ISO-{label}-{u}", name=f"Rigid polyurethane foam {label}")
     session.add(chem); session.flush()
     rigid_grade = db.FoamGrade(
-        product_family_id=family.id, grade_name=f"CR12 Iso Rigid Grade {label} {u}", chemistry_id=chem.id,
+        pu_material_family_id=family.id, grade_name=f"CR12 Iso Rigid Grade {label} {u}", chemistry_id=chem.id,
     )
     session.add(rigid_grade); session.flush()
     rigid_grade.machines = [machine]
@@ -612,8 +612,8 @@ def test_report_page_central_selectors_exclude_other_company_across_tabs(two_com
 # scoped_family_ids (family_ids_for_plants), and its own run picker is
 # scoped via scoped_run_ids the same way as the run tab above:
 #
-#   grades_with_specs = apply_scope(session.query(FoamGrade).join(ProductFamily, ...),
-#                                    ProductFamily.id, scoped_family_ids)
+#   grades_with_specs = apply_scope(session.query(FoamGrade).join(PUMaterialFamily, ...),
+#                                    PUMaterialFamily.id, scoped_family_ids)
 #                        .join(GradeSpecification, ...).distinct()...all()
 #   wp3_runs = apply_scope(session.query(ProductionRun).filter(foam_grade_id == wp3_grade.id),
 #                           ProductionRun.id, scoped_run_ids)...all()
@@ -716,7 +716,7 @@ def test_trend_analysis_page_grade_selector_excludes_other_company_grade(two_com
 #   notes_for_report = [n for n in all_notes if
 #       (n.linked_entity_type == "production_run" and n.linked_entity_id in scoped_run_id_set)
 #       or (n.linked_entity_type == "foam_grade" and n.linked_entity_id in scoped_grade_id_set)
-#       or (n.linked_entity_type == "product_family" and n.linked_entity_id in scoped_family_id_set)
+#       or (n.linked_entity_type == "pu_material_family" and n.linked_entity_id in scoped_family_id_set)
 #   ]
 #
 # (views/20_Expert_Notes.py lines 293-303, and the identical block again

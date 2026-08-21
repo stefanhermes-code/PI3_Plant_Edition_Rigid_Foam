@@ -108,14 +108,14 @@ def two_method_fixture():
     machine_b = db.Machine(plant_id=plant.id, name=f"Machine B {u}", production_method_id=method_b.id, active=True)
     session.add_all([machine_a, machine_b]); session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"Flat-PM Smoke Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"Flat-PM Smoke Family {u}")
     session.add(family); session.flush()
     # Grade is producible on BOTH machines - this is what lets its own
     # production runs span two Production Methods (the isolation dimension
     # under test). (FoamGrade.production_method_id was removed 2026-08-10
     # per Charlie's "Database Reset and Clean UAT Baseline" instruction -
     # see db.py; grade methods now derive solely from grade.machines.)
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"Flat-PM Smoke Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"Flat-PM Smoke Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine_a, machine_b]
     session.flush()
@@ -187,9 +187,9 @@ def test_production_method_label_lab_trial_is_not_applicable():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"Lab Trial Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"Lab Trial Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"Lab Trial Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"Lab Trial Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"Lab Trial Grade {u}")
     session.add(grade); session.flush()
     trial = db.CustomerTrial(
         plant_id=plant.id, foam_grade_id=grade.id, customer_name="Acme",

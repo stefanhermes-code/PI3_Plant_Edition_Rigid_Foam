@@ -24,7 +24,7 @@ app_rigid_foam.py is a Streamlit script (calls st.navigation()/st.sidebar
 at import time) - importing it directly outside AppTest isn't safe, so
 nav-structure assertions here grep the module source for the page-list
 literals, matching the established convention from tests/
-test_cr10_product_family_grade_split.py and tests/
+test_cr10_pu_material_family_grade_split.py and tests/
 test_cr14_customers_section.py.
 
 Usage: python -m pytest tests/test_cr17_nav_restore.py -v

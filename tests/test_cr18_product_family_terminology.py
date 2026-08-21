@@ -14,8 +14,8 @@ the PI3-subject-context `subject_desc` string duplicated in those three
 pages AND three report-building functions in reports.py, and a report
 link-type label dict in reports.py's Expert Notes aggregate report. The
 fix standardizes every one of those customer-facing occurrences to
-"Product Family"/"Product family"/"product family", while leaving every
-internal identifier (`mode: "family"`, `link_type: "product_family"`,
+"PU Material Family"/"Product family"/"PU Material Family", while leaving every
+internal identifier (`mode: "family"`, `link_type: "pu_material_family"`,
 `FoamGrade`, `foam_grade_id`, comments/docstrings describing internal
 behavior) untouched, per CR-18's own Internal Compatibility Boundary.
 
@@ -49,7 +49,7 @@ customer-facing text, which CR-15 already fixed and this CR's inventory
 confirmed has no new leaks (its 3 remaining "foam family" mentions are
 all comments/docstrings documenting CR-15's own completed fix).
 
-Usage: python -m pytest tests/test_cr18_product_family_terminology.py -v
+Usage: python -m pytest tests/test_cr18_pu_material_family_terminology.py -v
 """
 import datetime as dt
 import io
@@ -209,8 +209,10 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # allowlist is deliberately position-based rather than text-based, so
     # every addition above line 2272 in db.py will move it again; that is the
     # cost of the check being exact, and the fix is always to re-point the
-    # line, never to soften the scan.
-    ("db.py", 2272),
+    # line, never to soften the scan. Fifth move, R1-WP3 (2026-08-21): the
+    # PU Material Family model gained explanatory comments for the controlled
+    # name and for the two columns that moved off the record - 2272 -> 2287.
+    ("db.py", 2287),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("views/16_Trend_Analysis.py", 228), ("views/16_Trend_Analysis.py", 411),
     ("views/17_Process_Property_Correlation.py", 109),
@@ -329,7 +331,7 @@ def test_industrial_intelligence_page_has_no_foam_family_leak(page_path, page_na
     assert "foam family" not in " ".join(str(o) for r in at.radio for o in r.options).lower()
 
 
-def test_process_parameter_optimization_action_text_and_radio_say_product_family():
+def test_process_parameter_optimization_action_text_and_radio_say_pu_material_family():
     """Direct check of the exact leak CR-18 section 2 quotes: page 19's
     Action text and the shared Analyze-by radio."""
     db.init_db()
@@ -340,11 +342,11 @@ def test_process_parameter_optimization_action_text_and_radio_say_product_family
     assert not at.exception, f"Unhandled exception loading Process Parameter Optimization: {at.exception}"
 
     action_text = "\n".join(w.value for w in at.markdown)
-    assert "a product family to pool several grades together" in action_text
+    assert "a PU Material Family to pool several grades together" in action_text
     assert "a foam family to pool several grades together" not in action_text
 
 
-def test_quality_pages_product_scope_control_says_product_family():
+def test_quality_pages_product_scope_control_says_pu_material_family():
     """views/5 and views/6's "Product scope" radio (renamed from "Foam
     scope" and reordered per CR-22 / F22-01, F22-02, AF22-01) has options
     'All product grades / Product family / Product grade' - Product family
@@ -365,8 +367,8 @@ def test_quality_pages_product_scope_control_says_product_family():
         assert '"Foam scope"' not in source, (
             f"{page_name} still has a 'Foam scope' widget label - should be 'Product scope' (CR-22 / F22-01)"
         )
-        assert 'st.caption("No product family available for these grades yet.")' in source, (
-            f"{page_name}'s empty-state caption is not 'No product family available...'"
+        assert 'st.caption("No PU Material Family available for these grades yet.")' in source, (
+            f"{page_name}'s empty-state caption is not 'No PU Material Family available...'"
         )
         assert '"Product family", families, format_func=lambda f: f.name' in source, (
             f"{page_name}'s family selectbox label is not 'Product family'"
@@ -389,7 +391,7 @@ def _seed_family_with_two_grades():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR18 Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR18 Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR18 Family {u}")
     session.add(family); session.flush()
     machine = db.Machine(plant_id=plant.id, name=f"CR18 Machine {u}")
     session.add(machine); session.flush()
@@ -397,7 +399,7 @@ def _seed_family_with_two_grades():
     grade_ids = []
     grade_names = []
     for i in range(2):
-        grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR18-G{i}-{u}")
+        grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR18-G{i}-{u}")
         session.add(grade); session.flush()
         recipe = db.RecipeVersion(foam_grade_id=grade.id, version_label="v1", approval_status="Draft", is_active=True)
         session.add(recipe); session.flush()
@@ -426,7 +428,7 @@ def family_fixture():
     return _seed_family_with_two_grades()
 
 
-def test_analysis_unit_picker_family_mode_uses_product_family_wording_and_pools_correctly(family_fixture):
+def test_analysis_unit_picker_family_mode_uses_pu_material_family_wording_and_pools_correctly(family_fixture):
     tenant_scope.clear_scope_cache()
     at = AppTest.from_file(PAGE16, default_timeout=30)
     at.secrets["AUTH_DISABLED"] = True
@@ -453,8 +455,8 @@ def test_analysis_unit_picker_family_mode_uses_product_family_wording_and_pools_
 
     all_text = "\n".join(w.value for w in list(at.caption) + list(at.markdown))
     assert "foam family" not in all_text.lower(), f"'foam family' leaked once in family mode: {all_text!r}"
-    assert f"Pooling {len(family_fixture['grade_ids'])} grade(s) in product family" in all_text, (
-        "Pooling caption missing or not using 'product family' wording"
+    assert f"Pooling {len(family_fixture['grade_ids'])} grade(s) in PU Material Family" in all_text, (
+        "Pooling caption missing or not using 'PU Material Family' wording"
     )
     # Business logic unchanged: both seeded grades are still offered/pooled
     # by name in the caption, proving CR-18 only touched the wording, not
@@ -467,11 +469,11 @@ def test_analysis_unit_picker_internal_dict_identifiers_unchanged():
     """The customer-facing wording changed; the internal contract every
     caller (analytics.py, reports.py, helpers.py's own Expert Notes link
     plumbing) relies on must not have - mode stays "family", link_type
-    stays "product_family", per CR-18's Internal Compatibility Boundary."""
+    stays "pu_material_family", per CR-18's Internal Compatibility Boundary."""
     import inspect
     src = inspect.getsource(helpers.analysis_unit_picker)
     assert '"mode": "family"' in src
-    assert '"link_type": "product_family"' in src
+    assert '"link_type": "pu_material_family"' in src
     assert '"mode": "grade"' in src
     assert '"link_type": "foam_grade"' in src
 
@@ -481,7 +483,7 @@ def test_analysis_unit_picker_internal_dict_identifiers_unchanged():
 #    and the Expert Notes aggregate report's link-type label.
 # ---------------------------------------------------------------------------
 
-def test_trend_analysis_report_docx_subject_desc_says_product_family():
+def test_trend_analysis_report_docx_subject_desc_says_pu_material_family():
     fake_unit = {
         "mode": "family", "label": "CR18 Report Family",
         "member_grade_names": ["Grade A", "Grade B"], "grade_ids": [1, 2],
@@ -493,28 +495,28 @@ def test_trend_analysis_report_docx_subject_desc_says_product_family():
         chart_result=None, capability=None, cusum=None, trend=None,
         change_rows=[], include_trials=False,
     )
-    assert data["subject_desc"] == "product family CR18 Report Family (pooling grades: Grade A, Grade B)"
+    assert data["subject_desc"] == "PU Material Family CR18 Report Family (pooling grades: Grade A, Grade B)"
     docx_bytes = reports.render_trend_analysis_report_docx(data)
     text = _extract_docx_text(docx_bytes)
-    assert "product family" in text
+    assert "PU Material Family" in text
     assert "foam family" not in text.lower()
 
 
-def test_expert_notes_aggregate_report_link_type_label_says_product_family():
+def test_expert_notes_aggregate_report_link_type_label_says_pu_material_family():
     from types import SimpleNamespace
     notes = [
         SimpleNamespace(
-            confidence_level="High", source="Manual", linked_entity_type="product_family",
+            confidence_level="High", source="Manual", linked_entity_type="pu_material_family",
             vector_store_file_id=None,
         ),
     ]
     data = reports.build_expert_notes_report_data(session=None, notes=notes, scope_label="All companies")
     link_labels = [row["Linked to"] for row in data["link_type_rows"]]
-    assert "Product Family" in link_labels
+    assert "PU Material Family" in link_labels
     assert "Foam Family" not in link_labels
     docx_bytes = reports.render_expert_notes_report_docx(data)
     text = _extract_docx_text(docx_bytes)
-    assert "Product Family" in text
+    assert "PU Material Family" in text
     assert "Foam Family" not in text
 
 

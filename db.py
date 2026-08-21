@@ -513,7 +513,7 @@ class Plant(Base):
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
     company = relationship("Company")
-    product_families = relationship("ProductFamily", back_populates="plant")
+    pu_material_families = relationship("PUMaterialFamily", back_populates="plant")
     pi3_ai_settings = relationship("PI3AIConnectionSetting", back_populates="plant")
     production_methods = relationship("PlantProductionMethod", back_populates="plant")
 
@@ -742,21 +742,31 @@ class Machine(Base):
 
 
 # ---------------------------------------------------------------------------
-# 2. product_families
+# 2. pu_material_families
 # ---------------------------------------------------------------------------
-class ProductFamily(Base):
-    __tablename__ = "product_families"
+class PUMaterialFamily(Base):
+    __tablename__ = "pu_material_families"
 
     id = Column(Integer, primary_key=True)
     plant_id = Column(Integer, ForeignKey("plants.id"), nullable=False)
+    # R1-WP2 (2026-08-21): one of seven controlled values - see
+    # helpers.PU_MATERIAL_FAMILIES and ck_pumf_controlled_vocabulary in
+    # migration 0009. Left as a plain String rather than an Enum so the
+    # vocabulary can be extended by migration without a type change, which is
+    # the same call chemical_role made.
     name = Column(String(200), nullable=False)
-    application = Column(String(200))
-    customer_segment = Column(String(200))
+    # R1 (2026-08-21): "application" and "customer_segment" are gone from this
+    # record. The free-text application was the only Application Area content
+    # in the system and its three values are captured in migration 0009's own
+    # comments before 0011 drops the column; the controlled Application Area
+    # master arrives in R2. Customer segment moved DOWN to FoamGrade, because
+    # within one application area there can be several grades serving
+    # different segments - Stefan's ruling of 20 August.
     description = Column(Text)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 
-    plant = relationship("Plant", back_populates="product_families")
-    foam_grades = relationship("FoamGrade", back_populates="product_family")
+    plant = relationship("Plant", back_populates="pu_material_families")
+    foam_grades = relationship("FoamGrade", back_populates="pu_material_family")
 
 
 # ---------------------------------------------------------------------------
@@ -775,8 +785,13 @@ class FoamGrade(Base):
     __tablename__ = "foam_grades"
 
     id = Column(Integer, primary_key=True)
-    product_family_id = Column(Integer, ForeignKey("product_families.id"), nullable=False)
+    pu_material_family_id = Column(Integer, ForeignKey("pu_material_families.id"), nullable=False)
     grade_name = Column(String(200), nullable=False)
+    # R1-WP5 (2026-08-21): moved down from the PU Material Family. Within one
+    # Application Area a plant can serve several customer segments with
+    # different grades, so the segment belongs to the grade rather than to the
+    # material family above it.
+    customer_segment = Column(String(200))
     # target_density/target_hardness: DEPRECATED 2026-08-11 (CR-07, Product
     # Grade Physical Property Target Architecture and Quality Alignment).
     # These were flexible-foam-era fixed columns - every flexible grade has
@@ -841,7 +856,7 @@ class FoamGrade(Base):
     status = Column(String(50))  # e.g. UAT_ONLY, ACTIVE - controlled-ID grades only; NULL for flexible-foam grades
     production_use = Column(String(200))  # free note, e.g. "No production release" for UAT-only grades
 
-    product_family = relationship("ProductFamily", back_populates="foam_grades")
+    pu_material_family = relationship("PUMaterialFamily", back_populates="foam_grades")
     recipe_versions = relationship("RecipeVersion", back_populates="foam_grade")
     target_properties = relationship(
         "FoamGradeTargetProperty", back_populates="foam_grade", cascade="all, delete-orphan"
@@ -1460,7 +1475,7 @@ class ProductionRun(Base):
     # back-populated collections here. All page code queries those tables
     # directly by production_run_id instead of via a run.phases-style
     # relationship. Adding a bidirectional collection here made ProductionRun
-    # (and therefore any FoamGrade/ProductFamily selectbox reachable via
+    # (and therefore any FoamGrade/PUMaterialFamily selectbox reachable via
     # RecipeVersion.production_runs) carry a live, non-empty backref
     # collection once rows existed - and Streamlit's widget-state tracking
     # deepcopies selectbox option objects, which crashes on SQLAlchemy
@@ -4264,7 +4279,7 @@ class RawMaterialCatalogEntry(Base):
 # each row's own status/production_use/validation_status/approval_status
 # fields, not a separate tenant or schema. Four new FoamGrade rows (one per
 # DEMO-RCP-*) were added under the same existing UAT/Reference
-# ProductFamily (id 2) and Plant (id 2, "WP3 UAT / Reference (no production
+# PUMaterialFamily (id 2) and Plant (id 2, "WP3 UAT / Reference (no production
 # release)") the WP3 chain already uses.
 # ---------------------------------------------------------------------------
 class ControlledFailureCase(Base):
@@ -4716,7 +4731,7 @@ ALL_MODELS = [
     Machine,
     MachineStreamConfiguration,
     MachineStreamAssignment,
-    ProductFamily,
+    PUMaterialFamily,
     FoamGrade,
     FoamGradeTargetProperty,
     Supplier,

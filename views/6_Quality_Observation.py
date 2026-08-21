@@ -568,16 +568,16 @@ with tab_edit_delete:
             scope_grade_ids = [scope_grade.id] if scope_grade else []
             scope_label = scope_grade.grade_name if scope_grade else "—"
         else:
-            families = sorted({g.product_family for g in scoped_grades if g.product_family}, key=lambda f: f.name)
+            families = sorted({g.pu_material_family for g in scoped_grades if g.pu_material_family}, key=lambda f: f.name)
             if not families:
-                st.caption("No product family available for these grades yet.")
+                st.caption("No PU Material Family available for these grades yet.")
                 scope_grade_ids = []
                 scope_label = "—"
             else:
                 scope_family = st.selectbox(
                     "Product family", families, format_func=lambda f: f.name, key="qi_foam_scope_family"
                 )
-                scope_grade_ids = [g.id for g in scoped_grades if g.product_family_id == scope_family.id]
+                scope_grade_ids = [g.id for g in scoped_grades if g.pu_material_family_id == scope_family.id]
                 scope_label = scope_family.name
 
     observations_query = session.query(QualityObservation).filter(QualityObservation.severity.in_(severity_filter))

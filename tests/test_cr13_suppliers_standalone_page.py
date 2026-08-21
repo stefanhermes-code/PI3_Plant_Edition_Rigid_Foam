@@ -12,7 +12,7 @@ is rebuilt here against the new standalone page - see that file's own
 module docstring for the explicit pointer to this one.
 
 Reuses the same established, already-verified patterns from
-tests/test_cr10_product_family_grade_split.py and
+tests/test_cr10_pu_material_family_grade_split.py and
 tests/test_cr11_functional_evidence_group_c.py:
   - os.environ.setdefault("DATABASE_URL", "sqlite://") + sys.path boilerplate.
   - db.init_db() + db.Base.metadata.drop_all/create_all per fixture, with
@@ -99,7 +99,7 @@ def test_suppliers_page_registered_in_nav():
 
     app_rigid_foam.py is a Streamlit script (calls st.navigation()/st.sidebar
     at import time) - importing it directly outside AppTest isn't safe (see
-    tests/test_cr10_product_family_grade_split.py's own
+    tests/test_cr10_pu_material_family_grade_split.py's own
     test_sidebar_order_matches_cr10_section_3 for the same established
     reasoning), so this greps the module source for the formulation_pages
     list literal's own ordering instead of executing the file."""
@@ -450,7 +450,7 @@ def test_supplier_view_only_role_cannot_delete_via_ui(view_only_role_fixture):
     """Presets role_id/is_super_admin/is_platform_owner/company_id in
     session_state (overriding the AUTH_DISABLED dev-bypass's own
     setdefault() defaults, the established technique from
-    tests/test_cr10_product_family_grade_split.py's _run_as_role) alongside
+    tests/test_cr10_pu_material_family_grade_split.py's _run_as_role) alongside
     the supplier_table dataframe widget's own on_select state. Confirms the
     row is genuinely selected, then confirms neither the delete
     confirm-checkbox nor the delete button render for this

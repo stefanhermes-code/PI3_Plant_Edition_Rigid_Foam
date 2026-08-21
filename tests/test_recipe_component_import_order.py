@@ -60,9 +60,9 @@ def two_recipe_versions():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name="Import Order Plant")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name="Cold Room Panels")
+    family = db.PUMaterialFamily(plant_id=plant.id, name="Cold Room Panels")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name="RF-IMPORT-001")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name="RF-IMPORT-001")
     session.add(grade); session.flush()
 
     populated = db.RecipeVersion(foam_grade_id=grade.id, version_label="v1", is_active=True)

@@ -5,7 +5,7 @@ Covers the rebuilt render_overview() in app_rigid_foam.py against Charlie's
 CR-02 source document:
 
   - Filter cascade: Plant -> Production Method -> Production Unit/Cell ->
-    Product Grade -> Date range, with Product Family as an optional
+    Product Grade -> Date range, with PU Material Family as an optional
     secondary/advanced filter that narrows Product Grade but never scopes
     KPIs on its own.
   - Cross-method KPI isolation: selecting a single Production Method must
@@ -77,12 +77,12 @@ def _seed_two_method_plant(session, label):
     machine_b = db.Machine(plant_id=plant.id, name=f"Machine B {label} {u}", production_method_id=method_b.id, active=True)
     session.add_all([machine_a, machine_b]); session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR02 Family {label} {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR02 Family {label} {u}")
     session.add(family); session.flush()
-    grade_a = db.FoamGrade(product_family_id=family.id, grade_name=f"Grade A {label} {u}")
+    grade_a = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"Grade A {label} {u}")
     session.add(grade_a); session.flush()
     grade_a.machines = [machine_a]
-    grade_b = db.FoamGrade(product_family_id=family.id, grade_name=f"Grade B {label} {u}")
+    grade_b = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"Grade B {label} {u}")
     session.add(grade_b); session.flush()
     grade_b.machines = [machine_b]
     session.flush()

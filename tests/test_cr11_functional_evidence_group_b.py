@@ -38,7 +38,7 @@ all four pages above (neither had either piece before this pass):
      CR-11's six net-new importers (they pre-existed and were only
      relabeled), so they had no such evidence before this pass.
 
-Follows the exact conventions of tests/test_cr10_product_family_grade_split.py
+Follows the exact conventions of tests/test_cr10_pu_material_family_grade_split.py
 (the reviewer-accepted template for this kind of evidence, from the prior
 CR-10 closeout correction):
 
@@ -93,7 +93,7 @@ PAGE_SAMPLE = os.path.join(APP_DIR, "views", "9_Samples_Conditioning.py")
 
 
 def _clear_relevant_caches():
-    """Identical to test_cr10_product_family_grade_split.py's own helper -
+    """Identical to test_cr10_pu_material_family_grade_split.py's own helper -
     see that file's docstring for the full cache-collision hazard this
     defends against. Every fixture below creates a fresh Company/Plant
     after _reset_schema() restarts autoincrement ids at 1, so this must run
@@ -124,7 +124,7 @@ def _run(page_path, session_state=None):
 
 
 # ---------------------------------------------------------------------------
-# Shared seed helper: Company -> Plant -> ProductFamily -> FoamGrade.
+# Shared seed helper: Company -> Plant -> PUMaterialFamily -> FoamGrade.
 # chemistry_id deliberately left unset on the grade (None) so
 # reports._is_rigid_grade() reads it as a legacy/flexible-style grade -
 # this keeps views/9's rigid_sample_dimension_fields() a no-op (it returns
@@ -136,9 +136,9 @@ def _seed_company_plant_family_grade(session, tag):
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR11B Plant {tag}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR11B Family {tag}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR11B Family {tag}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11B-Grade-{tag}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR11B-Grade-{tag}")
     session.add(grade); session.flush()
     return company, plant, family, grade
 
@@ -947,7 +947,7 @@ def test_sample_csv_import_via_ui(seeded_run_for_sample):
 # "use" access (can_view=True, can_use=False - access_control.py's "View
 # only" state) on each of these four pages' own page_key cannot actually
 # delete a record through the real UI, not just that can_use_page() itself
-# returns False in isolation. Follows tests/test_cr10_product_family_grade_
+# returns False in isolation. Follows tests/test_cr10_pu_material_family_grade_
 # split.py's own view_only_role_fixture / _run_as_role pattern exactly: a
 # real db.Role + db.RolePagePermission row, presetting
 # role_id/is_super_admin/is_platform_owner/company_id in session_state
@@ -971,7 +971,7 @@ def test_sample_csv_import_via_ui(seeded_run_for_sample):
 # ===========================================================================
 
 def _run_as_role(page_path, ids, session_state=None):
-    """Identical to test_cr10_product_family_grade_split.py's own
+    """Identical to test_cr10_pu_material_family_grade_split.py's own
     _run_as_role helper - overrides the AUTH_DISABLED dev-bypass's own
     is_super_admin=True / is_platform_owner=True / role_id=None /
     company_id=None setdefault() defaults with a real, restricted role

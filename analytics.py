@@ -14,7 +14,7 @@ Every `foam_grade_id` parameter below (see _grade_id_list) accepts either a
 single product grade's id (the original, most common case) or a list of ids -
 the latter is how "analyze by foam family" works (Trend Analysis,
 Machine Settings vs Physical Properties Correlation, and Machine Settings
-Optimization): a product family's member grades are resolved to their ids
+Optimization): a PU Material Family's member grades are resolved to their ids
 by helpers.analysis_unit_picker and passed through here as a list, pooling
 every one of those grades' runs into the same analysis. Recipe Optimization
 and Root-Cause Assistant stay single-grade-only - their sections (current
@@ -135,7 +135,7 @@ _DATA_CACHE_TTL = 30
 def _grade_id_list(foam_grade_id):
     """Every function below that takes `foam_grade_id` accepts either a
     single id (the original "analyze one product grade" case) or a list/tuple
-    of ids (analyzing a whole foam family - a product family's grades
+    of ids (analyzing a whole foam family - a PU Material Family's grades
     pooled together, see analysis_unit_picker in helpers.py). Normalizes
     both shapes to a list (or None) so the caller can always filter with
     `.in_()`. None/empty means "no grade filter" (every grade)."""

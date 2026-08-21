@@ -100,9 +100,9 @@ def _make_flexible_grade(session, name):
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"{name} Plant")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"{name} Family")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"{name} Family")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=name)
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=name)
     session.add(grade); session.flush()
     machine = db.Machine(plant_id=plant.id, name=f"{name} Machine")
     session.add(machine); session.flush()
@@ -208,12 +208,12 @@ def test_flexible_functions_return_empty_not_error_for_rigid_grade(session):
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name="Rigid Baseline Plant")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name="Rigid Baseline Family")
+    family = db.PUMaterialFamily(plant_id=plant.id, name="Rigid Baseline Family")
     session.add(family); session.flush()
     chem = db.Chemistry(controlled_id="CHM-BASE-010", name="Rigid polyurethane foam")
     session.add(chem); session.flush()
     grade = db.FoamGrade(
-        product_family_id=family.id, grade_name="Rigid Baseline Grade",
+        pu_material_family_id=family.id, grade_name="Rigid Baseline Grade",
         chemistry_id=chem.id, status="UAT_ONLY",
     )
     session.add(grade); session.flush()

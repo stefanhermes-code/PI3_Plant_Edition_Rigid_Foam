@@ -40,7 +40,7 @@ def _seed_grade(session):
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"WP4 LotUse Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"Cold Room Panels {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"Cold Room Panels {u}")
     session.add(family); session.flush()
 
     chem = db.Chemistry(controlled_id=f"CHM-010-L-{u}", name="Rigid polyurethane foam")
@@ -50,7 +50,7 @@ def _seed_grade(session):
     # FoamGrade.production_method_id removed 2026-08-10 (Charlie's "Database
     # Reset and Clean UAT Baseline" instruction).
     grade = db.FoamGrade(
-        product_family_id=family.id, grade_name=f"RF-COLD-LOTUSE-{u}",
+        pu_material_family_id=family.id, grade_name=f"RF-COLD-LOTUSE-{u}",
         chemistry_id=chem.id, status="UAT_ONLY",
     )
     session.add(grade); session.flush()

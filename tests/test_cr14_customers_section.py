@@ -32,7 +32,7 @@ by CR-17 and still fully covered by the rest of this file.
 
 Reuses the same established, already-verified patterns from
 tests/test_cr13_suppliers_standalone_page.py and
-tests/test_cr10_product_family_grade_split.py:
+tests/test_cr10_pu_material_family_grade_split.py:
   - os.environ.setdefault("DATABASE_URL", "sqlite://") + sys.path boilerplate.
   - db.init_db() + db.Base.metadata.drop_all/create_all per fixture, with
     _clear_relevant_caches() called from every _reset_schema().
@@ -132,7 +132,7 @@ def test_customers_section_registered_in_nav_with_correct_order():
 
     app_rigid_foam.py is a Streamlit script (calls st.navigation()/
     st.sidebar at import time) - importing it directly outside AppTest
-    isn't safe (see tests/test_cr10_product_family_grade_split.py's own
+    isn't safe (see tests/test_cr10_pu_material_family_grade_split.py's own
     reasoning), so this greps the module source for the page-list literals
     instead of executing the file."""
     with open(os.path.join(APP_DIR, "app_rigid_foam.py"), encoding="utf-8") as f:
@@ -358,7 +358,7 @@ def test_customer_edit_rejects_invalid_email(seeded_customer):
 
 @pytest.fixture()
 def seeded_customer_with_linked_trial(seeded_customer):
-    """Extends seeded_customer with a Plant/ProductFamily/FoamGrade and a
+    """Extends seeded_customer with a Plant/PUMaterialFamily/FoamGrade and a
     CustomerTrial linked to it via customer_id - the minimum needed to
     prove renaming a customer cascades onto CustomerTrial.customer_name
     (the display-snapshot sync), and that deleting the customer nullifies
@@ -369,10 +369,10 @@ def seeded_customer_with_linked_trial(seeded_customer):
     plant = db.Plant(company_id=ids["company_id"], name="CR14 Plant")
     session.add(plant)
     session.flush()
-    fam = db.ProductFamily(plant_id=plant.id, name="CR14 Family")
+    fam = db.PUMaterialFamily(plant_id=plant.id, name="CR14 Family")
     session.add(fam)
     session.flush()
-    grade = db.FoamGrade(product_family_id=fam.id, grade_name="CR14 Grade")
+    grade = db.FoamGrade(pu_material_family_id=fam.id, grade_name="CR14 Grade")
     session.add(grade)
     session.flush()
     trial = db.CustomerTrial(
@@ -640,7 +640,7 @@ def test_customer_view_only_role_cannot_delete_via_ui(view_only_role_fixture):
 
 @pytest.fixture()
 def seeded_grade_and_customer():
-    """One Company + Plant + ProductFamily + FoamGrade + Customer - the
+    """One Company + Plant + PUMaterialFamily + FoamGrade + Customer - the
     minimum to exercise the Create Trial tab's new Customer selectbox on
     views/11_Customer_Trials.py."""
     db.init_db()
@@ -653,10 +653,10 @@ def seeded_grade_and_customer():
     plant = db.Plant(company_id=company.id, name="CR14 CT Plant")
     session.add(plant)
     session.flush()
-    fam = db.ProductFamily(plant_id=plant.id, name="CR14 CT Family")
+    fam = db.PUMaterialFamily(plant_id=plant.id, name="CR14 CT Family")
     session.add(fam)
     session.flush()
-    grade = db.FoamGrade(product_family_id=fam.id, grade_name="CR14 CT Grade")
+    grade = db.FoamGrade(pu_material_family_id=fam.id, grade_name="CR14 CT Grade")
     session.add(grade)
     session.flush()
     customer = db.Customer(company_id=company.id, company_name=f"CR14 CT Customer {u}")
@@ -724,10 +724,10 @@ def test_customer_trial_create_warns_when_no_customers_exist():
     plant = db.Plant(company_id=company.id, name="CR14 CT NoCust Plant")
     session.add(plant)
     session.flush()
-    fam = db.ProductFamily(plant_id=plant.id, name="CR14 CT NoCust Family")
+    fam = db.PUMaterialFamily(plant_id=plant.id, name="CR14 CT NoCust Family")
     session.add(fam)
     session.flush()
-    grade = db.FoamGrade(product_family_id=fam.id, grade_name="CR14 CT NoCust Grade")
+    grade = db.FoamGrade(pu_material_family_id=fam.id, grade_name="CR14 CT NoCust Grade")
     session.add(grade)
     session.commit()
     session.close()

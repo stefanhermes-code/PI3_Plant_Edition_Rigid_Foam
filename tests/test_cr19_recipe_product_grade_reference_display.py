@@ -59,9 +59,9 @@ def cr19_fixture():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR19 Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR19 Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR19 Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR19 Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR19 Grade {u}")
     session.add(grade); session.flush()
 
     # A reference formulation with an existing explicit RecipeVersion.

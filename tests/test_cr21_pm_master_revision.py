@@ -516,10 +516,10 @@ def cr21_a21_05_fixture(cr21_fixture):
     run_cr21_migration(session)
     methods = _all_methods_by_cid(session)
 
-    product_family = db.ProductFamily(plant_id=ids["plant_id"], name=f"CR21 A21-05 Family {ids['u']}")
-    session.add(product_family); session.flush()
+    pu_material_family = db.PUMaterialFamily(plant_id=ids["plant_id"], name=f"CR21 A21-05 Family {ids['u']}")
+    session.add(pu_material_family); session.flush()
 
-    grade = db.FoamGrade(product_family_id=product_family.id, grade_name=f"CR21 A21-05 Grade {ids['u']}")
+    grade = db.FoamGrade(pu_material_family_id=pu_material_family.id, grade_name=f"CR21 A21-05 Grade {ids['u']}")
     session.add(grade); session.flush()
 
     recipe_version = db.RecipeVersion(

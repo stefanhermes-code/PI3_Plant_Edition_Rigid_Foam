@@ -77,7 +77,7 @@ def _submit_key(at, form_key, label):
 
 @pytest.fixture()
 def seeded_run():
-    """Company -> Plant -> ProductionMethod -> Machine -> ProductFamily ->
+    """Company -> Plant -> ProductionMethod -> Machine -> PUMaterialFamily ->
     FoamGrade -> RecipeVersion -> ProductionRun chain - the minimum
     content any ProductionPhase row needs a production_run_id to attach
     to. No ProcessSettingDefinition/UOM content seeded - each test proves
@@ -97,9 +97,9 @@ def seeded_run():
     session.flush()
     machine = db.Machine(plant_id=plant.id, name=f"WP7P3 Unit {u}", production_method_id=method.id, active=True)
     session.add(machine); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"WP7P3 Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"WP7P3 Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"WP7P3 Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"WP7P3 Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()

@@ -25,7 +25,7 @@ from db import (
     OptimizationTrial,
     PhysicalPropertyResult,
     Plant,
-    ProductFamily,
+    PUMaterialFamily,
     ProductionPhase,
     ProductionRun,
     QualityObservation,
@@ -55,12 +55,12 @@ def seed_demo_data(session) -> str:
     session.add(plant)
     session.flush()
 
-    family = ProductFamily(
+    family = PUMaterialFamily(
         plant_id=plant.id,
         name="Mattress Comfort Foam",
         application="Mattress comfort layer",
         customer_segment="Mattress OEM",
-        description="Flexible slabstock product family for mattress comfort layers.",
+        description="Flexible slabstock PU Material Family for mattress comfort layers.",
     )
     session.add(family)
     session.flush()
@@ -92,14 +92,14 @@ def seed_demo_data(session) -> str:
     session.flush()
 
     grade_28mh = FoamGrade(
-        product_family_id=family.id,
+        pu_material_family_id=family.id,
         grade_name="28 kg/m3 Medium Hardness",
         target_density=28.0,
         target_hardness=140.0,
         notes="Primary grade in the demonstration case. No visible shrinkage after cure.",
     )
     grade_32fh = FoamGrade(
-        product_family_id=family.id,
+        pu_material_family_id=family.id,
         grade_name="32 kg/m3 Firm",
         target_density=32.0,
         target_hardness=180.0,
@@ -558,7 +558,7 @@ def seed_demo_data(session) -> str:
 
     session.commit()
     return (
-        "Demo data created: 1 plant, 1 product family, 2 product grades, 3 recipe versions, "
+        "Demo data created: 1 plant, 1 PU Material Family, 2 product grades, 3 recipe versions, "
         "5 production runs with quality test results and a quality issue each, "
         "2 routine production runs with quality results and no issue at all, plus 1 closed "
         "Customer Trial and 1 closed Optimization Trial (each with its own sample and quality "

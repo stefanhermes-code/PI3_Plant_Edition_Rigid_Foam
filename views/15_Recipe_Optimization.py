@@ -725,7 +725,7 @@ else:
 st.divider()
 st.subheader("Ask PI3 for a formulation recommendation")
 
-plant_id = grade.product_family.plant_id if grade.product_family else None
+plant_id = grade.pu_material_family.plant_id if grade.pu_material_family else None
 
 
 def _pi3_unavailable_caption():
@@ -766,7 +766,7 @@ elif is_rigid:
         "metered lot-use correlation data above as its basis rather than just the ingredient "
         "list. Target properties below are prefilled from this grade's own specifications (see "
         "'Does the current recipe meet target?' above), plus any other target properties "
-        "recorded on the Product Family & Product Grade page that don't yet have a specification - "
+        "recorded on the PU Material Family & Product Grade page that don't yet have a specification - "
         "edit or add to them before requesting a recommendation."
     )
     default_target_lines = []
@@ -986,7 +986,7 @@ else:
         "properties below are prefilled from every property with a recorded target under the "
         "current recipe (density, hardness, tensile strength, elongation, compression set, "
         "resilience, and so on - see 'Does the current recipe meet target?' above), plus any "
-        "other target properties recorded on the Product Family & Product Grade page that don't yet "
+        "other target properties recorded on the PU Material Family & Product Grade page that don't yet "
         "have results - edit or add to them before requesting a recommendation."
     )
     # Built primarily from this recipe version's own recorded quality-test
@@ -1000,7 +1000,7 @@ else:
     # judges Pass/Fail against published tolerances for all of them.
     # Falls back to foam_grades' own target_density/target_hardness
     # (dedicated columns every grade has) and foam_grade_target_properties
-    # (any other property recorded on the Product Family & Product Grade page,
+    # (any other property recorded on the PU Material Family & Product Grade page,
     # entered with or without a target value yet) for anything not already
     # covered by a recorded result under this version.
     target_by_name = {}

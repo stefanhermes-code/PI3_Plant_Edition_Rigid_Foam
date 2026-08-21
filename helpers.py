@@ -23,7 +23,7 @@ from db import (
     OptimizationTrial,
     Plant,
     PlantProductionMethod,
-    ProductFamily,
+    PUMaterialFamily,
     ProductionMethod,
     ProductionRun,
     RawMaterialCategory,
@@ -50,9 +50,9 @@ def expert_note_plant_id_for_link(entity_type, entity_id, session):
         return r.plant_id if r else None
     if entity_type == "foam_grade":
         g = session.get(FoamGrade, entity_id)
-        return g.product_family.plant_id if g else None
-    if entity_type == "product_family":
-        f = session.get(ProductFamily, entity_id)
+        return g.pu_material_family.plant_id if g else None
+    if entity_type == "pu_material_family":
+        f = session.get(PUMaterialFamily, entity_id)
         return f.plant_id if f else None
     if entity_type == "customer_trial":
         t = session.get(CustomerTrial, entity_id)
@@ -82,11 +82,11 @@ def expert_note_link_label(entity_type, entity_id, session):
     both on the Expert Notes screen and as the document title when a note
     is pushed into PI3's vector store.
 
-    CR-15 (2026-08-13): the product_family branch's label was corrected
-    from "Foam Family" to "Product Family" - CR-15's required customer-
+    CR-15 (2026-08-13): the pu_material_family branch's label was corrected
+    from "Foam Family" to "PU Material Family" - CR-15's required customer-
     facing term, replacing the last "Foam Family" wording left in the
     Expert Notes path (internal linked_entity_type values like
-    "product_family" are unaffected - those are documented CSV import
+    "pu_material_family" are unaffected - those are documented CSV import
     identifiers, not customer-facing display text). Also added
     customer_trial ("Commercial Trial") and optimization_trial
     ("Optimization Trial") branches, both new CR-15 link targets, labeled
@@ -98,9 +98,9 @@ def expert_note_link_label(entity_type, entity_id, session):
     if entity_type == "foam_grade":
         g = session.get(FoamGrade, entity_id)
         return f"Product Grade: {g.grade_name}" if g else f"Product Grade #{entity_id} (deleted)"
-    if entity_type == "product_family":
-        f = session.get(ProductFamily, entity_id)
-        return f"Product Family: {f.name}" if f else f"Product Family #{entity_id} (deleted)"
+    if entity_type == "pu_material_family":
+        f = session.get(PUMaterialFamily, entity_id)
+        return f"PU Material Family: {f.name}" if f else f"PU Material Family #{entity_id} (deleted)"
     if entity_type == "customer_trial":
         t = session.get(CustomerTrial, entity_id)
         return (
@@ -143,11 +143,11 @@ def expert_note_foam_grade_id_for_link(entity_type, entity_id, session):
 
 
 def analysis_unit_picker(grades, key_prefix):
-    """Shared "Analyze by: Product Grade / Product Family" control for the
+    """Shared "Analyze by: Product Grade / PU Material Family" control for the
     three Industrial Intelligence pages built on analytics.py's pooled
     per-grade pipeline (Trend Analysis, Machine Settings vs Physical
     Properties Correlation, Machine Settings Optimization) - added
-    2026-08-02 so a reviewer can pool an entire product family's grades
+    2026-08-02 so a reviewer can pool an entire PU Material Family's grades
     into one analysis instead of checking each grade one at a time. Recipe
     Optimization and Root-Cause Assistant don't use this: their sections
     (current formulation/cost, version diff, run-vs-prior-run diff) are
@@ -155,9 +155,9 @@ def analysis_unit_picker(grades, key_prefix):
 
     CR-18 (2026-08-13): the control's own options, empty-state warning, and
     family selectbox label were corrected from "Foam Family"/"foam family"
-    to "Product Family"/"product family" - CR-18's required customer-facing
+    to "PU Material Family"/"PU Material Family" - CR-18's required customer-facing
     term. This docstring and the `mode`/`link_type` dict values below
-    ("family", "product_family") are internal identifiers, not customer-
+    ("family", "pu_material_family") are internal identifiers, not customer-
     facing text, so they are unchanged (see CR-18's Internal Compatibility
     Boundary).
 
@@ -170,7 +170,7 @@ def analysis_unit_picker(grades, key_prefix):
 
     `grades` must be the CALLER's already-scoped-and-filtered list of
     FoamGrade objects (e.g. already restricted to grades with quality test
-    results) - product families are derived from this same list via
+    results) - PU Material Families are derived from this same list via
     groupby, so a family only ever offers the grades that already passed
     the caller's own filter, and "Product family X" never silently pulls in
     a grade that "Product grade" mode wouldn't have offered on its own.
@@ -181,7 +181,7 @@ def analysis_unit_picker(grades, key_prefix):
     - grade_ids: list of foam_grade_id(s) to pass into analytics.py
       functions (always a list, even in single-grade mode)
     - plant_id: for ai_assistant.is_enabled_for_plant() / availability_status()
-    - link_type: "foam_grade" or "product_family" - for Expert Notes saving
+    - link_type: "foam_grade" or "pu_material_family" - for Expert Notes saving
       (see expert_note_plant_id_for_link/expert_note_link_label above)
     - entity_id: the grade's or family's own id, paired with link_type
     - state_key: unique string for namespacing st.session_state keys across
@@ -202,29 +202,29 @@ def analysis_unit_picker(grades, key_prefix):
             "mode": "grade",
             "label": grade.grade_name,
             "grade_ids": [grade.id],
-            "plant_id": grade.product_family.plant_id if grade.product_family else None,
+            "plant_id": grade.pu_material_family.plant_id if grade.pu_material_family else None,
             "link_type": "foam_grade",
             "entity_id": grade.id,
             "state_key": f"grade-{grade.id}",
             "member_grade_names": [grade.grade_name],
         }
 
-    families = sorted({g.product_family for g in grades if g.product_family}, key=lambda f: f.name)
+    families = sorted({g.pu_material_family for g in grades if g.pu_material_family}, key=lambda f: f.name)
     if not families:
-        st.warning("No product family available for these grades yet.")
+        st.warning("No PU Material Family available for these grades yet.")
         st.stop()
     family = st.selectbox(
         "Product family", families,
-        format_func=lambda f: f"{f.name} ({sum(1 for g in grades if g.product_family_id == f.id)} grade(s))",
+        format_func=lambda f: f"{f.name} ({sum(1 for g in grades if g.pu_material_family_id == f.id)} grade(s))",
         key=f"{key_prefix}_family_select",
     )
-    family_grades = [g for g in grades if g.product_family_id == family.id]
+    family_grades = [g for g in grades if g.pu_material_family_id == family.id]
     return {
         "mode": "family",
         "label": family.name,
         "grade_ids": [g.id for g in family_grades],
         "plant_id": family.plant_id,
-        "link_type": "product_family",
+        "link_type": "pu_material_family",
         "entity_id": family.id,
         "state_key": f"family-{family.id}",
         "member_grade_names": sorted(g.grade_name for g in family_grades),
@@ -542,6 +542,30 @@ def run_uses_cycle_shot_operation(run):
     if run.production_method is not None:
         return bool(run.production_method.uses_cycle_shot_operation)
     return False
+
+
+# --- R1-WP2 (2026-08-21), Redesign Migration Plan v3 Package B -------------
+#
+# The PU Material Family: the polyurethane material a plant ultimately makes.
+# For a system house that is the prepolymer mix that goes into a mould; for a
+# panel producer it is rigid foam. Stefan's final list, ruled 20 August 2026.
+#
+# Flexible slabstock is deliberately absent. That is the Flexible Foam Edition,
+# a separate application, and putting it here would invite records that belong
+# in the other product.
+#
+# Enforced in the database by ck_pumf_controlled_vocabulary (migration 0009).
+# This tuple is what the pages offer; the constraint is what makes it true.
+# Order is the order Stefan gave.
+PU_MATERIAL_FAMILIES = (
+    "Molded Foam",
+    "Rigid",
+    "Coatings",
+    "Adhesives",
+    "Sealants",
+    "Elastomers",
+    "TPU",
+)
 
 
 # --- R-PRE-WP1 (2026-08-20), Redesign Migration Plan v3 Package A ----------
@@ -1171,7 +1195,7 @@ def import_within_row_limit(df):
     return True
 
 
-def csv_excel_uploader(required_cols, optional_cols=None, key=None):
+def csv_excel_uploader(required_cols, optional_cols=None, key=None, column_aliases=None):
     """Render a file uploader for bulk CSV/Excel import, parse it, and check
     that the required columns are present. Used by every "CSV / Excel
     import" tab across the app so the upload/parse/column-check boilerplate
@@ -1182,11 +1206,20 @@ def csv_excel_uploader(required_cols, optional_cols=None, key=None):
     on row count) - see the constants above for why these exist and how
     generous they are.
 
+    column_aliases (R1-WP3, 2026-08-21) maps a legacy header to its canonical
+    name and is applied to the parsed frame BEFORE the required-column check,
+    so a file written against the old header still satisfies the new one. Used
+    for the one-release product_family_id -> pu_material_family_id transition.
+    An alias only fills in for a canonical column that is ABSENT: a file
+    carrying both headers keeps the canonical one, because silently preferring
+    the legacy column would let a stale value win over a correct one.
+
     Returns (df, filename) once a valid file with all required columns has
     been uploaded, or (None, None) otherwise (an st.error/st.caption has
     already been shown as appropriate - callers don't need to repeat that).
     """
     optional_cols = optional_cols or []
+    column_aliases = column_aliases or {}
     cols_caption = "Required columns: " + ", ".join(required_cols)
     if optional_cols:
         cols_caption += ". Optional columns: " + ", ".join(optional_cols)
@@ -1207,6 +1240,17 @@ def csv_excel_uploader(required_cols, optional_cols=None, key=None):
 
     if not import_within_row_limit(df):
         return None, None
+
+    # Legacy headers are renamed before the required-column check, never after:
+    # after would mean rejecting a file the application is willing to read.
+    # Only fills an ABSENT canonical column - see the docstring.
+    for legacy, canonical in column_aliases.items():
+        if legacy in df.columns and canonical not in df.columns:
+            df = df.rename(columns={legacy: canonical})
+            st.caption(
+                f"Column '{legacy}' was read as '{canonical}'. That header is accepted for "
+                "one release; please update your template."
+            )
 
     missing_cols = [c for c in required_cols if c not in df.columns]
     if missing_cols:
@@ -1298,7 +1342,7 @@ def render_save_to_expert_notes_button(
     knowledge.
 
     `link_type` is one of the Expert Notes "link to" types ("foam_grade",
-    "production_run", "product_family"), `entity_id` the id of that record.
+    "production_run", "pu_material_family"), `entity_id` the id of that record.
 
     Guards against saving the same answer twice: once saved, the button is
     replaced with a confirmation until a new answer replaces this one -

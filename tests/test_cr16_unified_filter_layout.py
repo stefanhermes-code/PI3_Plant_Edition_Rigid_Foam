@@ -5,12 +5,12 @@ Covers Charlie's PI3_Rigid_Foam_Phase_1_CR16_Consolidate_Overview_Dashboard_
 Filters_into_Unified_Layout.docx (implemented in render_overview(),
 app_rigid_foam.py):
 
-  - The old "Advanced filter (optional)" expander is gone - Product Family
+  - The old "Advanced filter (optional)" expander is gone - PU Material Family
     now renders directly in the visible filter area, no extra click.
   - All six filters (Plant, Production Method, Production Unit / Cell,
-    Product Family, Product Grade, Date range) are present, in the exact
+    PU Material Family, Product Grade, Date range) are present, in the exact
     order Row 1 (Plant, Production Method, Production Unit / Cell) then
-    Row 2 (Product Family, Product Grade, Date range) puts them on screen -
+    Row 2 (PU Material Family, Product Grade, Date range) puts them on screen -
     AppTest's element lists follow script render order, so list order here
     is a direct proxy for on-screen left-to-right, row-by-row order.
   - This is a presentation-only change (CR-16 section 4): every cascading
@@ -21,7 +21,7 @@ app_rigid_foam.py):
     KPI isolation, and cross-plant leak prevention all still hold against
     the new layout - this file does not duplicate that coverage. It adds
     the layout-specific assertions plus one direct regression pinning that
-    Product Family narrows Product Grade's options without independently
+    PU Material Family narrows Product Grade's options without independently
     scoping any KPI (CR-02's rule, reaffirmed unchanged by CR-16 section 4).
 
 Usage: python -m pytest tests/test_cr16_unified_filter_layout.py -v
@@ -44,7 +44,7 @@ APP_MAIN = os.path.join(APP_DIR, "app_rigid_foam.py")
 
 EXPECTED_SELECTBOX_ORDER = [
     "Plant", "Production Method", "Production Unit / Cell",
-    "Product Family", "Product Grade",
+    "PU Material Family", "Product Grade",
 ]
 EXPECTED_FAMILY_HELP = (
     "Optional classification - narrows Product Grade below, does not "
@@ -58,12 +58,12 @@ def _reset_schema():
 
 
 def _seed_family_kpi_fixture(session):
-    """One Plant, one Production Method, one Machine, two Product Families
+    """One Plant, one Production Method, one Machine, two PU Material Families
     each with their own Grade - both grades producible on the SAME machine
     (so Production Method/Unit filters can't be the thing separating them,
-    isolating Product Family as the only distinguishing filter) - and one
+    isolating PU Material Family as the only distinguishing filter) - and one
     Production Run per grade, so a KPI (Production runs) has a countable
-    baseline of 2 that a Product Family selection must NOT reduce."""
+    baseline of 2 that a PU Material Family selection must NOT reduce."""
     u = uuid.uuid4().hex[:8]
     company = db.Company(name=f"CR16 Co {u}", is_platform_owner=True)
     session.add(company); session.flush()
@@ -78,12 +78,12 @@ def _seed_family_kpi_fixture(session):
     machine = db.Machine(plant_id=plant.id, name=f"CR16 Machine {u}", production_method_id=method.id, active=True)
     session.add(machine); session.flush()
 
-    family_a = db.ProductFamily(plant_id=plant.id, name=f"CR16 Family A {u}")
-    family_b = db.ProductFamily(plant_id=plant.id, name=f"CR16 Family B {u}")
+    family_a = db.PUMaterialFamily(plant_id=plant.id, name=f"CR16 Family A {u}")
+    family_b = db.PUMaterialFamily(plant_id=plant.id, name=f"CR16 Family B {u}")
     session.add_all([family_a, family_b]); session.flush()
 
-    grade_a = db.FoamGrade(product_family_id=family_a.id, grade_name=f"CR16 Grade A {u}")
-    grade_b = db.FoamGrade(product_family_id=family_b.id, grade_name=f"CR16 Grade B {u}")
+    grade_a = db.FoamGrade(pu_material_family_id=family_a.id, grade_name=f"CR16 Grade A {u}")
+    grade_b = db.FoamGrade(pu_material_family_id=family_b.id, grade_name=f"CR16 Grade B {u}")
     session.add_all([grade_a, grade_b]); session.flush()
     grade_a.machines = [machine]
     grade_b.machines = [machine]
@@ -167,7 +167,7 @@ def test_all_six_filters_present_in_row_order():
     selectbox_labels = [sb.label for sb in at.selectbox]
     assert selectbox_labels == EXPECTED_SELECTBOX_ORDER, (
         f"Expected Row 1 (Plant, Production Method, Production Unit / Cell) "
-        f"then Row 2 (Product Family, Product Grade) in that render order, "
+        f"then Row 2 (PU Material Family, Product Grade) in that render order, "
         f"got {selectbox_labels}"
     )
 
@@ -178,11 +178,11 @@ def test_all_six_filters_present_in_row_order():
     )
 
 
-def test_product_family_help_text_present_and_unscoped_wording_preserved():
+def test_pu_material_family_help_text_present_and_unscoped_wording_preserved():
     at = _run_overview()
-    family_sb = _sb(at, "Product Family")
+    family_sb = _sb(at, "PU Material Family")
     assert family_sb.help == EXPECTED_FAMILY_HELP, (
-        f"Product Family's help text changed unexpectedly: {family_sb.help!r}"
+        f"PU Material Family's help text changed unexpectedly: {family_sb.help!r}"
     )
 
 
@@ -207,14 +207,14 @@ def test_overview_full_smoke_no_unhandled_exception():
     assert not at.exception
     _sb(at, "Production Unit / Cell").set_value(None).run()
     assert not at.exception
-    _sb(at, "Product Family").set_value(None).run()
+    _sb(at, "PU Material Family").set_value(None).run()
     assert not at.exception
     _sb(at, "Product Grade").set_value(None).run()
     assert not at.exception
 
 
 # ---------------------------------------------------------------------------
-# Preserved logic: Product Family narrows Product Grade but never
+# Preserved logic: PU Material Family narrows Product Grade but never
 # independently scopes a KPI (CR-02's rule, reaffirmed unchanged by CR-16)
 # ---------------------------------------------------------------------------
 
@@ -227,29 +227,29 @@ def test_family_filter_narrows_grade_options_without_scoping_kpis(family_kpi_fix
 
     baseline_metrics = _metrics(at)
     assert baseline_metrics["Production runs"] == "2", (
-        "Baseline (no Product Family selected) should count both grades' runs"
+        "Baseline (no PU Material Family selected) should count both grades' runs"
     )
 
     grade_options_before = _sb(at, "Product Grade").options
     assert ids["grade_a_name"] in grade_options_before
     assert ids["grade_b_name"] in grade_options_before
 
-    family_sb = next(sb for sb in at.selectbox if sb.label == "Product Family")
+    family_sb = next(sb for sb in at.selectbox if sb.label == "PU Material Family")
     family_sb.set_value(ids["family_a_name"]).run()
-    assert not at.exception, f"Unhandled exception selecting Product Family: {at.exception}"
+    assert not at.exception, f"Unhandled exception selecting PU Material Family: {at.exception}"
 
     grade_options_after = _sb(at, "Product Grade").options
     assert grade_options_after == ["All grades", ids["grade_a_name"]], (
-        f"Product Family should narrow Product Grade's options to only its "
+        f"PU Material Family should narrow Product Grade's options to only its "
         f"own family's grades, got {grade_options_after}"
     )
 
     scoped_metrics = _metrics(at)
     assert scoped_metrics["Production runs"] == "2", (
-        "Product Family alone must not scope the Production runs KPI - it "
+        "PU Material Family alone must not scope the Production runs KPI - it "
         "only narrows the Product Grade dropdown (CR-02's rule, reaffirmed "
         "unchanged by CR-16 section 4). Selecting Product Grade itself, not "
-        "Product Family, is what would narrow this KPI."
+        "PU Material Family, is what would narrow this KPI."
     )
 
 

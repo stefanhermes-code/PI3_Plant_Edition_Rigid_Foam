@@ -148,7 +148,7 @@ grade_ids = grade_ids_for_company(session, active_company_id)
 
 grades = apply_scope(session.query(FoamGrade), FoamGrade.id, grade_ids).all()
 if not grades:
-    st.warning("Add a product grade first (Product Family & Product Grade page).")
+    st.warning("Add a product grade first (PU Material Family & Product Grade page).")
     st.stop()
 
 # CR-14: Customer master, scoped the same way Suppliers/Raw Materials scope
@@ -225,7 +225,7 @@ with tab_create:
             if submitted:
                 session.add(
                     CustomerTrial(
-                        plant_id=grade.product_family.plant_id,
+                        plant_id=grade.pu_material_family.plant_id,
                         foam_grade_id=grade.id,
                         recipe_version_id=_resolve_recipe_version(grade.id),
                         customer_id=customer.id,
@@ -495,7 +495,7 @@ with tab_import:
                 grade_obj = grades_by_id[grade_id_val]
                 trial_date_val = pd.to_datetime(row.get("trial_date"), errors="coerce")
                 row_customer_name = str(row["customer_name"]).strip()
-                row_company_id = grade_obj.product_family.plant.company_id
+                row_company_id = grade_obj.pu_material_family.plant.company_id
                 lookup_key = (row_company_id, row_customer_name.lower())
                 matched_customer = customers_by_key.get(lookup_key)
                 if matched_customer is None:
@@ -505,7 +505,7 @@ with tab_import:
                     customers_by_key[lookup_key] = matched_customer
                 session.add(
                     CustomerTrial(
-                        plant_id=grade_obj.product_family.plant_id,
+                        plant_id=grade_obj.pu_material_family.plant_id,
                         foam_grade_id=grade_id_val,
                         recipe_version_id=_resolve_recipe_version(grade_id_val),
                         customer_id=matched_customer.id,

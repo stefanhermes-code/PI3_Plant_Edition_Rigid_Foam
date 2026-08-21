@@ -8299,6 +8299,96 @@ surfaced as 27 unexplained failures. Caught, reverted, redone against the real
 repository, and the copy deleted. The lesson is to anchor paths absolutely
 rather than trusting an inherited cwd.
 
+v0.76.0, 2026-08-21: R1 - Product Family becomes PU Material Family.
+Redesign Migration Plan v3, Package B.
+
+WHAT THE RECORD NOW MEANS
+
+The polyurethane material a plant ultimately makes. For a system house that is
+the prepolymer mix going into a mould; for a panel producer it is rigid foam.
+One of seven controlled values - Molded Foam, Rigid, Coatings, Adhesives,
+Sealants, Elastomers, TPU - chosen from a picker, not typed.
+
+Flexible slabstock is deliberately absent. That is the Flexible Foam Edition.
+
+THE THREE ROWS
+
+Cold Room Panels, Insulation and Rigid PIR foam all became Rigid. Two of them
+belonged to the same plant, so that was a merge, not a rename: Rigid PIR foam
+was deleted, not renamed, because renaming both would have left one plant
+holding two identical families - and the import path already treats
+(plant_id, lower(name)) as a family's identity.
+
+The merge is guarded. It refuses to delete a family that still carries a
+product grade, and the guard was proved by giving the doomed row a grade it
+does not have and watching it block. Without that, a later re-run against
+different data would delete a family and orphan its grades in silence.
+
+THE ORPHANED CUSTOMER SEGMENT
+
+Customer Segment moved down to Product Grade: within one application area a
+plant can serve several segments with different grades.
+
+One value had nowhere to go. "Insulated panel / board manufacturing" sat on
+Rigid PIR foam - the row being deleted - and that row carried no grades.
+Charlie allowed either disposition provided it was recorded. It is RETIRED,
+preserved verbatim in migration 0009's own comments.
+
+The reasoning is in the migration: the value belonged to a row named after a
+chemistry and describes who buys insulated panel and board. RF-COLDROOM-001 is
+a cold-room panel grade under a different family that never carried a segment.
+Moving the text across would not have migrated a fact, it would have asserted
+one - and it would have looked like migrated data ever after. Losing a fact is
+recoverable from that file. Inventing one is not.
+
+THE RENAME SURFACE
+
+Per Charlie's ruling of 21 August, which adopted JC's addendum in full: model,
+database object, the foreign-key column, page headings and labels, the
+navigation entry in app_rigid_foam.py, the access-control page key - which is
+the SAME STRING as the navigation key - the tenant-scoping path, import
+terminology, and the terminology allowlists. 27 application files and 57 test
+files.
+
+role_page_permissions was re-checked immediately before the change, as the
+ruling requires: still empty, so no permission rows needed migrating. That is
+true only while it stays empty, which R4's role configuration will change.
+
+The page FILE views/2_Product_Families.py keeps its name. Streamlit derives the
+URL from it, so renaming it would break every existing bookmark during the
+compatibility release. Terminology moved; the route did not. Retire it in final
+cleanup, after bookmark impact has been checked.
+
+The import header is now pu_material_family_id, with product_family_id
+accepted for one release and renamed on read BEFORE the required-column check -
+after would mean rejecting a file the application is willing to read. An alias
+only fills an ABSENT canonical column: a file carrying both headers keeps the
+canonical one, because letting a stale value win over a correct one is worse
+than rejecting the file.
+
+WHAT THE CONTROLLED PICKER REMOVED, AND WHAT REPLACED THE TEST
+
+CR-10 had a test submitting the create form with a blank name and asserting the
+inline "name is required" error. That branch is now unreachable - a selectbox
+always has a value - so the test could only ever pass.
+
+It was not deleted and it was not relaxed. It now asserts the guarantee that
+replaced the validation: the picker offers exactly the seven controlled values
+and nothing else. That is what makes an invalid name impossible now, and it is
+what would break if somebody widened the list without a ruling.
+
+HISTORY WAS NOT REWRITTEN
+
+The sweep renamed CR-10's and CR-15's titles inside comments. Those were
+restored: CR-10 was called "Split Product Families and Product Grades into
+Separate Pages" and was never called anything else. A comment that renames a
+change request is simply wrong about the past - the same reasoning that left
+migration 0004's applied text alone.
+
+Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
+
+The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
+
 v0.75.0, 2026-08-21: R0 - baseline, restore point, evidence inventory and the
 application-facing rename. Redesign Migration Plan v3, Package B.
 
@@ -8766,4 +8856,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.75.0"
+APP_VERSION = "0.76.0"

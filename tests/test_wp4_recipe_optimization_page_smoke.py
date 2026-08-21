@@ -79,9 +79,9 @@ def seeded_flexible_only():
     u = uuid.uuid4().hex[:8]
     session, plant, machine = _seed_base(u)
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"Flex Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"Flex Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"Flex Grade Smoke {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"Flex Grade Smoke {u}")
     session.add(grade); session.flush()
     recipe = db.RecipeVersion(foam_grade_id=grade.id, version_label="v1", approval_status="Approved", is_active=True)
     session.add(recipe); session.flush()
@@ -113,7 +113,7 @@ def seeded_rigid_only():
     u = uuid.uuid4().hex[:8]
     session, plant, machine = _seed_base(u)
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"Rigid Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"Rigid Family {u}")
     session.add(family); session.flush()
     chem = db.Chemistry(controlled_id=f"CHM-SMOKE-010-{u}", name="Rigid polyurethane foam")
     method = db.ProductionMethod(controlled_id=f"PM-SMOKE-120-{u}", name="Closed-mold panel injection")
@@ -122,7 +122,7 @@ def seeded_rigid_only():
     # Reset and Clean UAT Baseline" instruction) - chemistry_id alone is
     # what this test needs to exercise the rigid-vs-flexible branch.
     grade = db.FoamGrade(
-        product_family_id=family.id, grade_name=f"Rigid Grade Smoke {u}",
+        pu_material_family_id=family.id, grade_name=f"Rigid Grade Smoke {u}",
         chemistry_id=chem.id, status="UAT_ONLY",
     )
     session.add(grade); session.flush()

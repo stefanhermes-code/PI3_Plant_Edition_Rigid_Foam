@@ -7,7 +7,7 @@ This file is the engineering-side stand-in for that walkthrough: an
 AppTest-based sweep across every page a user actually touches for the
 minimum Phase 1 baseline now seeded directly in Supabase (see version.py's
 v0.23.0 changelog entry) - Plant -> PM-100 -> Production Unit/Machine ->
-Product Family/Foam Grade -> Recipe -> Production Run -> Sample -> Result -
+PU Material Family/Foam Grade -> Recipe -> Production Run -> Sample -> Result -
 proving each page loads without exception against that exact shape of
 data, using the same one-fixture-mirrors-the-real-chain approach as every
 prior "live walkthrough" pass in this project (task #731 and others).
@@ -57,7 +57,7 @@ ALL_PAGES = [
     ("Plants", PAGE_PLANTS),
     ("Production Methods", PAGE_PRODUCTION_METHODS),
     ("Production Equipment", PAGE_PRODUCTION_EQUIPMENT),
-    ("Product Families", PAGE_PRODUCT_FAMILIES),
+    ("PU Material Families", PAGE_PRODUCT_FAMILIES),
     ("Product Grades", PAGE_PRODUCT_GRADES),
     ("Recipes", PAGE_RECIPES),
     ("Production Run", PAGE_PRODUCTION_RUN),
@@ -78,7 +78,7 @@ def seeded_minimum_phase1_baseline():
     """Mirrors the exact chain seeded directly against Supabase for the
     minimum Phase 1 UAT baseline (see version.py's v0.23.0 entry, "Step 5
     Import"): Plant -> PM-100 (is_released=True) activated -> Production
-    Unit -> Machine -> Product Family -> Foam Grade -> 5 raw materials ->
+    Unit -> Machine -> PU Material Family -> Foam Grade -> 5 raw materials ->
     Recipe (Pending Review) + components -> Grade Specification (thermal
     conductivity) -> Production Run -> Sample -> Physical Property Result
     (a pass). Platform-owner company, matching every other PM smoke
@@ -109,9 +109,9 @@ def seeded_minimum_phase1_baseline():
     )
     session.add(machine); session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"Cold Room Panels {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"Cold Room Panels {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"RF-COLDROOM-{u}", status="UAT_ONLY")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"RF-COLDROOM-{u}", status="UAT_ONLY")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()

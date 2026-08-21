@@ -81,7 +81,7 @@ def _submit_key(at, form_key, label):
 
 @pytest.fixture()
 def base_chain():
-    """Company -> Plant -> ProductionMethod -> Machine -> ProductFamily ->
+    """Company -> Plant -> ProductionMethod -> Machine -> PUMaterialFamily ->
     FoamGrade -> RecipeVersion chain, WITHOUT a pre-created ProductionRun -
     the minimum content the Create Production Run tab needs (Gap 2 tests
     exercise creation itself, so no run should exist yet)."""
@@ -105,9 +105,9 @@ def base_chain():
     )
     session.add(machine); session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"WP7P2C Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"WP7P2C Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"WP7P2C Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"WP7P2C Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()
@@ -442,9 +442,9 @@ def two_chain_run():
             production_method_id=method.id, active=True,
         )
         session.add(machine); session.flush()
-        family = db.ProductFamily(plant_id=plant.id, name=f"WP7P2C2 Family {label.upper()} {u}")
+        family = db.PUMaterialFamily(plant_id=plant.id, name=f"WP7P2C2 Family {label.upper()} {u}")
         session.add(family); session.flush()
-        grade = db.FoamGrade(product_family_id=family.id, grade_name=f"WP7P2C2 Grade {label.upper()} {u}")
+        grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"WP7P2C2 Grade {label.upper()} {u}")
         session.add(grade); session.flush()
         grade.machines = [machine]
         session.flush()

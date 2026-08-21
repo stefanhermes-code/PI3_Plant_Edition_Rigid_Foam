@@ -144,10 +144,10 @@ def rich_fixture():
     session.flush()
     machine = db.Machine(plant_id=plant.id, name=f"CR12 Rich Machine {u}", production_method_id=method.id, active=True)
     session.add(machine); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR12 Rich Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR12 Rich Family {u}")
     session.add(family); session.flush()
 
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR12 Rich Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR12 Rich Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine]
     session.flush()
@@ -253,7 +253,7 @@ def rich_fixture():
     chem = db.Chemistry(controlled_id=f"CHM-CR12-010-{u}", name="Rigid polyurethane foam")
     session.add(chem); session.flush()
     rigid_grade = db.FoamGrade(
-        product_family_id=family.id, grade_name=f"CR12 Rigid Grade {u}", chemistry_id=chem.id, status="UAT_ONLY",
+        pu_material_family_id=family.id, grade_name=f"CR12 Rigid Grade {u}", chemistry_id=chem.id, status="UAT_ONLY",
     )
     session.add(rigid_grade); session.flush()
     rigid_grade.machines = [machine]

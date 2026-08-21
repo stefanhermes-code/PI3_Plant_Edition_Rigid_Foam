@@ -7,7 +7,7 @@ direct-evidence regression coverage of: Product hierarchy, Location
 semantics, Block reference UI/reports, Block reference import, Active
 Quality Issue list, Historical readability, Trial behavior, and a semantic
 guard against wording regressions. Most of these are already covered by
-targeted AppTest-based tests elsewhere (test_cr18_product_family_terminology.py
+targeted AppTest-based tests elsewhere (test_cr18_pu_material_family_terminology.py
 for F22-01/F22-02's page-level UI, test_cr11_functional_evidence_group_b.py
 for F22-03's "Observed location" wording, test_cr11_functional_evidence_group_d.py
 for F22-04/F22-05's block_reference UI gating + CSV import validation, and
@@ -54,7 +54,7 @@ def _reset_schema():
 def two_method_run_chain():
     """Company -> Plant -> two ProductionMethods (real "PM-500" controlled_id
     and a non-PM-500 "PM-100") -> one Machine per method -> one shared
-    ProductFamily/FoamGrade/RecipeVersion -> one ProductionRun per method
+    PUMaterialFamily/FoamGrade/RecipeVersion -> one ProductionRun per method
     (block_reference populated on both, proving the gate is about the
     method, not about whether a value happens to be present) -> one Sample
     per run, so both build_batch_release_record_data() and
@@ -77,9 +77,9 @@ def two_method_run_chain():
     machine_100 = db.Machine(plant_id=plant.id, name=f"CR22 Machine 100 {u}", production_method_id=method_100.id, active=True)
     session.add_all([machine_500, machine_100]); session.flush()
 
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR22 Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR22 Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR22 Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR22 Grade {u}")
     session.add(grade); session.flush()
     grade.machines = [machine_500, machine_100]
     session.flush()

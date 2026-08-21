@@ -15,7 +15,7 @@ the file add the direct evidence Charlie's review asked for, one section
 per numbered item in that document:
 
   1. Active-page highlighting for both new pages.
-  2. Product Families functional regression: create, edit, delete,
+  2. PU Material Families functional regression: create, edit, delete,
      selection.
   3. Product Grades functional regression: create, edit, delete,
      CSV/Excel import.
@@ -55,7 +55,7 @@ gives Charlie's items 2 and 3 genuine end-to-end UI evidence (fill the
 real form widgets, click the real Save/Delete buttons) instead of a
 data-layer stand-in, which is what the two blocks below use throughout.
 
-Usage: python -m pytest tests/test_cr10_product_family_grade_split.py
+Usage: python -m pytest tests/test_cr10_pu_material_family_grade_split.py
 """
 import os
 import sys
@@ -80,7 +80,7 @@ PAGE_GRADES = os.path.join(APP_DIR, "views", "2_Product_Grades.py")
 def _clear_relevant_caches():
     """CR-10 closeout correction (2026-08-12): this file's new fixtures
     (seeded_one_family, seeded_one_family_one_grade, view_only_role_fixture)
-    each create a fresh Company/Plant/ProductFamily after
+    each create a fresh Company/Plant/PUMaterialFamily after
     _reset_schema() restarts autoincrement ids at 1 - the exact
     cross-test/cross-file cache-key collision hazard CR-12's test file
     self-caught and documented (tenant_scope's id-scoping helpers and
@@ -107,7 +107,7 @@ def _reset_schema():
 
 @pytest.fixture()
 def seeded_two_families():
-    """Two product families under one plant, one with a single product
+    """Two PU Material Families under one plant, one with a single product
     grade already on it - enough to exercise the family filter and the
     Families->Grades context handoff without needing a Production Method
     or Machine (neither page's core CRUD depends on either)."""
@@ -121,12 +121,12 @@ def seeded_two_families():
     plant = db.Plant(company_id=company.id, name=f"CR10 Plant {u}")
     session.add(plant); session.flush()
 
-    family_a = db.ProductFamily(plant_id=plant.id, name=f"CR10 Family A {u}")
-    family_b = db.ProductFamily(plant_id=plant.id, name=f"CR10 Family B {u}")
+    family_a = db.PUMaterialFamily(plant_id=plant.id, name=f"CR10 Family A {u}")
+    family_b = db.PUMaterialFamily(plant_id=plant.id, name=f"CR10 Family B {u}")
     session.add_all([family_a, family_b]); session.flush()
 
-    grade_a = db.FoamGrade(product_family_id=family_a.id, grade_name=f"CR10-Grade-A-{u}")
-    grade_b = db.FoamGrade(product_family_id=family_b.id, grade_name=f"CR10-Grade-B-{u}")
+    grade_a = db.FoamGrade(pu_material_family_id=family_a.id, grade_name=f"CR10-Grade-A-{u}")
+    grade_b = db.FoamGrade(pu_material_family_id=family_b.id, grade_name=f"CR10-Grade-B-{u}")
     session.add_all([grade_a, grade_b]); session.flush()
     session.commit()
 
@@ -152,7 +152,7 @@ def _run(page_path, session_state=None):
 
 
 def test_combined_page_file_and_key_are_gone():
-    """AC6: 'The combined "Product Families & Product Grades" sidebar
+    """AC6: 'The combined "PU Material Families & Product Grades" sidebar
     entry is removed.' - the old file no longer exists, and neither
     PAGE_CATALOG nor the old page_key show up anywhere access_control
     checks."""
@@ -162,17 +162,17 @@ def test_combined_page_file_and_key_are_gone():
 
 
 def test_page_catalog_has_both_new_keys():
-    """AC1: separate sidebar entries for Product Families and Product
+    """AC1: separate sidebar entries for PU Material Families and Product
     Grades - checked here at the access_control.PAGE_CATALOG level (the
     single source of truth app_rigid_foam.py's nav and the permission
     matrix both read from)."""
-    assert access_control.PAGE_CATALOG.get("product_families") == "Product Families"
+    assert access_control.PAGE_CATALOG.get("pu_material_families") == "PU Material Families"
     assert access_control.PAGE_CATALOG.get("product_grades") == "Product Grades"
 
 
 def test_sidebar_order_matches_cr10_section_3():
     """AC2: 'The sidebar order is Production Methods, Production
-    Equipment, Product Families, Product Grades.' Reads app_rigid_foam.py's
+    Equipment, PU Material Families, Product Grades.' Reads app_rigid_foam.py's
     own production_method_pages list directly rather than driving the full
     st.navigation() sidebar, since that list IS what app_rigid_foam.py
     hands to st.navigation() for this section, in this exact order."""
@@ -187,7 +187,7 @@ def test_sidebar_order_matches_cr10_section_3():
     start = source.index("production_method_pages = [")
     end = source.index("]", start)
     block = source[start:end]
-    order = ["production_methods", "plant_overview", "product_families", "product_grades"]
+    order = ["production_methods", "plant_overview", "pu_material_families", "product_grades"]
     positions = [block.index(f'"{key}"') for key in order]
     assert positions == sorted(positions), (
         f"production_method_pages entries out of CR-10 order - found at positions {positions} "
@@ -195,19 +195,19 @@ def test_sidebar_order_matches_cr10_section_3():
     )
 
 
-def test_product_families_page_opens_directly_and_lists_families(seeded_two_families):
-    """AC3: 'Product Families opens directly as a dedicated page.' AC7:
-    existing Product Families functionality (the table, in this case)
+def test_pu_material_families_page_opens_directly_and_lists_families(seeded_two_families):
+    """AC3: 'PU Material Families opens directly as a dedicated page.' AC7:
+    existing PU Material Families functionality (the table, in this case)
     still works."""
     ids = seeded_two_families
     at = _run(PAGE_FAMILIES)
-    assert not at.exception, f"Unhandled exception loading Product Families: {at.exception}"
+    assert not at.exception, f"Unhandled exception loading PU Material Families: {at.exception}"
     # clickable_table renders as an HTML block, not a semantic widget
     # AppTest can query row-by-row - the underlying-data assertion below is
     # the same pattern every other clickable_table page's smoke coverage in
     # this project uses (see test_pm_hierarchy_pages_smoke.py).
     session = db.get_session()
-    families = session.query(db.ProductFamily).filter(db.ProductFamily.plant_id == ids["plant_id"]).all()
+    families = session.query(db.PUMaterialFamily).filter(db.PUMaterialFamily.plant_id == ids["plant_id"]).all()
     assert {f.name for f in families} == {ids["family_a_name"], ids["family_b_name"]}
     session.close()
 
@@ -220,9 +220,9 @@ def test_product_grades_page_opens_directly_with_family_filter(seeded_two_famili
     at = _run(PAGE_GRADES)
     assert not at.exception, f"Unhandled exception loading Product Grades: {at.exception}"
 
-    filter_sb = next((sb for sb in at.selectbox if sb.label == "Filter by product family"), None)
+    filter_sb = next((sb for sb in at.selectbox if sb.label == "Filter by PU Material Family"), None)
     assert filter_sb is not None, "Family filter selectbox not found on Product Grades page"
-    assert filter_sb.value is None, "Direct visit (no context) should default the filter to 'All product families'"
+    assert filter_sb.value is None, "Direct visit (no context) should default the filter to 'All PU Material Families'"
 
 
 def test_family_context_seeds_grades_filter_and_narrows_table(seeded_two_families):
@@ -237,7 +237,7 @@ def test_family_context_seeds_grades_filter_and_narrows_table(seeded_two_familie
     at = _run(PAGE_GRADES, session_state={"pfg_family_context_id": ids["family_a_id"]})
     assert not at.exception, f"Unhandled exception loading Product Grades with family context: {at.exception}"
 
-    filter_sb = next((sb for sb in at.selectbox if sb.label == "Filter by product family"), None)
+    filter_sb = next((sb for sb in at.selectbox if sb.label == "Filter by PU Material Family"), None)
     assert filter_sb is not None
     assert filter_sb.value is not None and filter_sb.value.id == ids["family_a_id"], (
         f"Filter should have been seeded to family A from context - got {filter_sb.value}"
@@ -259,7 +259,7 @@ def test_family_context_ignored_if_family_id_is_stale(seeded_two_families):
     silently ignored, not crash the page or corrupt the filter."""
     at = _run(PAGE_GRADES, session_state={"pfg_family_context_id": 999999})
     assert not at.exception, f"Unhandled exception with a bogus family context id: {at.exception}"
-    filter_sb = next((sb for sb in at.selectbox if sb.label == "Filter by product family"), None)
+    filter_sb = next((sb for sb in at.selectbox if sb.label == "Filter by PU Material Family"), None)
     assert filter_sb is not None
     assert filter_sb.value is None, "A context id that doesn't resolve to a real family should leave the filter on 'All'"
 
@@ -271,8 +271,8 @@ def test_family_context_ignored_if_family_id_is_stale(seeded_two_families):
 
 @pytest.fixture()
 def seeded_one_family():
-    """One plant, one product family, zero grades yet - the minimum needed
-    to exercise Product Families' own create/edit/delete/selection flows
+    """One plant, one PU Material Family, zero grades yet - the minimum needed
+    to exercise PU Material Families' own create/edit/delete/selection flows
     without a second row making dataframe row-index assertions ambiguous."""
     db.init_db()
     _reset_schema()
@@ -282,7 +282,7 @@ def seeded_one_family():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR10c Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR10c Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR10c Family {u}")
     session.add(family); session.flush()
     session.commit()
     ids = {
@@ -305,9 +305,9 @@ def seeded_one_family_one_grade():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR10d Plant {u}")
     session.add(plant); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR10d Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR10d Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR10d-Grade-{u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR10d-Grade-{u}")
     session.add(grade); session.flush()
     session.commit()
     ids = {
@@ -331,7 +331,7 @@ def view_only_role_fixture(seeded_one_family):
     role = db.Role(company_id=ids["company_id"], name="CR10 Correction View Only", is_builtin=False)
     session.add(role); session.flush()
     session.add_all([
-        db.RolePagePermission(role_id=role.id, page_key="product_families", can_view=True, can_use=False),
+        db.RolePagePermission(role_id=role.id, page_key="pu_material_families", can_view=True, can_use=False),
         db.RolePagePermission(role_id=role.id, page_key="product_grades", can_view=True, can_use=False),
     ])
     session.commit()
@@ -358,7 +358,7 @@ def _run_as_role(page_path, ids):
 
 
 # ---------------------------------------------------------------------------
-# Item 1: Active-page highlighting for both Product Families and Product
+# Item 1: Active-page highlighting for both PU Material Families and Product
 # Grades.
 # ---------------------------------------------------------------------------
 
@@ -377,7 +377,7 @@ def test_active_page_highlighting_available_to_both_new_pages():
     with open(os.path.join(APP_DIR, "app_rigid_foam.py"), encoding="utf-8") as f:
         source = f.read()
 
-    assert 'st.Page("views/2_Product_Families.py", title="Product Families"' in source
+    assert 'st.Page("views/2_Product_Families.py", title="PU Material Families"' in source
     assert 'st.Page("views/2_Product_Grades.py", title="Product Grades"' in source
 
     # The one render loop every nav section's pages (including this pair's
@@ -391,7 +391,7 @@ def test_active_page_highlighting_available_to_both_new_pages():
         "changed, re-verify both new pages still render through it, not a bespoke path."
     )
 
-    for key in ("product_families", "product_grades"):
+    for key in ("pu_material_families", "product_grades"):
         assert access_control.page_visible(
             key, is_platform_owner=False, subscription=None, denied_keys=set(), is_super_admin=False,
         ), f"{key} should default to visible - a hidden page_link has nothing to highlight"
@@ -400,38 +400,41 @@ def test_active_page_highlighting_available_to_both_new_pages():
 
 
 # ---------------------------------------------------------------------------
-# Item 2: Product Families functional regression - create, edit, delete,
+# Item 2: PU Material Families functional regression - create, edit, delete,
 # selection.
 # ---------------------------------------------------------------------------
 
-def test_product_family_create_via_form(seeded_one_family):
-    """Fills the real Create tab form (Plant selectbox + Product family
-    name text_input) and clicks the real 'Save product family' submit
-    button, then confirms the new row landed in the database."""
+def test_pu_material_family_create_via_form(seeded_one_family):
+    """Fills the real Create tab form (Plant selectbox + PU Material Family
+    selectbox) and clicks the real 'Save PU Material Family' submit button,
+    then confirms the new row landed in the database."""
     ids = seeded_one_family
     at = AppTest.from_file(PAGE_FAMILIES, default_timeout=30)
     at.secrets["AUTH_DISABLED"] = True
     at.run()
-    assert not at.exception, f"Unhandled exception loading Product Families: {at.exception}"
+    assert not at.exception, f"Unhandled exception loading PU Material Families: {at.exception}"
 
-    name_input = next(t for t in at.text_input if t.label == "Product family name *" and t.key is None)
-    name_input.set_value("CR10-Correction-New-Family")
-    save_btn = next(b for b in at.button if b.label == "Save product family")
+    # R1-WP2 (2026-08-21): the name is a controlled selectbox now, not free
+    # text. The test drives the real widget rather than being relaxed to stop
+    # looking - the point of the check is that the create form works.
+    name_input = next(s for s in at.selectbox if s.label == "PU Material Family *" and s.key is None)
+    name_input.set_value("Coatings")
+    save_btn = next(b for b in at.button if b.label == "Save PU Material Family")
     save_btn.click()
     at.run()
-    assert not at.exception, f"Unhandled exception saving a new product family: {at.exception}"
+    assert not at.exception, f"Unhandled exception saving a new PU Material Family: {at.exception}"
 
     session = db.get_session()
     created = (
-        session.query(db.ProductFamily)
-        .filter(db.ProductFamily.plant_id == ids["plant_id"], db.ProductFamily.name == "CR10-Correction-New-Family")
+        session.query(db.PUMaterialFamily)
+        .filter(db.PUMaterialFamily.plant_id == ids["plant_id"], db.PUMaterialFamily.name == "Coatings")
         .first()
     )
-    assert created is not None, "New product family was not persisted"
+    assert created is not None, "New PU Material Family was not persisted"
     session.close()
 
 
-def test_product_family_selection_edit_and_delete_via_ui(seeded_one_family):
+def test_pu_material_family_selection_edit_and_delete_via_ui(seeded_one_family):
     """Presets the families_table dataframe widget's OWN on_select state
     (not family_selected_id directly - see the module docstring) to
     select row 0 before .run(), confirming clickable_table's row-click
@@ -451,16 +454,16 @@ def test_product_family_selection_edit_and_delete_via_ui(seeded_one_family):
     )
 
     # --- Edit ---
-    name_input = next(t for t in at.text_input if t.key == f"edit_family_name_{ids['family_id']}")
-    name_input.set_value("CR10-Correction-Edited-Family")
+    name_input = next(s for s in at.selectbox if s.key == f"edit_family_name_{ids['family_id']}")
+    name_input.set_value("Elastomers")
     save_btn = next(b for b in at.button if b.label == "Save changes")
     save_btn.click()
     at.run()
-    assert not at.exception, f"Unhandled exception editing the product family: {at.exception}"
+    assert not at.exception, f"Unhandled exception editing the PU Material Family: {at.exception}"
 
     session = db.get_session()
-    edited = session.get(db.ProductFamily, ids["family_id"])
-    assert edited.name == "CR10-Correction-Edited-Family", "Edit did not persist to the database"
+    edited = session.get(db.PUMaterialFamily, ids["family_id"])
+    assert edited.name == "Elastomers", "Edit did not persist to the database"
     session.close()
 
     # --- Delete ---
@@ -472,16 +475,16 @@ def test_product_family_selection_edit_and_delete_via_ui(seeded_one_family):
     delete_btn = next(b for b in at.button if b.key == f"family_{ids['family_id']}_btn")
     delete_btn.click()
     at.run()
-    assert not at.exception, f"Unhandled exception deleting the product family: {at.exception}"
+    assert not at.exception, f"Unhandled exception deleting the PU Material Family: {at.exception}"
 
     session = db.get_session()
-    assert session.get(db.ProductFamily, ids["family_id"]) is None, "Delete did not remove the product family"
+    assert session.get(db.PUMaterialFamily, ids["family_id"]) is None, "Delete did not remove the PU Material Family"
     session.close()
 
 
-def test_product_family_csv_import_via_ui(seeded_two_families):
+def test_pu_material_family_csv_import_via_ui(seeded_two_families):
     """Beyond Charlie's item 2 wording (create/edit/delete/selection only)
-    - Product Families has the same CSV/Excel import tab Product Grades
+    - PU Material Families has the same CSV/Excel import tab Product Grades
     has, so this closes the identical gap on that side too rather than
     leaving it asymmetric. Drives the real st.file_uploader widget
     (streamlit==1.59.2 supports FileUploader.set_value((filename,
@@ -506,11 +509,11 @@ def test_product_family_csv_import_via_ui(seeded_two_families):
 
     session = db.get_session()
     imported = (
-        session.query(db.ProductFamily)
-        .filter(db.ProductFamily.plant_id == ids["plant_id"], db.ProductFamily.name == "CR10-Correction-Imported-Family")
+        session.query(db.PUMaterialFamily)
+        .filter(db.PUMaterialFamily.plant_id == ids["plant_id"], db.PUMaterialFamily.name == "CR10-Correction-Imported-Family")
         .first()
     )
-    assert imported is not None, "Imported product family was not persisted"
+    assert imported is not None, "Imported PU Material Family was not persisted"
     session.close()
 
 
@@ -541,7 +544,7 @@ def test_product_grade_create_via_form(seeded_one_family):
     session = db.get_session()
     created = (
         session.query(db.FoamGrade)
-        .filter(db.FoamGrade.product_family_id == ids["family_id"], db.FoamGrade.grade_name == "CR10-Correction-New-Grade")
+        .filter(db.FoamGrade.pu_material_family_id == ids["family_id"], db.FoamGrade.grade_name == "CR10-Correction-New-Grade")
         .first()
     )
     assert created is not None, "New product grade was not persisted"
@@ -550,7 +553,7 @@ def test_product_grade_create_via_form(seeded_one_family):
 
 def test_product_grade_selection_edit_and_delete_via_ui(seeded_one_family_one_grade):
     """Same preset-the-dataframe's-own-selection-state technique as the
-    Product Families test above, applied to grades_table/
+    PU Material Families test above, applied to grades_table/
     grade_selected_id - edits the selected grade's name through the real
     Edit form and confirms it persisted, then deletes it through the
     real confirm-checkbox + delete-button flow and confirms the
@@ -594,9 +597,9 @@ def test_product_grade_selection_edit_and_delete_via_ui(seeded_one_family_one_gr
     session.close()
 
 
-def test_product_family_csv_import_validation_rejects_invalid_row(seeded_two_families):
+def test_pu_material_family_csv_import_validation_rejects_invalid_row(seeded_two_families):
     """CR-11 correction v2 (2026-08-12, per Charlie's CR11_Closeout_
-    Correction_Review_Return_to_JC.docx item 2): Product Families is one
+    Correction_Review_Return_to_JC.docx item 2): PU Material Families is one
     of CR-11's own six net-new importers, but the first CR-11 correction
     round only proved the valid-import path for it (test above) - no
     invalid-row/validation-handling evidence existed for this exact
@@ -611,7 +614,7 @@ def test_product_family_csv_import_validation_rejects_invalid_row(seeded_two_fam
 
     before_count = None
     session = db.get_session()
-    before_count = session.query(db.ProductFamily).count()
+    before_count = session.query(db.PUMaterialFamily).count()
     session.close()
 
     csv_bytes = b"plant_id,name\n999999,CR10-Correction-Bad-Plant-Family\n"
@@ -632,15 +635,15 @@ def test_product_family_csv_import_validation_rejects_invalid_row(seeded_two_fam
     assert "unknown plant_id" in warnings.lower() or "plant_id" in warnings.lower()
 
     session = db.get_session()
-    after_count = session.query(db.ProductFamily).count()
+    after_count = session.query(db.PUMaterialFamily).count()
     session.close()
     assert after_count == before_count, "An invalid-plant-id row must not be persisted"
 
 
 def test_product_grade_csv_import_validation_rejects_invalid_row(seeded_one_family):
     """CR-11 correction v2 - same evidence as above, for Product Grades'
-    own bad-row check (`row.get("product_family_id") in valid_family_ids`).
-    Uploads one row with an out-of-scope product_family_id and confirms
+    own bad-row check (`row.get("pu_material_family_id") in valid_family_ids`).
+    Uploads one row with an out-of-scope pu_material_family_id and confirms
     it's flagged/rejected, not silently imported."""
     ids = seeded_one_family
     session = db.get_session()
@@ -652,7 +655,7 @@ def test_product_grade_csv_import_validation_rejects_invalid_row(seeded_one_fami
     at.run()
     assert not at.exception
 
-    csv_bytes = b"product_family_id,grade_name\n999999,CR10-Correction-Bad-Family-Grade\n"
+    csv_bytes = b"pu_material_family_id,grade_name\n999999,CR10-Correction-Bad-Family-Grade\n"
     uploader = next(u for u in at.file_uploader if u.key == "grade_upload")
     uploader.set_value(("grades_bad.csv", csv_bytes, "text/csv"))
     at.run()
@@ -662,7 +665,7 @@ def test_product_grade_csv_import_validation_rejects_invalid_row(seeded_one_fami
         "Confirm import button should not render when every uploaded row is invalid"
     )
     warnings = " ".join(w.value for w in at.warning)
-    assert "unknown product_family_id" in warnings.lower() or "product_family_id" in warnings.lower()
+    assert "unknown pu_material_family_id" in warnings.lower() or "pu_material_family_id" in warnings.lower()
 
     session = db.get_session()
     after_count = session.query(db.FoamGrade).count()
@@ -682,7 +685,7 @@ def test_product_grade_csv_import_via_ui(seeded_one_family):
     assert not at.exception
 
     csv_bytes = (
-        f"product_family_id,grade_name,notes\n"
+        f"pu_material_family_id,grade_name,notes\n"
         f"{ids['family_id']},CR10-Correction-Imported-Grade,from CSV\n"
     ).encode()
     uploader = next(u for u in at.file_uploader if u.key == "grade_upload")
@@ -698,7 +701,7 @@ def test_product_grade_csv_import_via_ui(seeded_one_family):
     session = db.get_session()
     imported = (
         session.query(db.FoamGrade)
-        .filter(db.FoamGrade.product_family_id == ids["family_id"], db.FoamGrade.grade_name == "CR10-Correction-Imported-Grade")
+        .filter(db.FoamGrade.pu_material_family_id == ids["family_id"], db.FoamGrade.grade_name == "CR10-Correction-Imported-Grade")
         .first()
     )
     assert imported is not None, "Imported product grade was not persisted"
@@ -709,17 +712,17 @@ def test_product_grade_csv_import_via_ui(seeded_one_family):
 # Item 4: Authorization and access behavior on both new page keys.
 # ---------------------------------------------------------------------------
 
-def test_product_families_view_only_role_cannot_use_write_controls(view_only_role_fixture):
-    """With a role denied 'use' on product_families (can_view=True,
+def test_pu_material_families_view_only_role_cannot_use_write_controls(view_only_role_fixture):
+    """With a role denied 'use' on pu_material_families (can_view=True,
     can_use=False), the page still opens (it's not hidden) but its
     Create and Import tabs show the view-only caption instead of
     rendering their form/uploader - direct evidence
-    access_control.can_use_page("product_families", ...) is actually
+    access_control.can_use_page("pu_material_families", ...) is actually
     wired into this page's write-control gating, not just present in the
     module."""
     ids = view_only_role_fixture
     session = db.get_session()
-    assert not access_control.can_use_page("product_families", role_id=ids["role_id"], session=session, is_super_admin=False)
+    assert not access_control.can_use_page("pu_material_families", role_id=ids["role_id"], session=session, is_super_admin=False)
     session.close()
 
     at = _run_as_role(PAGE_FAMILIES, ids)
@@ -727,7 +730,7 @@ def test_product_families_view_only_role_cannot_use_write_controls(view_only_rol
 
     captions = " ".join(c.value for c in at.caption)
     assert "view-only access" in captions.lower()
-    assert not any(b.label == "Save product family" for b in at.button), (
+    assert not any(b.label == "Save PU Material Family" for b in at.button), (
         "View-only role should not see the Create form's submit button"
     )
     assert not any(u.key == "family_upload" for u in at.file_uploader), (
@@ -755,7 +758,7 @@ def test_product_grades_view_only_role_cannot_use_write_controls(view_only_role_
     )
 
 
-def test_product_families_full_access_role_can_use_write_controls(seeded_one_family):
+def test_pu_material_families_full_access_role_can_use_write_controls(seeded_one_family):
     """Contrast case for item 4: a role with NO RolePagePermission row at
     all (the "no row = full access" default access_control.py documents)
     sees the real Create form, proving the two view-only tests above are
@@ -770,13 +773,13 @@ def test_product_families_full_access_role_can_use_write_controls(seeded_one_fam
     session.close()
 
     session = db.get_session()
-    assert access_control.can_use_page("product_families", role_id=role_id, session=session, is_super_admin=False)
+    assert access_control.can_use_page("pu_material_families", role_id=role_id, session=session, is_super_admin=False)
     session.close()
 
     ids = dict(ids); ids["role_id"] = role_id
     at = _run_as_role(PAGE_FAMILIES, ids)
     assert not at.exception
-    assert any(b.label == "Save product family" for b in at.button), (
+    assert any(b.label == "Save PU Material Family" for b in at.button), (
         "A role with no explicit permission row should default to full access"
     )
 
@@ -785,28 +788,41 @@ def test_product_families_full_access_role_can_use_write_controls(seeded_one_fam
 # Item 5: Validation and data persistence after create and edit.
 # ---------------------------------------------------------------------------
 
-def test_product_family_create_validation_rejects_blank_name(seeded_one_family):
-    """Submitting the Create form with a blank name shows the real inline
-    error and does not insert a row - the actual validation branch in
-    views/2_Product_Families.py's 'add_family' form, not an assumption
-    that it exists."""
+def test_pu_material_family_create_offers_only_the_controlled_values(seeded_one_family):
+    """R1-WP2 (2026-08-21) replaced this test's original subject.
+
+    It used to submit the Create form with a blank name and assert the inline
+    "name is required" error. That branch is now unreachable: the name is a
+    controlled selectbox, which always has a value, so there is no blank to
+    submit. The validation remains in the code as a guard against a
+    programmatic call, but driving it through the UI is no longer possible.
+
+    Rather than delete the coverage or keep a test that can only pass, this
+    checks the guarantee that REPLACED it - that the picker offers exactly the
+    seven controlled values and nothing else. That is the thing which now makes
+    an invalid name impossible, and it is what would break if somebody widened
+    the list without a ruling.
+    """
     ids = seeded_one_family
     session = db.get_session()
-    before_count = session.query(db.ProductFamily).filter(db.ProductFamily.plant_id == ids["plant_id"]).count()
+    before_count = session.query(db.PUMaterialFamily).filter(db.PUMaterialFamily.plant_id == ids["plant_id"]).count()
     session.close()
 
     at = AppTest.from_file(PAGE_FAMILIES, default_timeout=30)
     at.secrets["AUTH_DISABLED"] = True
     at.run()
-    save_btn = next(b for b in at.button if b.label == "Save product family")
-    save_btn.click()
-    at.run()
     assert not at.exception
-    errors = " ".join(e.value for e in at.error)
-    assert "Product family name is required." in errors
+
+    picker = next(s for s in at.selectbox if s.label == "PU Material Family *" and s.key is None)
+    assert list(picker.options) == [
+        "Molded Foam", "Rigid", "Coatings", "Adhesives", "Sealants", "Elastomers", "TPU",
+    ], "the create form no longer offers exactly the seven controlled values"
+    assert "Flexible slabstock" not in picker.options, (
+        "slabstock belongs to the Flexible Foam Edition, not this application"
+    )
 
     session = db.get_session()
-    after_count = session.query(db.ProductFamily).filter(db.ProductFamily.plant_id == ids["plant_id"]).count()
+    after_count = session.query(db.PUMaterialFamily).filter(db.PUMaterialFamily.plant_id == ids["plant_id"]).count()
     session.close()
     assert after_count == before_count, "A blank-name submit must not insert a row"
 
@@ -815,7 +831,7 @@ def test_product_grade_create_validation_rejects_blank_name(seeded_one_family):
     """Same evidence for Product Grades' 'Grade name is required.' branch."""
     ids = seeded_one_family
     session = db.get_session()
-    before_count = session.query(db.FoamGrade).filter(db.FoamGrade.product_family_id == ids["family_id"]).count()
+    before_count = session.query(db.FoamGrade).filter(db.FoamGrade.pu_material_family_id == ids["family_id"]).count()
     session.close()
 
     at = AppTest.from_file(PAGE_GRADES, default_timeout=30)
@@ -829,12 +845,12 @@ def test_product_grade_create_validation_rejects_blank_name(seeded_one_family):
     assert "Grade name is required." in errors
 
     session = db.get_session()
-    after_count = session.query(db.FoamGrade).filter(db.FoamGrade.product_family_id == ids["family_id"]).count()
+    after_count = session.query(db.FoamGrade).filter(db.FoamGrade.pu_material_family_id == ids["family_id"]).count()
     session.close()
     assert after_count == before_count, "A blank-name submit must not insert a row"
 
 
-def test_product_family_edit_persists_across_a_fresh_page_load(seeded_one_family):
+def test_pu_material_family_edit_persists_across_a_fresh_page_load(seeded_one_family):
     """Edits the seeded family's name through the real Edit form in one
     AppTest session, then opens a BRAND NEW AppTest instance (simulating
     navigating away and back, not just reading the same in-memory
@@ -846,8 +862,8 @@ def test_product_family_edit_persists_across_a_fresh_page_load(seeded_one_family
     at.secrets["AUTH_DISABLED"] = True
     at.session_state["families_table"] = {"selection": {"rows": [0], "columns": []}}
     at.run()
-    name_input = next(t for t in at.text_input if t.key == f"edit_family_name_{ids['family_id']}")
-    name_input.set_value("CR10-Correction-Persisted-Family")
+    name_input = next(s for s in at.selectbox if s.key == f"edit_family_name_{ids['family_id']}")
+    name_input.set_value("Sealants")
     save_btn = next(b for b in at.button if b.label == "Save changes")
     save_btn.click()
     at.run()
@@ -859,8 +875,8 @@ def test_product_family_edit_persists_across_a_fresh_page_load(seeded_one_family
     assert not at2.exception
 
     session = db.get_session()
-    reloaded = session.get(db.ProductFamily, ids["family_id"])
-    assert reloaded.name == "CR10-Correction-Persisted-Family"
+    reloaded = session.get(db.PUMaterialFamily, ids["family_id"])
+    assert reloaded.name == "Sealants"
     session.close()
 
 
@@ -902,7 +918,7 @@ def test_customer_facing_scan_has_no_old_combined_naming():
     all of which legitimately reuse those two words and are unrelated to
     the retired tab pair. Instead this checks the actual customer-facing
     surfaces: the sidebar's registered page titles never include the old
-    combined "Product Families & Product Grades" entry, and both new
+    combined "PU Material Families & Product Grades" entry, and both new
     pages' own rendered tab labels are the CR-11 wording, never the
     retired bare "Product families" / "Product grades" tab pair."""
     import re
@@ -912,7 +928,7 @@ def test_customer_facing_scan_has_no_old_combined_naming():
     with open(os.path.join(APP_DIR, "app_rigid_foam.py"), encoding="utf-8") as f:
         source = f.read()
     titles = re.findall(r'st\.Page\([^)]*title="([^"]+)"', source)
-    assert "Product Families & Product Grades" not in titles, (
+    assert "PU Material Families & Product Grades" not in titles, (
         "The old combined sidebar entry title must not be registered anywhere in app_rigid_foam.py's nav"
     )
 
@@ -924,7 +940,7 @@ def test_customer_facing_scan_has_no_old_combined_naming():
     session.add(company); session.flush()
     plant = db.Plant(company_id=company.id, name=f"CR10 Scan Plant {u}")
     session.add(plant); session.flush()
-    session.add(db.ProductFamily(plant_id=plant.id, name=f"CR10 Scan Family {u}"))
+    session.add(db.PUMaterialFamily(plant_id=plant.id, name=f"CR10 Scan Family {u}"))
     session.commit()
     session.close()
 
@@ -933,7 +949,7 @@ def test_customer_facing_scan_has_no_old_combined_naming():
     at_fam.run()
     assert not at_fam.exception
     fam_tab_labels = [t.label for t in at_fam.tabs]
-    assert fam_tab_labels == list(cr11_function_tab_labels("Product Family", "Product Families")), fam_tab_labels
+    assert fam_tab_labels == list(cr11_function_tab_labels("PU Material Family", "PU Material Families")), fam_tab_labels
     assert "Product families" not in fam_tab_labels
 
     at_gr = AppTest.from_file(PAGE_GRADES, default_timeout=30)
@@ -955,7 +971,7 @@ def test_customer_facing_scan_has_no_old_combined_naming():
 # ---------------------------------------------------------------------------
 # CR-11 CLOSEOUT CORRECTION ROUND 2 - remaining gap (2026-08-12, per
 # Charlie's "CR11_Closeout_Correction_Round2_Review_Return_to_JC.docx"):
-# test_product_families_view_only_role_cannot_use_write_controls and
+# test_pu_material_families_view_only_role_cannot_use_write_controls and
 # test_product_grades_view_only_role_cannot_use_write_controls (above)
 # prove the Create form and CSV/Excel uploader don't render for a
 # view-only role, but neither one selects an existing row and checks the
@@ -966,7 +982,7 @@ def test_customer_facing_scan_has_no_old_combined_naming():
 # restricted for your role." caption - so these two tests preset the
 # table's own on_select state to select the seeded row (the same
 # genuinely-drivable technique used by
-# test_product_family_selection_edit_and_delete_via_ui above), run as the
+# test_pu_material_family_selection_edit_and_delete_via_ui above), run as the
 # view-only role, and assert the real confirm-checkbox/delete-button keys
 # are absent while the record remains persisted - direct evidence for the
 # Delete path specifically, not just Create/Import.
@@ -985,7 +1001,7 @@ def view_only_role_fixture_with_grade(seeded_one_family_one_grade):
     role = db.Role(company_id=ids["company_id"], name="CR11 Round2 View Only", is_builtin=False)
     session.add(role); session.flush()
     session.add_all([
-        db.RolePagePermission(role_id=role.id, page_key="product_families", can_view=True, can_use=False),
+        db.RolePagePermission(role_id=role.id, page_key="pu_material_families", can_view=True, can_use=False),
         db.RolePagePermission(role_id=role.id, page_key="product_grades", can_view=True, can_use=False),
     ])
     session.commit()
@@ -995,7 +1011,7 @@ def view_only_role_fixture_with_grade(seeded_one_family_one_grade):
     return out
 
 
-def test_product_family_view_only_role_cannot_delete_via_ui(view_only_role_fixture):
+def test_pu_material_family_view_only_role_cannot_delete_via_ui(view_only_role_fixture):
     """Selects the seeded family through families_table's own on_select
     state, runs as the view-only role, and confirms the real delete
     confirm-checkbox (key f"family_{id}_confirm") and delete button (key
@@ -1026,8 +1042,8 @@ def test_product_family_view_only_role_cannot_delete_via_ui(view_only_role_fixtu
     )
 
     session = db.get_session()
-    assert session.get(db.ProductFamily, ids["family_id"]) is not None, (
-        "The product family must remain persisted - a view-only role must not be able to delete it"
+    assert session.get(db.PUMaterialFamily, ids["family_id"]) is not None, (
+        "The PU Material Family must remain persisted - a view-only role must not be able to delete it"
     )
     session.close()
 

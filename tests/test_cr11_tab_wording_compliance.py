@@ -72,7 +72,7 @@ def _clear_relevant_caches():
     tests/test_cr11_functional_evidence_group_*.py files (which run
     alphabetically BEFORE this file) exposed the same cross-test/cross-file
     @st.cache_data id-collision hazard first documented in CR-12 and
-    defended against in test_cr10_product_family_grade_split.py -
+    defended against in test_cr10_pu_material_family_grade_split.py -
     full_chain below is module-scoped and resets the schema (autoincrement
     ids restart at 1), but without this clear, tenant_scope's id-scoping
     helpers can still serve another module's stale cached scope for the
@@ -117,9 +117,9 @@ def full_chain():
     session.add(plant); session.flush()
     machine = db.Machine(plant_id=plant.id, name=f"CR11 Tabs Machine {u}")
     session.add(machine); session.flush()
-    family = db.ProductFamily(plant_id=plant.id, name=f"CR11 Tabs Family {u}")
+    family = db.PUMaterialFamily(plant_id=plant.id, name=f"CR11 Tabs Family {u}")
     session.add(family); session.flush()
-    grade = db.FoamGrade(product_family_id=family.id, grade_name=f"CR11 Tabs Grade {u}")
+    grade = db.FoamGrade(pu_material_family_id=family.id, grade_name=f"CR11 Tabs Grade {u}")
     session.add(grade); session.flush()
     recipe = db.RecipeVersion(
         foam_grade_id=grade.id, version_label="v1", approval_status="Approved", is_active=True,
@@ -186,9 +186,9 @@ def test_plant_installation_overview_tabs(full_chain):
     _assert_triplet_adjacent(labels, "Plant")
 
 
-def test_product_families_tabs(full_chain):
+def test_pu_material_families_tabs(full_chain):
     labels = _tab_labels("2_Product_Families.py")
-    _assert_triplet_adjacent(labels, "Product Family", "Product Families")
+    _assert_triplet_adjacent(labels, "PU Material Family", "PU Material Families")
 
 
 def test_product_grades_tabs(full_chain):

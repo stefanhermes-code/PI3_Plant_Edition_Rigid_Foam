@@ -11,7 +11,7 @@ same renderer the flexible branch uses without any renderer-side change.
 
 Uses an in-memory grade/recipe-version/cost object rather than a full DB
 seed - build_rigid_recipe_optimization_report_data() only reads attributes
-off the objects it's handed (grade.grade_name, grade.product_family, etc.)
+off the objects it's handed (grade.grade_name, grade.pu_material_family, etc.)
 and the achievement_summary/actual_ranked data the page already computed
 elsewhere (compute_grade_achievement_summary/rank_lot_use_actual_correlations
 - both already covered by their own WP4 test files), so no database is
@@ -44,7 +44,7 @@ class _FakeVersion:
 class _FakeGrade:
     def __init__(self, name="RF-COLD-01"):
         self.grade_name = name
-        self.product_family = None
+        self.pu_material_family = None
 
 
 def _achievement_row(**overrides):

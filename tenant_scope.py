@@ -3,12 +3,12 @@ Plant in the schema hierarchy.
 
 Plant, RawMaterial, and Supplier already carry their own `company_id`
 (see views/1_Plant_Installation_Overview.py and views/14_Raw_Materials.py).
-Everything else - product families, foam grades, recipes, production runs,
+Everything else - PU Material Families, foam grades, recipes, production runs,
 and all the quality/trial data keyed to a production run or a plant - has
 no `company_id` column of its own. It scopes through the plant(s) it
 ultimately hangs off:
 
-    Plant --- ProductFamily --- FoamGrade --- RecipeVersion --- RecipeComponent
+    Plant --- PUMaterialFamily --- FoamGrade --- RecipeVersion --- RecipeComponent
       |
       +--- Machine
       |
@@ -33,10 +33,10 @@ access_control.py and on the Plant/Raw Materials pages. An empty list
 
 import streamlit as st
 
-from db import Company, CustomerTrial, FoamGrade, OptimizationTrial, Plant, ProductFamily, ProductionRun
+from db import Company, CustomerTrial, FoamGrade, OptimizationTrial, Plant, PUMaterialFamily, ProductionRun
 
 # TTL cache for every id-resolution helper below (2026-08-05 performance
-# audit): these walk Plant -> ProductFamily -> FoamGrade -> ... and are
+# audit): these walk Plant -> PUMaterialFamily -> FoamGrade -> ... and are
 # called from the top of nearly every operational and Industrial
 # Intelligence page (18 of ~27 page files import this module) - often more
 # than once per page, and always identical within a short window since the
@@ -49,7 +49,7 @@ from db import Company, CustomerTrial, FoamGrade, OptimizationTrial, Plant, Prod
 #
 # 30s matches the precedent already established in analytics.py for the
 # same tradeoff. Correctness for the handful of pages that create/delete
-# Plant/ProductFamily/FoamGrade/ProductionRun/CustomerTrial/
+# Plant/PUMaterialFamily/FoamGrade/ProductionRun/CustomerTrial/
 # OptimizationTrial rows (the six models these helpers resolve) is handled
 # by those pages calling clear_scope_cache() immediately after their own
 # commit, not by shortening this TTL - see clear_scope_cache() below.
@@ -58,7 +58,7 @@ _SCOPE_CACHE_TTL = 30
 
 def clear_scope_cache():
     """Call immediately after committing an add/edit/delete of a
-    Plant/ProductFamily/FoamGrade/ProductionRun/CustomerTrial/
+    Plant/PUMaterialFamily/FoamGrade/ProductionRun/CustomerTrial/
     OptimizationTrial row (or a Company row - company_picker's own list is
     cached too), so the very next rerun sees fresh scope ids instead of
     waiting out _SCOPE_CACHE_TTL. st.cache_data has no per-function/per-key
@@ -132,7 +132,7 @@ def family_ids_for_plants(_session, plant_ids):
     if not plant_ids:
         return []
     return [
-        fid for (fid,) in _session.query(ProductFamily.id).filter(ProductFamily.plant_id.in_(plant_ids)).all()
+        fid for (fid,) in _session.query(PUMaterialFamily.id).filter(PUMaterialFamily.plant_id.in_(plant_ids)).all()
     ]
 
 
@@ -143,13 +143,13 @@ def grade_ids_for_families(_session, family_ids):
     if not family_ids:
         return []
     return [
-        gid for (gid,) in _session.query(FoamGrade.id).filter(FoamGrade.product_family_id.in_(family_ids)).all()
+        gid for (gid,) in _session.query(FoamGrade.id).filter(FoamGrade.pu_material_family_id.in_(family_ids)).all()
     ]
 
 
 def grade_ids_for_company(session, company_id):
     """Convenience: foam grade ids reachable from a company's plants,
-    walking Plant -> ProductFamily -> FoamGrade in one call."""
+    walking Plant -> PUMaterialFamily -> FoamGrade in one call."""
     plant_ids = plant_ids_for_company(session, company_id)
     family_ids = family_ids_for_plants(session, plant_ids)
     return grade_ids_for_families(session, family_ids)

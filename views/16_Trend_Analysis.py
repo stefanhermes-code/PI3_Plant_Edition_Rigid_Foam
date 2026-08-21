@@ -61,7 +61,7 @@ st.title("Trend Analysis")
 render_function_action_intro(
     function_text=(
         "Runs the standard SPC toolkit against one quality property's history for a product grade (or "
-        "a whole product family pooled together): an individuals control chart with real control "
+        "a whole PU Material Family pooled together): an individuals control chart with real control "
         "limits (catches a sudden shift), process capability (Cpk) against that property's own "
         "tolerance band (catches 'in control but too close to spec'), a CUSUM chart (catches a "
         "slow drift a control chart is bad at catching early - pump wear, catalyst degradation, an "
@@ -75,7 +75,7 @@ render_function_action_intro(
         "trend exists in the first place."
     ),
     action_text=(
-        "Choose whether to analyze one product grade or a whole product family (its grades pooled "
+        "Choose whether to analyze one product grade or a whole PU Material Family (its grades pooled "
         "together), then choose what to trend: a quality property (density, hardness/IFD, "
         "tensile, and so on) or a method-aware Process Setting/Environment/Outcome value recorded "
         "on the Production Run page. Read the control chart first for sudden shifts, then capability for how much margin "
@@ -325,7 +325,7 @@ else:
     pooling_grades = unit["mode"] == "family"
     if pooling_grades:
         st.caption(
-            f"Pooling {len(unit['grade_ids'])} grade(s) in product family **{unit['label']}**: "
+            f"Pooling {len(unit['grade_ids'])} grade(s) in PU Material Family **{unit['label']}**: "
             f"{', '.join(unit['member_grade_names'])}. Because grades in a family can have different "
             f"target values for the same property, everything below is shown as **% of each run's own "
             f"target** (100% = exactly on target) instead of {property_name}'s raw unit - this is what "
@@ -707,7 +707,7 @@ render_data_table(series[results_columns], max_height="400px")
 plant_id = unit["plant_id"]
 subject_desc = (
     f"product grade {unit['label']}" if unit["mode"] == "grade"
-    else f"product family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
+    else f"PU Material Family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
 )
 docx_grade_id = unit["entity_id"] if unit["mode"] == "grade" else None
 if ai_assistant.is_enabled_for_plant(session, plant_id):

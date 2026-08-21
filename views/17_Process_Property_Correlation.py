@@ -56,7 +56,7 @@ render_function_action_intro(
         "plain-language read for the technical team."
     ),
     action_text=(
-        "Choose whether to analyze one product grade or a whole product family (its grades pooled "
+        "Choose whether to analyze one product grade or a whole PU Material Family (its grades pooled "
         "together) and the property you want to explain, then read down the ranked table - the "
         "setting at the top has the strongest statistical association with that outcome across "
         "the recorded runs. Treat it as a lead to investigate, not a cause on its own: review it "
@@ -95,7 +95,7 @@ unit = analysis_unit_picker(grades, key_prefix="ppc")
 pooling_grades = unit["mode"] == "family"
 if pooling_grades:
     st.caption(
-        f"Pooling {len(unit['grade_ids'])} grade(s) in product family **{unit['label']}**: "
+        f"Pooling {len(unit['grade_ids'])} grade(s) in PU Material Family **{unit['label']}**: "
         f"{', '.join(unit['member_grade_names'])}. Because grades in a family can have different "
         "target values for the same property, the correlation below is computed against **% of "
         "each run's own target** instead of the property's raw unit - this is what keeps pooling "
@@ -239,7 +239,7 @@ else:
 plant_id = unit["plant_id"]
 subject_desc = (
     f"product grade {unit['label']}" if unit["mode"] == "grade"
-    else f"product family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
+    else f"PU Material Family {unit['label']} (pooling grades: {', '.join(unit['member_grade_names'])})"
 )
 docx_grade_id = unit["entity_id"] if unit["mode"] == "grade" else None
 if ai_assistant.is_enabled_for_plant(session, plant_id):

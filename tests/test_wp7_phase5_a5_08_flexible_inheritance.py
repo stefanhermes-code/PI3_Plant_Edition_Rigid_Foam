@@ -45,7 +45,7 @@ returns' scope-discipline sections.
 
 Scan technique: for AI prompts and the Quality Issues caption, the same
 source-grep-with-allowlist pattern as test_wp7_phase0_containment.py /
-test_cr18_product_family_terminology.py - walk the file's raw text and
+test_cr18_pu_material_family_terminology.py - walk the file's raw text and
 assert the retired term is entirely absent from the live surface. For the
 taxonomy module, part 3 below scans the LOADED QUALITY_ISSUE_TAXONOMY
 dict values (not raw file text) - the module's typical_causes strings are

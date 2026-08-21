@@ -61,7 +61,7 @@ this order by `page_visible()`:
    write actions to gate) and conditionally disables/skips rendering its
    forms and action buttons. As of 2026-08-01 this is rolled out on every
    operational page with a write action: Plant & Foam Equipment Overview,
-   Product Family & Foam Grade, Recipes, Production Run, Quality Test
+   PU Material Family & Foam Grade, Recipes, Production Run, Quality Test
    Result, Quality Issue, Production Samples, Customers, Customer Trials &
    Samples, Optimization Trials & Samples, Raw Materials, Expert
    Notes, Recipe Optimization, Trend Analysis, Machine Settings
@@ -204,7 +204,7 @@ ADMIN_ROLE_NAMES = frozenset({"company admin", "platform admin"})
 PAGE_CATALOG = {
     "plant_overview": "Plants",
     "production_methods": "Production Methods",
-    "product_families": "Product Families",
+    "pu_material_families": "PU Material Families",
     "product_grades": "Product Grades",
     "raw_materials": "Raw Materials",
     "suppliers": "Suppliers",
