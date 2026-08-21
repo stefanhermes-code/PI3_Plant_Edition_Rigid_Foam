@@ -57,6 +57,7 @@ import access_control
 import db
 import helpers
 import tenant_scope
+from migration_sql_helpers import set_targets as _set_targets
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGE_GRADES = os.path.join(APP_DIR, "views", "2_Product_Grades.py")
@@ -1099,7 +1100,11 @@ def test_correction_migration_changes_descriptions_only():
     statements = [x.strip() for x in code.split(";") if x.strip().lower().startswith("update applications")]
     assert len(statements) == 5, f"Expected exactly 5 UPDATE statements, found {len(statements)}"
     for stmt in statements:
-        assigned = re.findall(r"set\s+(\w+)\s*=", stmt, re.IGNORECASE)
+        # Shared parser, not a local regex. The obvious re.findall(r"set\s+(\w+)\s*=")
+        # only ever sees the FIRST assignment - a second one arrives as ", name = ..."
+        # with no "set" in front of it - so a widened UPDATE passed this check
+        # unnoticed in R3-WP1. See tests/migration_sql_helpers.py.
+        assigned = _set_targets(stmt)
         assert assigned == ["description"], (
             f"An UPDATE in 0017 writes something other than description: {assigned}"
         )
@@ -1162,7 +1167,7 @@ def test_0018_aligns_app110_and_changes_nothing_else():
     )
     stmt = statements[0]
     assert "APP-110" in stmt, "0018's UPDATE does not target APP-110"
-    assigned = _re.findall(r"set\s+(\w+)\s*=", stmt, _re.IGNORECASE)
+    assigned = _set_targets(stmt)
     assert assigned == ["description"], (
         f"0018 writes something other than description: {assigned}"
     )

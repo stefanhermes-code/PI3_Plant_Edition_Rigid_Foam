@@ -8389,6 +8389,80 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.79.4, 2026-08-21: R3-WP1. Every machine now belongs to a Production Unit,
+and a scope check that could not see past a comma.
+Charlie's Package C Acceptance and Consolidated R3 Release v3, section 3.
+
+WHAT THE INVENTORY FOUND
+
+Charlie's first R3 requirement is to inventory the existing Production Units
+and machine assignments BEFORE creating anything. Two plants, two machines,
+one Production Unit:
+
+  plant 3  HTC Global - Phase 1 Plant   machine "Panel Foamer 1"  PM-100
+                                        -> PU-PH1-001 Panel Line 1
+  plant 4  PTU Korat                    machine "Appliance Cavity Foaming Unit"
+                                        PM-800 -> no unit at all
+
+Nothing else was wrong with it. Zero machines parented to another plant's
+unit, zero units holding two machines, zero units holding none. The
+one-machine-to-one-unit relationship Charlie wants kept is already what
+machines.production_unit_id enforces, so nothing was added to hold it and no
+association table was created.
+
+Migration 0019 creates PU-KOR-001 "Appliance Cavity Cell 1" and assigns PTU's
+machine to it. Stefan chose the controlled ID. The rest follows the only
+precedent in the data - PU-PH1-001 names the unit for what it is and restates
+its production method in unit_type. "Cell" rather than "Line" because PM-800
+is discrete filling of an enclosed cavity.
+
+WHAT WAS DELIBERATELY NOT CREATED
+
+PTU Korat has FIVE activated production methods and ONE machine. An activated
+method says the plant MAY run that method; it is not evidence that equipment
+exists, and Charlie's wording is "existing plant/equipment evidence". So one
+unit was created, not five. Four units that no run could ever reference would
+have gone into R3-WP4's snapshot backfill and into every picker.
+test_no_unit_is_created_for_a_method_without_equipment holds that line,
+because the pressure to give every activated method somewhere to point is
+structural rather than accidental.
+
+EVIDENCE
+
+Negative control first: the exit check was run against the un-migrated clone
+and confirmed to fail there. Proved on disposable schema r3_probe_wp1 (clones
+of plants, machines and production_units), re-run for idempotency with both
+table fingerprints identical across passes. Diffed against live: exactly one
+machine row differed, and only in production_unit_id - every other column
+byte-identical. Applied live, ledger row 19, checksum 5731a539d693. Probe
+schema dropped in the same call.
+
+THE SCOPE CHECK THAT COULD NOT SEE PAST A COMMA
+
+test_migration_touches_only_the_unit_link_on_machines refuses a migration that
+writes anything other than production_unit_id. Widening 0019 to
+
+    set production_unit_id = u.id, name = m.name
+
+left it green. The parser was re.findall(r"set\s+(\w+)\s*="), which only ever
+matches the column directly after the SET keyword - a second assignment
+arrives as ", name = ..." with no "set" in front of it.
+
+The same regex was in tests/test_r2_application_area_master.py, guarding the
+scope of migrations 0017 and 0018 - the two artifacts whose whole authority
+rests on having changed description and nothing else. It had the same hole.
+
+Both now use tests/migration_sql_helpers.py, which cuts the SET clause at the
+first FROM or WHERE (an UPDATE ... FROM carries its own commas) and splits it
+properly. Mutations re-run against all three artifacts: widening 0019 fails
+the WP1 check, widening 0018 fails the R2 check. The helper has its own
+control asserting it sees the second assignment.
+
+This is section 19a of the working preferences twice in one day, and the
+second time it was hiding inside the fix for the first.
+
+Full regression: 1024 passed, 6 skipped, 0 failed. Was 1008 / 6 at v0.79.3.
+
 v0.79.3, 2026-08-21: APP-110 brought onto the one rule, and a scanner that had
 never been able to fail.
 Charlie's R3 Section 2 Acceptance and APP-110 Ruling to JC v1, section 2.
@@ -9506,4 +9580,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.79.3"
+APP_VERSION = "0.79.4"
