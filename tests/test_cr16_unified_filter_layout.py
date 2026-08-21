@@ -43,7 +43,7 @@ APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_MAIN = os.path.join(APP_DIR, "app_rigid_foam.py")
 
 EXPECTED_SELECTBOX_ORDER = [
-    "Plant", "Production Method", "Production Unit / Cell",
+    "Plant", "Production Method", "Equipment / Machine",
     "PU Material Family", "Product Grade",
 ]
 EXPECTED_FAMILY_HELP = (
@@ -166,7 +166,7 @@ def test_all_six_filters_present_in_row_order():
 
     selectbox_labels = [sb.label for sb in at.selectbox]
     assert selectbox_labels == EXPECTED_SELECTBOX_ORDER, (
-        f"Expected Row 1 (Plant, Production Method, Production Unit / Cell) "
+        f"Expected Row 1 (Plant, Production Method, Equipment / Machine) "
         f"then Row 2 (PU Material Family, Product Grade) in that render order, "
         f"got {selectbox_labels}"
     )
@@ -205,7 +205,7 @@ def test_overview_full_smoke_no_unhandled_exception():
     assert not at.exception
     _sb(at, "Production Method").set_value(None).run()
     assert not at.exception
-    _sb(at, "Production Unit / Cell").set_value(None).run()
+    _sb(at, "Equipment / Machine").set_value(None).run()
     assert not at.exception
     _sb(at, "PU Material Family").set_value(None).run()
     assert not at.exception

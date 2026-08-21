@@ -8389,6 +8389,116 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.80.0, 2026-08-21: the Production Unit / Cell gets its name back, and the
+page it never had.
+Charlie's R3-WP1 Production Unit / Equipment Naming Ruling, option A.
+
+THE DEFECT
+
+db.ProductionUnit has been in the schema since 2026-08-06 with live rows and
+NO SCREEN AT ALL. No user could see a Production Unit, create one, or edit one.
+That is why migration 0019 had to create PTU Korat's unit by hand.
+
+It went unnoticed for a fortnight for a specific reason. CR-01 relabelled
+db.Machine "Production Unit or Cell" on 10 August, when there was no other
+candidate for the name. The navigation therefore SHOWED a Production Unit /
+Cell level - it was just pointing at the equipment. A missing level that looks
+present is harder to see than one that is plainly absent.
+
+Stefan put it plainly: "If there is no page to edit for Production Unit then
+how we can do, I think that is missing in the structure."
+
+WHAT CHARLIE RULED
+
+Option A. db.Machine returns to Equipment / Machine on every user-visible
+surface and is never labelled Production Unit in any form. db.ProductionUnit
+owns Production Unit / Cell. CR-01 is superseded on this terminology point
+only, going forward; its artifact is not edited, the same treatment an applied
+migration gets, and this release is the recorded superseding decision. Every
+other CR-01 decision stands.
+
+The two structures below Plant, from the same ruling:
+
+  Operational   Company -> Plant -> Production Unit / Cell -> Equipment/Machine
+  Product       Company -> Plant -> PU Material Family -> Application Area
+                                 -> Product Grade -> Formulation -> Version
+
+Production Run is where they meet. The user picks Equipment / Machine; the
+unit is RESOLVED from it and stored separately as a snapshot when R3-WP4 lands.
+
+MEASURED, NOT QUOTED
+
+Charlie asked for the string count from an actual execution rather than the
+figure in the conflict document. Before: 77 user-visible strings across TWELVE
+files. The conflict document said nine, counted by grep over views/ alone -
+reports.py, app_rigid_foam.py and cascades.py also carried labels, which is
+exactly why he asked. After: 28 strings across three files, every one of them
+referring to db.ProductionUnit.
+
+Two of the 77 were split across implicit string concatenation - "...this
+Production " + "Unit or Cell..." - so a literal-by-literal sweep did not see
+them and a grep for the phrase did not either. Found by parsing and testing the
+JOINED value.
+
+The sweep also rewrote two strings it should not have: this release's own
+navigation title, and the Application Areas page's sentence stating the
+ratified hierarchy. Both restored. A blind rename is a rename that does not
+know what the words mean.
+
+THE NEW PAGE
+
+views/35_Production_Units.py. Plant-scoped, above Production Equipment in the
+navigation because that is the operational order. Create and Edit/Delete, unit
+code/name/type/notes, the plant, and the Equipment / Machines assigned to it.
+It shares the "plant_overview" access key with the Production Equipment page:
+a unit and the equipment inside it are one structure, a role permitted to
+maintain one must be able to maintain the other, and reusing the key means no
+existing role silently loses access to a key it has never been shown.
+
+Deliberately absent: no CSV/Excel import tab, so two of CR-11's three tabs
+rather than three - a unit has four fields, and the two live rows were created
+by migration because there was no page, not because there were too many to
+type. No continuous-versus-shot-by-shot field: that belongs to the work package
+that implements it, and a disabled placeholder is a field on screen that
+nothing reads. A test refuses both if they appear early.
+
+Deleting a unit unlinks its equipment rather than deleting it, and is refused
+outright while mixheads or tools are attached, because mixheads.production_unit_id
+is NOT NULL and the delete would fail at the database instead of in the UI.
+Moving a unit to another plant is refused while its equipment would be left
+behind - across a plant is across a COMPANY here.
+
+THE SCANNER, WRITTEN AT THE MOMENT OF THE RENAME
+
+R1 renamed Product Family to PU Material Family and shipped with nine files
+still saying the old thing, green throughout, because the only scanner looked
+for the term the rename had PRODUCED rather than the one it replaced. So this
+rename has its own scanner in the same commit: no user-visible string outside
+the three files that serve db.ProductionUnit may say "Production Unit". Its
+negative control plants the four phrasings the codebase actually used, written
+as independent literals. A fourth test refuses an unused entry on the
+allowlist, so the exemption list cannot become a place to hide a mislabel.
+
+TWO MUTATIONS, ONE SURVIVOR FIXED
+
+Dropping the plant scope from the unit listing failed the leak test. Dropping
+it from the EQUIPMENT read passed everything: another company's machine never
+renders in the table, because the table is keyed by the units in scope - but it
+still reached the metric counts and would still have been NAMED in the
+unassigned-equipment notice. A leak does not have to appear in a table to be a
+leak. The test now asserts the counts under company scope and the mutation
+fails.
+
+ELEVEN EXISTING TESTS UPDATED, NONE RELAXED
+
+They assert widget labels as locators for behaviour that has not changed - the
+Overview filter cascade, the CR-11 create/edit/delete evidence, the CR-16 row
+order. The rule they encoded was superseded by ruling, so the expected label
+moved and the assertions did not. Their docstrings still describe CR-01's
+labels, because that is what CR-01 said and history is not rewritten.
+
+Full regression: 1040 passed, 6 skipped, 0 failed. Was 1029 / 6 at v0.79.5.
+
 v0.79.5, 2026-08-21: APP-100 aligned. The controlled master is now on one
 wording standard end to end.
 Charlie's R3 APP-110 Acceptance and APP-100 Ruling to JC v1, section 3.
@@ -9659,4 +9769,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.79.5"
+APP_VERSION = "0.80.0"

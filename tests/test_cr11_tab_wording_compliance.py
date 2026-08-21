@@ -237,7 +237,7 @@ def test_user_accounts_tabs(full_chain):
 
 def test_production_equipment_tabs(full_chain):
     labels = _tab_labels("31_Production_Equipment.py")
-    _assert_triplet_adjacent(labels, "Production Unit / Cell", "Production Units / Cells")
+    _assert_triplet_adjacent(labels, "Equipment / Machine", "Equipment / Machines")
 
 
 # ---------------------------------------------------------------------------

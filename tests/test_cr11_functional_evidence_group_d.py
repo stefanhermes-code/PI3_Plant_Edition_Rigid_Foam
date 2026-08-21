@@ -369,7 +369,7 @@ def test_production_run_create_via_form(seeded_grade_chain):
     at = _run()
     assert not at.exception, f"Unhandled exception loading Production Run: {at.exception}"
 
-    machine_sb = next(sb for sb in at.selectbox if str(sb.label).startswith("Production Unit or Cell"))
+    machine_sb = next(sb for sb in at.selectbox if str(sb.label).startswith("Equipment / Machine"))
     machine_display = next(opt for opt in machine_sb.options if ids["machine_name"] in str(opt))
     machine_sb.set_value(machine_display)
 

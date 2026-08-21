@@ -301,7 +301,7 @@ def _render_machine_stream_stamp(session, run):
     if not summary["resolved"]:
         st.warning(
             "**Machine-stream configuration: Unresolved.** No activated A/B stream mapping "
-            "applied to this Production Unit or Cell when this run was created, so which "
+            "applied to this Equipment / Machine when this run was created, so which "
             "physical stream carried the isocyanate component is not established, and no A:B "
             "ratio is derived for this run. Activate a configuration on the Production "
             "Equipment page — it governs runs created from then on; this run is not "
@@ -467,7 +467,7 @@ with tab_runs:
                     # column happens to carry a legacy non-PM-500 value.
                     "Block": r.block_reference if block_reference_applicable(r.production_method) else "—",
                     "Production Method": r.production_method.name if r.production_method else "—",
-                    "Production Unit or Cell": r.machine.name if r.machine else "—",
+                    "Equipment / Machine": r.machine.name if r.machine else "—",
                     # Phase 8 Decision 2: surfaced in the overview so an
                     # Unresolved run is visible without opening it.
                     "Machine stream": machine_stream.run_stream_summary(session, r)["label"],
@@ -491,7 +491,7 @@ with tab_runs:
                 _render_machine_stream_stamp(session, selected_run)
                 st.caption(
                     "Run context is captured in order - Plant, then Production Method, then "
-                    "Production Unit or Cell, then Product Grade - because the Production Unit "
+                    "Equipment / Machine, then Product Grade - because the Equipment / Machine "
                     "or Cell you pick is what determines which Product Grades are producible "
                     "on it."
                 )
@@ -547,7 +547,7 @@ with tab_runs:
                 active_machines = [m for m in candidate_machines if m.active is not False]
                 if plant and method and not active_machines:
                     st.caption(
-                        "⚠️ No Production Unit or Cell is assigned to this Plant/Production Method "
+                        "⚠️ No Equipment / Machine is assigned to this Plant/Production Method "
                         "combination yet - assign one on the Plant & Foam Equipment Overview page "
                         "first."
                     )
@@ -557,7 +557,7 @@ with tab_runs:
                     0,
                 )
                 machine = st.selectbox(
-                    "Production Unit or Cell *", machine_options, index=machine_idx,
+                    "Equipment / Machine *", machine_options, index=machine_idx,
                     format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
                     key=f"edit_run_machine_{selected_run.id}",
                 )
@@ -572,7 +572,7 @@ with tab_runs:
                     )
                     if machine and not assignable_grades:
                         st.caption(
-                            "⚠️ This Production Unit or Cell has no Product Grade assigned yet - "
+                            "⚠️ This Equipment / Machine has no Product Grade assigned yet - "
                             "assign one on the PU Material Family & Product Grade page first."
                         )
                     grade_idx = next(
@@ -694,7 +694,7 @@ with tab_runs:
                     save = st.form_submit_button("Save changes", disabled=not page_usable)
                     if save and page_usable:
                         if not grade:
-                            st.error("Select a Production Unit or Cell that has a Product Grade assigned first.")
+                            st.error("Select a Equipment / Machine that has a Product Grade assigned first.")
                         elif not current_version:
                             st.error("This product grade has no recipe version yet — add one on the Recipes page first.")
                         else:
@@ -768,8 +768,8 @@ with tab_runs:
             f"Batch reference (auto-generated, prevents typos/duplicates): **{batch_reference}**"
         )
         st.caption(
-            "Pick Plant, then Production Method, then Production Unit or Cell, then Product "
-            "Grade - the Production Unit or Cell you select determines which Product Grades "
+            "Pick Plant, then Production Method, then Equipment / Machine, then Product "
+            "Grade - the Equipment / Machine you select determines which Product Grades "
             "are producible on it."
         )
         # Steps 1-3 (Plant / Production Method / Production Unit or Cell)
@@ -798,11 +798,11 @@ with tab_runs:
         active_machines = [m for m in candidate_machines if m.active is not False]
         if plant and method and not active_machines:
             st.caption(
-                "⚠️ No Production Unit or Cell is assigned to this Plant/Production Method "
+                "⚠️ No Equipment / Machine is assigned to this Plant/Production Method "
                 "combination yet - assign one on the Plant & Foam Equipment Overview page first."
             )
         machine = st.selectbox(
-            "Production Unit or Cell *", [None] + active_machines,
+            "Equipment / Machine *", [None] + active_machines,
             format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
             key="create_run_machine",
         )
@@ -812,7 +812,7 @@ with tab_runs:
         )
         if machine and not assignable_grades:
             st.caption(
-                "⚠️ This Production Unit or Cell has no Product Grade assigned yet - assign one on "
+                "⚠️ This Equipment / Machine has no Product Grade assigned yet - assign one on "
                 "the PU Material Family & Product Grade page first."
             )
 
@@ -865,7 +865,7 @@ with tab_runs:
             submitted = st.form_submit_button("Save production run", disabled=not page_usable)
             if submitted and page_usable:
                 if not grade:
-                    st.error("Select a Production Unit or Cell that has a Product Grade assigned first.")
+                    st.error("Select a Equipment / Machine that has a Product Grade assigned first.")
                 elif not current_version:
                     st.error("This product grade has no recipe version yet — add one on the Recipes page first.")
                 else:
@@ -896,8 +896,8 @@ with tab_runs:
                     st.success(f"Production run created. Batch reference: {run.batch_reference}.")
                     if stamped is None:
                         st.warning(
-                            "No activated machine-stream configuration applies to this Production "
-                            "Unit or Cell — the run reads as Unresolved and no A:B ratio is "
+                            "No activated machine-stream configuration applies to this Equipment / "
+                            "Machine — the run reads as Unresolved and no A:B ratio is "
                             "derived. Set one up on the Production Equipment page."
                         )
                     st.rerun()
@@ -1265,7 +1265,7 @@ with tab_setup:
 with tab_method_settings:
     st.caption(
         "Only the process settings applicable to this run's Production Method and "
-        "Production Unit or Cell are shown here (Machine-specific overrides Method-specific "
+        "Equipment / Machine are shown here (Machine-specific overrides Method-specific "
         "overrides Global)."
     )
 
@@ -1276,13 +1276,13 @@ with tab_method_settings:
         st.caption(
             f"Showing method-aware process settings for **{_run_label(run)}** — "
             f"Production Method: **{run.production_method.name if run.production_method else '—'}** · "
-            f"Production Unit or Cell: **{run.machine.name if run.machine else '—'}**"
+            f"Equipment / Machine: **{run.machine.name if run.machine else '—'}**"
         )
 
         if not run.production_method_id:
             st.warning(
-                "This run has no Production Method resolved (its Production Unit or Cell isn't "
-                "assigned one). Set the Production Unit or Cell on the Production Runs tab first."
+                "This run has no Production Method resolved (its Equipment / Machine isn't "
+                "assigned one). Set the Equipment / Machine on the Production Runs tab first."
             )
         else:
             eligible = analytics.eligible_process_settings(
@@ -1497,12 +1497,12 @@ with tab_streams:
         metering_applies = run_uses_metered_material_delivery(run)
         if not metering_applies:
             st.info(
-                "Material metering is not applicable to this run's Production Unit or Cell. "
+                "Material metering is not applicable to this run's Equipment / Machine. "
                 "Its material delivery mode is recorded as "
                 f"**{run.machine.material_delivery_mode}**, which does not meter. Recording new "
                 "readings is therefore closed for this run. Anything already recorded stays "
                 "visible and editable below - withdrawing a module must never strand data "
-                "somebody has entered. The mode is set per Production Unit or Cell on the "
+                "somebody has entered. The mode is set per Equipment / Machine on the "
                 "Production Equipment page."
             )
         phases_for_run = (
@@ -2045,10 +2045,10 @@ with tab_output:
 # ---------------------------------------------------------------------------
 with tab_cycles:
     st.caption(
-        "Discrete cycle/shot capture for Production Methods/Production Units or Cells that operate "
+        "Discrete cycle/shot capture for Production Methods/Equipment / Machines that operate "
         "in mold-fill-cure-demold cycles (a cycle can itself contain several shots, e.g. a multi-drop "
         "pour) rather than a continuous line. This module only becomes usable when the run's "
-        "Production Method or Production Unit or Cell is explicitly configured for cycle/shot "
+        "Production Method or Equipment / Machine is explicitly configured for cycle/shot "
         "operation - it is never inferred from a name."
     )
     if not runs:
@@ -2057,9 +2057,9 @@ with tab_cycles:
         run = _run_selector(runs, key="cycles_tab_run_select")
         if not run_uses_cycle_shot_operation(run):
             st.info(
-                "Cycle/Shot data capture is not enabled for this run's Production Method/Production "
-                "Unit or Cell. This is expected for continuous-line methods - the flag is set "
-                "per Production Method (with an optional per-Production Unit or Cell override) on "
+                "Cycle/Shot data capture is not enabled for this run's Production Method or "
+                "Equipment / Machine. This is expected for continuous-line methods - the flag is set "
+                "per Production Method (with an optional per-Equipment / Machine override) on "
                 "the Production Methods / Plant & Foam Equipment Overview pages, and only after an "
                 "evidence-based confirmation that the method genuinely operates in discrete cycles."
             )

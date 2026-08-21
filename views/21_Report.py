@@ -144,7 +144,7 @@ with tab_run:
         c3.metric("Plant", data["plant"])
         st.write(
             f"**Run date:** {data['run_date']} · **Batch reference:** {data['batch_reference']} · "
-            f"**Production Unit or Cell:** {data['machine']} · **Production Method:** {data['production_method']}"
+            f"**Equipment / Machine:** {data['machine']} · **Production Method:** {data['production_method']}"
         )
         if data["has_flags"]:
             st.warning("Flagged: " + "; ".join(data["flag_reasons"]))
@@ -510,7 +510,7 @@ with tab_wp3:
             c1, c2, c3 = st.columns(3)
             c1.metric("Verdict", data["overall_verdict"])
             c2.metric("Plant", data["plant"])
-            c3.metric("Production Unit or Cell", data["machine"])
+            c3.metric("Equipment / Machine", data["machine"])
             st.write(
                 f"**Chemistry:** {data['chemistry']} · **Production method:** {data['production_method']} · "
                 f"**Application:** {data['application']} · **Construction:** {data['construction']}"

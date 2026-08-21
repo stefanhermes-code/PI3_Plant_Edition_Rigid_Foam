@@ -215,12 +215,12 @@ else:
                 if not assignable_machines:
                     st.warning(
                         "This PU Material Family's plant has no activated Production Methods (or no "
-                        "production units or cells tagged with one) yet. Enable a Production "
-                        "Method and add a production unit or cell on the Production Equipment "
+                        "equipment / machines tagged with one) yet. Enable a Production "
+                        "Method and add a equipment / machine on the Production Equipment "
                         "page first."
                     )
                 assigned_machines = st.multiselect(
-                    "Production Units or Cells this PU Material can be produced on",
+                    "Equipment / Machines this PU Material can be produced on",
                     assignable_machines,
                     format_func=lambda m: f"{m.name} ({m.production_method.name if m.production_method else '—'})",
                     key="add_grade_machines",
@@ -340,7 +340,7 @@ else:
                     # never from the deprecated FoamGrade.production_method_id -
                     # see helpers.grade_production_method_label().
                     "Production Method": grade_production_method_label(grade),
-                    "Production Units or Cells": len(grade.machines),
+                    "Equipment / Machines": len(grade.machines),
                     # CR-07 (2026-08-11): one unified property-target count,
                     # replacing the separate Target density/Target hardness
                     # columns and the "Other target properties" count - see
@@ -411,10 +411,10 @@ else:
                     if not e_machine_options:
                         st.caption(
                             "This PU Material Family's plant has no activated Production Methods (or no "
-                            "production units or cells tagged with one) yet."
+                            "equipment / machines tagged with one) yet."
                         )
                     e_assigned_machines = st.multiselect(
-                        "Production Units or Cells this PU Material can be produced on",
+                        "Equipment / Machines this PU Material can be produced on",
                         e_machine_options, default=list(selected_grade.machines),
                         format_func=lambda m: f"{m.name} ({m.production_method.name if m.production_method else '—'})",
                         key=f"edit_grade_machines_{selected_grade.id}",
@@ -484,9 +484,9 @@ else:
                             elif _stranded:
                                 st.error(
                                     f"'{pu_material_family_label(e_family)}' is at a different plant "
-                                    f"than this grade's production unit(s): "
+                                    f"than this grade's equipment / machine(s): "
                                     + ", ".join(sorted(m.name for m in _stranded))
-                                    + ". Move or clear the production units first, or pick a PU "
+                                    + ". Move or clear the equipment / machines first, or pick a PU "
                                     "Material Family at their plant. Nothing was saved."
                                 )
                             else:

@@ -63,7 +63,7 @@ render_function_action_intro(
         "This is where you set up and maintain the plants that every Production Method, PU Material "
         "Family, recipe, production run, and quality result in the system is ultimately traced "
         "back to. It records each plant's name, code, and location, and shows at a glance how many "
-        "PU Material Families and Production Units/Cells sit under each plant. Activating Production "
+        "PU Material Families and Equipment / Machines sit under each plant. Activating Production "
         "Methods for a plant and setting up its Production Equipment now live on the Production "
         "Methods and Production Equipment pages (Production Methods section) - this page is "
         "location/identity only."
@@ -72,7 +72,7 @@ render_function_action_intro(
         "Add a plant before adding anything else under it, since Production Methods, PU Material "
         "Families, recipes, and production runs all key off it eventually. Once a plant exists, go "
         "to Production Methods to activate the methods it runs, then Production Equipment to add "
-        "its Production Units/Cells. Use CSV/Excel import to bulk-load plants from a spreadsheet. "
+        "its Equipment / Machines. Use CSV/Excel import to bulk-load plants from a spreadsheet. "
         "Click a row in the Edit/Delete tab's table to edit or delete a plant - deleting one "
         "permanently removes everything recorded under it (the count is shown before you confirm)."
     ),
@@ -233,7 +233,7 @@ with tab_edit_delete:
                 "Code": plant.plant_code or "—",
                 "Location": plant.location or "—",
                 "PU Material Families": len(plant.pu_material_families),
-                "Production Units/Cells": session.query(Machine).filter(Machine.plant_id == plant.id).count(),
+                "Equipment / Machines": session.query(Machine).filter(Machine.plant_id == plant.id).count(),
                 "Notes": plant.notes or "",
             }
             for plant in plants
@@ -281,7 +281,7 @@ with tab_edit_delete:
 
                 st.caption(
                     "Manage this plant's activated Production Methods on the **Production Methods** "
-                    "page, and its Production Units/Cells on the **Production Equipment** page "
+                    "page, and its Equipment / Machines on the **Production Equipment** page "
                     "(both under the Production Methods nav section)."
                 )
 

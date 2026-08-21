@@ -221,12 +221,12 @@ def render_overview():
     render_function_action_intro(
         function_text=(
             "This dashboard provides a snapshot of production activity, quality, performance, and "
-            "trials across the selected Plant, Production Method, Production Unit, Product Grade, "
+            "trials across the selected Plant, Production Method, Equipment / Machine, Product Grade, "
             "and date range. Production and performance indicators follow the selected Production "
             "Method and its applicable units and process logic."
         ),
         action_text=(
-            "Select the Plant and Production Method first, then narrow the view by Production Unit, "
+            "Select the Plant and Production Method first, then narrow the view by Equipment / Machine, "
             "Product Grade, and date range. Use the navigation to open the underlying production, "
             "quality, sample, reporting, and Industrial Intelligence records."
         ),
@@ -273,8 +273,8 @@ def render_overview():
         machine_options = session.query(Machine).all()
     with row1_col3:
         machine_filter = st.selectbox(
-            "Production Unit / Cell", [None] + machine_options,
-            format_func=lambda m: "All units" if m is None else m.name,
+            "Equipment / Machine", [None] + machine_options,
+            format_func=lambda m: "All equipment" if m is None else m.name,
         )
 
     row2_col1, row2_col2, row2_col3 = st.columns(3)
@@ -496,6 +496,18 @@ plant_setup_pages = [
 
 production_method_pages = [
     ("production_methods", st.Page("views/30_Production_Methods.py", title="Production Methods", icon="🧭")),
+    # R3-WP1 follow-up (2026-08-21), Charlie's Production Unit / Equipment
+    # naming ruling, option A: Production Units / Cells gets its own entry,
+    # ABOVE Production Equipment because that is the operational order -
+    # Plant, then Production Unit / Cell, then the Equipment inside it.
+    #
+    # db.ProductionUnit had existed since 2026-08-06 with no page at all. It
+    # went unnoticed because this next entry labelled db.Machine records
+    # "Production Unit / Cell", so the level looked present in the navigation
+    # when it was not. Both entries share the "plant_overview" page key: a
+    # unit and the equipment inside it are one operational structure, and a
+    # role permitted to maintain one must be able to maintain the other.
+    ("plant_overview", st.Page("views/35_Production_Units.py", title="Production Units / Cells", icon="🏗️")),
     ("plant_overview", st.Page("views/31_Production_Equipment.py", title="Production Equipment", icon="🏭")),
     ("pu_material_families", st.Page("views/2_Product_Families.py", title="PU Material Families", icon="🧬")),
     # R2-WP2 (2026-08-21): the Application Area master gets its own entry, in

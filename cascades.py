@@ -515,7 +515,7 @@ def plant_dependency_counts(session, plant_id):
     # string - this key renders verbatim in the delete-confirmation detail
     # text (e.g. "3 production unit(s) or cell(s)"), so it must read
     # naturally there, not just as a dict key.
-    counts["production unit(s) or cell(s)"] = session.query(Machine).filter(Machine.plant_id == plant_id).count()
+    counts["equipment / machine(s)"] = session.query(Machine).filter(Machine.plant_id == plant_id).count()
     counts["pi3/ai connectivity setting(s)"] = (
         session.query(PI3AIConnectionSetting).filter(PI3AIConnectionSetting.plant_id == plant_id).count()
     )

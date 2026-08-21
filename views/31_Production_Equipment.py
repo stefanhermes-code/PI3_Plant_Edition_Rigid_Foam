@@ -89,18 +89,18 @@ logout_button()
 st.title("Production Equipment")
 render_function_action_intro(
     function_text=(
-        "This is where you set up and maintain the Production Units/Cells (foaming lines/metering "
+        "This is where you set up and maintain the Equipment / Machines (foaming lines/metering "
         "machines) at each plant, each tagged with the Production Method it runs under. Process "
         "parameters (conveyor speed, tunnel width, laydown mode, etc.) connect to the specific "
         "equipment that produced them - a production run picks one of these."
     ),
     action_text=(
-        "Pick a plant, then add each Production Unit/Cell with its Production Method, OEM, and "
+        "Pick a plant, then add each Equipment / Machine with its Production Method, OEM, and "
         "model. A plant needs at least one activated Production Method (set on the Production "
         "Methods page) before you can add equipment to it. Use CSV/Excel import to bulk-load "
         "equipment referencing an existing plant_id and one of that plant's activated "
         "production_method_id values. Click a row in the Edit/Delete tab's table to edit or "
-        "delete a Production Unit/Cell - deleting one only unlinks it from any production runs "
+        "delete a Equipment / Machine - deleting one only unlinks it from any production runs "
         "that reference it."
     ),
 )
@@ -210,7 +210,7 @@ def _render_machine_stream_configuration(session, machine, page_usable):
     st.divider()
     st.markdown("**Machine-stream configuration (A/B streams to chemical roles)**")
     st.caption(
-        "Which physical stream on this Production Unit / Cell carries which chemical role. "
+        "Which physical stream on this Equipment / Machine carries which chemical role. "
         "This is a property of the machine's plumbing, not of the formulation, and it is not "
         "the same on every machine — so it is recorded per machine and per validity period, "
         "and a production run is stamped with the revision that applied when it started. "
@@ -246,7 +246,7 @@ def _render_machine_stream_configuration(session, machine, page_usable):
         )
     else:
         st.info(
-            "No machine-stream configuration recorded for this Production Unit / Cell yet. "
+            "No machine-stream configuration recorded for this Equipment / Machine yet. "
             "Production runs on it read as Unresolved, and no A:B ratio is derived for them, "
             "until a configuration is activated."
         )
@@ -403,7 +403,7 @@ def _render_machine_stream_configuration(session, machine, page_usable):
 
 
 tab_create, tab_edit_delete, tab_import = st.tabs(
-    cr11_function_tab_labels("Production Unit / Cell", "Production Units / Cells")
+    cr11_function_tab_labels("Equipment / Machine", "Equipment / Machines")
 )
 
 with tab_create:
@@ -432,7 +432,7 @@ with tab_create:
         oem = st.selectbox("OEM / manufacturer", MACHINE_OEMS, key="add_machine_oem")
         model = _machine_model_picker(oem, "", "add_machine")
         with st.form("add_machine"):
-            name = st.text_input("Production Unit / Cell name * (e.g. Line 1, Maxfoam A)")
+            name = st.text_input("Equipment / Machine name * (e.g. Line 1, Maxfoam A)")
             machine_code = st.text_input("Code")
             st.caption(
                 f"Plant: **{plant_for_machine.name}** · Production Method: "
@@ -455,10 +455,10 @@ with tab_create:
             )
             active = st.checkbox("Active", value=True)
             notes = st.text_area("Notes")
-            submitted = st.form_submit_button("Save Production Unit / Cell", disabled=method_choice is None)
+            submitted = st.form_submit_button("Save Equipment / Machine", disabled=method_choice is None)
             if submitted:
                 if not name:
-                    st.error("Production Unit / Cell name is required.")
+                    st.error("Equipment / Machine name is required.")
                 elif method_choice is None:
                     st.error("Activate a Production Method for this plant first.")
                 else:
@@ -476,7 +476,7 @@ with tab_create:
                         )
                     )
                     session.commit()
-                    st.success(f"Production Unit / Cell '{name}' added.")
+                    st.success(f"Equipment / Machine '{name}' added.")
                     st.rerun()
 
 with tab_import:
@@ -537,7 +537,7 @@ with tab_import:
                         )
                     )
                 session.commit()
-                msg = f"Imported {len(new_rows)} Production Unit(s)/Cell(s) from {mfilename}."
+                msg = f"Imported {len(new_rows)} Equipment / Machine(s)/Cell(s) from {mfilename}."
                 if dup_rows:
                     msg += f" Skipped {len(dup_rows)} row(s) already recorded for their plant (likely a repeat click)."
                 set_pending_banner("machine_import_msg", msg)
@@ -545,7 +545,7 @@ with tab_import:
 
 with tab_edit_delete:
     st.divider()
-    st.subheader("Production Units / Cells")
+    st.subheader("Equipment / Machines")
     st.caption(
         "Process parameters (conveyor speed, tunnel width, laydown mode, etc.) connect to the "
         "specific equipment that produced them. A production run picks one of these."
@@ -558,13 +558,13 @@ with tab_edit_delete:
         .all()
     )
     if not machines:
-        st.info("No Production Units/Cells recorded yet.")
+        st.info("No Equipment / Machines recorded yet.")
     else:
         machine_rows = [
             {
                 "Plant": m.plant.name,
                 "Production Method": m.production_method.name if m.production_method else "—",
-                "Production Unit / Cell": m.name,
+                "Equipment / Machine": m.name,
                 "Code": m.machine_code or "—",
                 "OEM": m.oem or "—",
                 "Model": m.model or "—",
@@ -573,7 +573,7 @@ with tab_edit_delete:
             }
             for m in machines
         ]
-        st.caption("Click a row to edit (and optionally delete) that Production Unit / Cell.")
+        st.caption("Click a row to edit (and optionally delete) that Equipment / Machine.")
         idx = clickable_table(machine_rows, key="machines_table")
         if idx is not None and idx < len(machines):
             st.session_state["machine_selected_id"] = machines[idx].id
@@ -584,7 +584,7 @@ with tab_edit_delete:
         selected_machine = next((m for m in machines if m.id == selected_machine_id), None)
 
         if selected_machine:
-            st.markdown(f"**Edit Production Unit / Cell: {selected_machine.name}**")
+            st.markdown(f"**Edit Equipment / Machine: {selected_machine.name}**")
             if not page_usable:
                 st.caption("View-only access - editing and deleting is restricted for your role.")
             else:
@@ -617,7 +617,7 @@ with tab_edit_delete:
                 e_model = _machine_model_picker(e_oem, selected_machine.model, f"edit_machine_{selected_machine.id}")
                 with st.form(f"edit_machine_{selected_machine.id}"):
                     e_name = st.text_input(
-                        "Production Unit / Cell name *", value=selected_machine.name, key=f"edit_machine_name_{selected_machine.id}"
+                        "Equipment / Machine name *", value=selected_machine.name, key=f"edit_machine_name_{selected_machine.id}"
                     )
                     e_code = st.text_input(
                         "Code", value=selected_machine.machine_code or "", key=f"edit_machine_code_{selected_machine.id}"
@@ -650,7 +650,7 @@ with tab_edit_delete:
                     e_notes = st.text_area("Notes", value=selected_machine.notes or "", key=f"edit_machine_notes_{selected_machine.id}")
                     if st.form_submit_button("Save changes", disabled=e_method_choice is None):
                         if not e_name.strip():
-                            st.error("Production Unit / Cell name is required.")
+                            st.error("Equipment / Machine name is required.")
                         elif e_method_choice is None:
                             st.error("Activate a Production Method for this plant first.")
                         else:
@@ -664,17 +664,17 @@ with tab_edit_delete:
                             selected_machine.production_method_id = e_method_choice.id
                             selected_machine.material_delivery_mode = e_delivery_mode or None
                             session.commit()
-                            st.success("Production Unit / Cell updated.")
+                            st.success("Equipment / Machine updated.")
                             st.rerun()
 
                 linked_runs = session.query(ProductionRun).filter(ProductionRun.machine_id == selected_machine.id).count()
                 if linked_runs:
                     warning = (
-                        f"{linked_runs} production run(s) reference this Production Unit / Cell. Deleting it will "
+                        f"{linked_runs} production run(s) reference this Equipment / Machine. Deleting it will "
                         "unlink them (the runs stay, the equipment reference is cleared), not delete those runs."
                     )
                 else:
-                    warning = "No production runs reference this Production Unit / Cell — deleting it is safe."
+                    warning = "No production runs reference this Equipment / Machine — deleting it is safe."
 
                 def _do_delete_machine(_session=session, _id=selected_machine.id):
                     unlink_machine_dependents(_session, _id)

@@ -212,8 +212,8 @@ def test_plant_selection_narrows_method_then_unit_then_grade(two_method_fixture)
     _sb(at, "Production Method").set_value(ids["method_a_name"]).run()
     assert not at.exception, f"Unhandled exception after selecting Method A: {at.exception}"
 
-    unit_options = _sb(at, "Production Unit / Cell").options
-    assert unit_options == ["All units", ids["machine_a_name"]], (
+    unit_options = _sb(at, "Equipment / Machine").options
+    assert unit_options == ["All equipment", ids["machine_a_name"]], (
         f"Expected only Machine A once Method A is selected, got {unit_options}"
     )
     grade_options = _sb(at, "Product Grade").options
@@ -229,8 +229,8 @@ def test_switching_method_swaps_unit_and_grade_options(two_method_fixture):
     _sb(at, "Production Method").set_value(ids["method_b_name"]).run()
     assert not at.exception, f"Unhandled exception after selecting Method B: {at.exception}"
 
-    unit_options = _sb(at, "Production Unit / Cell").options
-    assert unit_options == ["All units", ids["machine_b_name"]]
+    unit_options = _sb(at, "Equipment / Machine").options
+    assert unit_options == ["All equipment", ids["machine_b_name"]]
     grade_options = _sb(at, "Product Grade").options
     assert grade_options == ["All grades", ids["grade_b_name"]]
 
@@ -285,7 +285,7 @@ def test_method_only_filter_without_plant_does_not_leak_other_plants_machines(tw
     _sb(at, "Production Method").set_value(ids["plant2_method_a_name"]).run()
     assert not at.exception, f"Unhandled exception selecting Plant 2's method with no plant filter: {at.exception}"
 
-    unit_options = _sb(at, "Production Unit / Cell").options
+    unit_options = _sb(at, "Equipment / Machine").options
     assert ids["plant2_machine_a_name"] in unit_options
     assert ids["plant1_machine_a_name"] not in unit_options, (
         f"Plant 1's machine leaked into the unit list when only Plant 2's "

@@ -170,7 +170,7 @@ def test_production_methods_page_shows_activated_method_and_counts(seeded_pm_hie
     assert method_cb is not None, "Activated method's checkbox not found"
     assert method_cb.value is True, "Plant's already-activated method should show checked"
 
-    units_metric = next((m for m in at.metric if m.label == "Production Units"), None)
+    units_metric = next((m for m in at.metric if m.label == "Equipment / Machines"), None)
     grades_metric = next((m for m in at.metric if m.label == "Product Grades"), None)
     recipes_metric = next((m for m in at.metric if m.label == "Recipes"), None)
     assert units_metric is not None and units_metric.value == "1", f"got {units_metric}"
@@ -200,7 +200,7 @@ def test_foam_grade_form_offers_machines_across_activated_methods(seeded_pm_hier
         "Method picker gating the machine multiselect"
     )
 
-    machines_ms = next((ms for ms in at.multiselect if ms.label == "Production Units or Cells this PU Material can be produced on"), None)
+    machines_ms = next((ms for ms in at.multiselect if ms.label == "Equipment / Machines this PU Material can be produced on"), None)
     assert machines_ms is not None, "Machine-assignment multiselect not found"
     assert any(ids["machine_name"] in str(opt) for opt in machines_ms.options), (
         f"Machine tagged to the activated method should be offered - got {machines_ms.options}"
@@ -225,8 +225,8 @@ def test_production_run_form_derives_method_snapshot_from_selected_machine(seede
 
     at.selectbox(key="create_run_plant").select_index(0)
     at.selectbox(key="create_run_method").select_index(0)
-    machine_sb = next((sb for sb in at.selectbox if sb.label == "Production Unit or Cell *"), None)
-    assert machine_sb is not None, "Create Production Run form's Production Unit or Cell picker not found"
+    machine_sb = next((sb for sb in at.selectbox if sb.label == "Equipment / Machine *"), None)
+    assert machine_sb is not None, "Create Production Run form's Equipment / Machine picker not found"
     machine_display = next((opt for opt in machine_sb.options if ids["machine_name"] in opt), None)
     assert machine_display is not None, f"Grade's assigned machine not offered - got {machine_sb.options}"
 

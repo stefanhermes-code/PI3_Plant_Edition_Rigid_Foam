@@ -118,8 +118,8 @@ render_function_action_intro(
     function_text=(
         "An Application Area is the end use a product grade is designed for - a cold-room "
         "panel, a refrigerator, a water heater. It sits near the bottom of the product "
-        "structure - Company, Plant and its Production Units, then PU Material Family, "
-        "then Application Area, then Product Grade. Each area belongs to one PU Material "
+        "structure - Company, Plant and its Production Units / Cells, then PU Material "
+        "Family, then Application Area, then Product Grade. Each area belongs to one PU Material "
         "Family, and a product grade may only be assigned an area belonging to its own "
         "family. Unlike the levels above it, this is a single global controlled master "
         "shared by every company and plant, so the records here are the same for everyone."

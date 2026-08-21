@@ -698,17 +698,17 @@ def test_production_unit_create_via_form(seeded_plant_with_method):
     model_input.set_value("CR11-Test-Model")
     name_input = next(
         t for t in at.text_input
-        if t.label == "Production Unit / Cell name * (e.g. Line 1, Maxfoam A)"
+        if t.label == "Equipment / Machine name * (e.g. Line 1, Maxfoam A)"
     )
     name_input.set_value("CR11-New-Unit")
-    save_btn = next(b for b in at.button if b.label == "Save Production Unit / Cell")
+    save_btn = next(b for b in at.button if b.label == "Save Equipment / Machine")
     save_btn.click()
     at.run()
-    assert not at.exception, f"Unhandled exception saving a new Production Unit / Cell: {at.exception}"
+    assert not at.exception, f"Unhandled exception saving a new Equipment / Machine: {at.exception}"
 
     session = db.get_session()
     created = session.query(db.Machine).filter(db.Machine.name == "CR11-New-Unit").first()
-    assert created is not None, "New Production Unit / Cell was not persisted"
+    assert created is not None, "New Equipment / Machine was not persisted"
     assert created.plant_id == ids["plant_id"]
     assert created.production_method_id == ids["method_id"]
     assert created.oem == "Hennecke"
@@ -745,7 +745,7 @@ def test_production_unit_selection_edit_and_delete_via_ui(seeded_one_machine):
     save_btn = next(b for b in at.button if b.label == "Save changes")
     save_btn.click()
     at.run()
-    assert not at.exception, f"Unhandled exception editing the Production Unit / Cell: {at.exception}"
+    assert not at.exception, f"Unhandled exception editing the Equipment / Machine: {at.exception}"
 
     session = db.get_session()
     edited = session.get(db.Machine, ids["machine_id"])
@@ -761,10 +761,10 @@ def test_production_unit_selection_edit_and_delete_via_ui(seeded_one_machine):
     delete_btn = next(b for b in at.button if b.key == f"machine_{ids['machine_id']}_btn")
     delete_btn.click()
     at.run()
-    assert not at.exception, f"Unhandled exception deleting the Production Unit / Cell: {at.exception}"
+    assert not at.exception, f"Unhandled exception deleting the Equipment / Machine: {at.exception}"
 
     session = db.get_session()
-    assert session.get(db.Machine, ids["machine_id"]) is None, "Delete did not remove the Production Unit / Cell"
+    assert session.get(db.Machine, ids["machine_id"]) is None, "Delete did not remove the Equipment / Machine"
     session.close()
 
 
@@ -794,7 +794,7 @@ def test_production_unit_csv_import_via_ui(seeded_plant_with_method):
 
     session = db.get_session()
     imported = session.query(db.Machine).filter(db.Machine.name == "CR11-Imported-Unit").first()
-    assert imported is not None, "Imported Production Unit / Cell was not persisted"
+    assert imported is not None, "Imported Equipment / Machine was not persisted"
     assert imported.plant_id == ids["plant_id"]
     assert imported.production_method_id == ids["method_id"]
     session.close()
@@ -921,7 +921,7 @@ def production_unit_view_only_role_fixture(seeded_one_machine):
     plant_view_only_role_fixture's separate company/role in another test)."""
     ids = seeded_one_machine
     session = db.get_session()
-    role = db.Role(company_id=ids["company_id"], name="CR11 Correction v2 View Only Production Unit", is_builtin=False)
+    role = db.Role(company_id=ids["company_id"], name="CR11 Correction v2 View Only Equipment / Machine", is_builtin=False)
     session.add(role); session.flush()
     session.add(db.RolePagePermission(role_id=role.id, page_key="plant_overview", can_view=True, can_use=False))
     session.commit()
@@ -1046,17 +1046,17 @@ def test_production_unit_view_only_role_cannot_delete(production_unit_view_only_
     )
 
     assert not any(c.key == f"machine_{ids['machine_id']}_confirm" for c in at.checkbox), (
-        "A view-only role must not see the delete confirm-checkbox for the selected Production Unit / Cell"
+        "A view-only role must not see the delete confirm-checkbox for the selected Equipment / Machine"
     )
     assert not any(b.key == f"machine_{ids['machine_id']}_btn" for b in at.button), (
-        "A view-only role must not see the delete button for the selected Production Unit / Cell"
+        "A view-only role must not see the delete button for the selected Equipment / Machine"
     )
     captions = " ".join(c.value for c in at.caption)
     assert "editing and deleting is restricted for your role" in captions.lower()
 
     session = db.get_session()
     assert session.get(db.Machine, ids["machine_id"]) is not None, (
-        "The Production Unit / Cell must still exist - with no delete control rendered, nothing could have deleted it"
+        "The Equipment / Machine must still exist - with no delete control rendered, nothing could have deleted it"
     )
     session.close()
 

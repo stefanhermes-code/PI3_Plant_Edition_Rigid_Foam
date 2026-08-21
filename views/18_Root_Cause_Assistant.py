@@ -43,7 +43,7 @@ st.title("Root-Cause Assistant")
 render_function_action_intro(
     function_text=(
         "Given a logged quality issue, compares that run against the most recent prior run of the "
-        "same product grade and lists what was different - recipe version, production unit or "
+        "same product grade and lists what was different - recipe version, equipment / machine or "
         "cell, or recorded Actual process settings - as a starting "
         "point for your own investigation, not a diagnosis. PI3 can then help interpret that diff "
         "against expert notes and similar past cases."
@@ -142,7 +142,7 @@ setting_shifts = []
 if current["recipe_version"] != prior["recipe_version"]:
     changes.append(f"Recipe version changed: {prior['recipe_version']} → {current['recipe_version']}")
 if current["machine"] != prior["machine"]:
-    changes.append(f"Production Unit or Cell changed: {prior['machine'] or '—'} → {current['machine'] or '—'}")
+    changes.append(f"Equipment / Machine changed: {prior['machine'] or '—'} → {current['machine'] or '—'}")
 
 # WP7 Phase 4 cutover (2026-08-14, per Charlie's Downstream Reader
 # Cutover Execution Instruction): reads process-setting values through
@@ -218,7 +218,7 @@ if changes:
         st.write(f"- {c}")
 else:
     st.info(
-        "No meaningful difference found in recipe, production unit or cell, or recorded process "
+        "No meaningful difference found in recipe, equipment / machine, or recorded process "
         "settings between these two runs — the cause may lie outside what this app currently "
         "captures (raw material lot variation, ambient conditions, downstream handling)."
     )
@@ -317,7 +317,7 @@ if ai_assistant.is_enabled_for_plant(session, run.plant_id):
             "\n".join(f"- {c}" for c in changes)
             if changes
             else (
-                "No meaningful difference was found in recipe, production unit or cell, or "
+                "No meaningful difference was found in recipe, equipment / machine, or "
                 "recorded process settings between these two runs."
             )
         )

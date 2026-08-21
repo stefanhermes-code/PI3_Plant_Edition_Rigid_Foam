@@ -354,3 +354,390 @@ def test_the_scope_check_can_see_a_second_assignment():
     assert _set_targets(narrow) == ["production_unit_id"], (
         "The parser is reading past the SET clause into FROM or WHERE."
     )
+
+
+# ---------------------------------------------------------------------------
+# Section 4 - the Production Units / Cells page
+#
+# Charlie's naming ruling, 21 August 2026, option A. db.ProductionUnit had
+# been in the schema since 2026-08-06 with no screen at all, and nobody
+# noticed because views/31_Production_Equipment.py labelled db.Machine
+# records "Production Unit / Cell" - so the level looked present in the
+# navigation when it was not.
+#
+# His minimum for the page: plant-scoped, through the existing access-control
+# pattern, showing unit code/name, Plant and linked Equipment / Machines, with
+# no invented master-data fields.
+# ---------------------------------------------------------------------------
+import ast as _ast
+
+from streamlit.testing.v1 import AppTest
+
+import access_control
+import tenant_scope
+
+PAGE_UNITS = os.path.join(APP_DIR, "views", "35_Production_Units.py")
+PAGE_EQUIPMENT = os.path.join(APP_DIR, "views", "31_Production_Equipment.py")
+NAV_FILE = os.path.join(APP_DIR, "app_rigid_foam.py")
+
+
+def _clear_scope_caches():
+    tenant_scope.plant_ids_for_company.clear()
+    tenant_scope.family_ids_for_plants.clear()
+    tenant_scope.grade_ids_for_families.clear()
+    tenant_scope.run_ids_for_plants.clear()
+    tenant_scope.customer_trial_ids_for_plants.clear()
+    tenant_scope.optimization_trial_ids_for_plants.clear()
+    access_control.denied_page_keys.clear()
+
+
+def _page_text(at):
+    """Both streams, on purpose.
+
+    helpers.render_data_table() emits HTML through st.markdown, but
+    helpers.clickable_table() - which this page uses for its listing - calls
+    st.dataframe. Reading only the markdown stream is how the first version of
+    this test reported that the page did not list any units when it listed all
+    of them. Which helper a page uses is not something a test should have to
+    know, so both are read."""
+    parts = [str(el.value) for el in at.markdown]
+    parts += [str(el.value) for el in at.subheader]
+    parts += [str(el.value) for el in at.caption]
+    parts += [str(el.value) for el in at.info]
+    for el in at.dataframe:
+        # str() on a DataFrame gives pandas' TRUNCATED repr - "..." in place of
+        # the middle columns - so a value that is plainly on screen reads as
+        # absent. Every cell is stringified individually instead.
+        frame = getattr(el, "value", None)
+        if frame is None:
+            continue
+        try:
+            for row in frame.astype(str).values.tolist():
+                parts.extend(row)
+            parts.extend(str(c) for c in frame.columns)
+        except AttributeError:
+            parts.append(str(frame))
+    return " ".join(parts)
+
+
+def _run_as_company_user(page_path, company_id):
+    """A real company_id, never None.
+
+    AUTH_DISABLED alone leaves company_id None, and
+    tenant_scope.plant_ids_for_company(None) means UNFILTERED - so a scoping
+    test written the easy way compares an unfiltered view with an unfiltered
+    view and passes whatever the code does. That mistake cost a real
+    cross-company leak in R2."""
+    _clear_scope_caches()
+    at = AppTest.from_file(page_path, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.session_state["is_super_admin"] = False
+    at.session_state["is_platform_owner"] = False
+    at.session_state["company_id"] = company_id
+    at.run()
+    return at
+
+
+def _run_as_platform_owner(page_path):
+    _clear_scope_caches()
+    at = AppTest.from_file(page_path, default_timeout=30)
+    at.secrets["AUTH_DISABLED"] = True
+    at.session_state["is_super_admin"] = True
+    at.session_state["is_platform_owner"] = True
+    at.run()
+    return at
+
+
+def test_the_production_units_page_exists():
+    """It did not, for a fortnight, while the table it serves held live rows."""
+    assert os.path.exists(PAGE_UNITS), (
+        "views/35_Production_Units.py is missing - db.ProductionUnit has no screen again."
+    )
+
+
+def test_the_page_is_registered_in_navigation():
+    """A page file nobody can reach is the same defect as no page at all."""
+    nav = open(NAV_FILE, encoding="utf-8").read()
+    assert "views/35_Production_Units.py" in nav, (
+        "The Production Units / Cells page is not registered in app_rigid_foam.py"
+    )
+    assert 'title="Production Units / Cells"' in nav
+    assert nav.index("views/35_Production_Units.py") < nav.index("views/31_Production_Equipment.py"), (
+        "Production Units / Cells must sit above Production Equipment - the operational "
+        "order is Plant, then unit, then the equipment inside it."
+    )
+
+
+def test_the_page_uses_an_existing_access_control_key():
+    """Charlie: "maintainable through the existing access-control pattern".
+
+    It shares "plant_overview" with the Production Equipment page on purpose.
+    A role permitted to maintain equipment must be able to maintain the unit
+    holding it - a permission state granting one and not the other has no
+    meaning - and reusing the key means no existing role silently loses access
+    to a key it has never been shown."""
+    src = open(PAGE_UNITS, encoding="utf-8").read()
+    assert 'can_use_page(\n    "plant_overview"' in src or 'can_use_page("plant_overview"' in src, (
+        "The page does not gate on the plant_overview access key."
+    )
+    equipment_src = open(PAGE_EQUIPMENT, encoding="utf-8").read()
+    assert '"plant_overview"' in equipment_src, (
+        "Production Equipment no longer uses plant_overview - the shared-key "
+        "reasoning above needs revisiting rather than this assertion relaxing."
+    )
+
+
+def test_the_page_invents_no_master_data_fields():
+    """Charlie: "Do not invent new master-data fields to fill the page."
+
+    Read off the source: every keyword the page passes when constructing a
+    ProductionUnit must already be a column on the model. A page that writes a
+    field the schema does not have would fail at runtime; a page that writes a
+    field somebody ADDED to the schema to fill the page is the thing being
+    refused here, and only the model can tell you which."""
+    src = open(PAGE_UNITS, encoding="utf-8").read()
+    tree = _ast.parse(src)
+    passed = set()
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name) \
+           and node.func.id == "ProductionUnit":
+            passed.update(kw.arg for kw in node.keywords if kw.arg)
+    assert passed, "The page never constructs a ProductionUnit - it cannot create one."
+    columns = {c.name for c in db.ProductionUnit.__table__.columns}
+    unknown = passed - columns
+    assert not unknown, f"The page writes fields ProductionUnit does not have: {unknown}"
+
+    # The unit-level continuous/shot-by-shot property belongs to its own work
+    # package. Anticipating it here with a placeholder would put a field on
+    # screen that nothing reads.
+    #
+    # Scanned over USED string literals only. The first version scanned the raw
+    # source and failed on this page's own docstring, which explains why that
+    # property is deliberately absent - the same prose-versus-code trap the R1
+    # and R2 scanners hit. Prose is excluded by node identity, not by an
+    # allowlist.
+    prose = set()
+    for node in _ast.walk(tree):
+        if isinstance(node, (_ast.Module, _ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+            if _ast.get_docstring(node, clean=False) is not None and node.body \
+               and isinstance(node.body[0], _ast.Expr):
+                prose.add(id(node.body[0].value))
+        if isinstance(node, _ast.Expr) and isinstance(node.value, _ast.Constant) \
+           and isinstance(node.value.value, str):
+            prose.add(id(node.value))
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Constant) and isinstance(node.value, str) \
+           and id(node) not in prose:
+            lowered = node.value.lower()
+            for premature in ("continuous", "shot-by-shot", "shot by shot"):
+                # Word boundaries. A plain substring test fires on
+                # "discontinuous panel line", which is a legitimate unit type
+                # and the exact wording of a live record.
+                assert not re.search(rf"\b{re.escape(premature)}\b", lowered), (
+                    f"{premature!r} appears in a user-visible string on the page - that "
+                    "property belongs to the work package that implements it."
+                )
+
+
+def test_the_page_shows_charlies_minimum(inventory):
+    """Unit code/name, Plant and linked Equipment / Machines, all three."""
+    at = _run_as_platform_owner(PAGE_UNITS)
+    assert not at.exception, at.exception
+    text = _page_text(at)
+    for expected in ("PU-PH1-001", "Panel Line 1", "HTC Global - Phase 1 Plant", "Panel Foamer 1",
+                     "PU-KOR-001", "Appliance Cavity Cell 1", "PTU Korat",
+                     "Appliance Cavity Foaming Unit"):
+        assert expected in text, f"{expected!r} is not shown on the Production Units / Cells page"
+
+
+def test_a_company_cannot_see_another_companys_units(inventory):
+    """The plant scope IS the company scope here - a unit belongs to a plant
+    and a plant belongs to a company - so an unscoped listing on this page
+    would put PTU's production layout in front of HTC and the reverse."""
+    at = _run_as_company_user(PAGE_UNITS, inventory["companies"]["ptu"])
+    assert not at.exception, at.exception
+    text = _page_text(at)
+    assert "PU-KOR-001" in text, "PTU cannot see its own Production Unit"
+    assert "PU-PH1-001" not in text, "PTU can see HTC's Production Unit"
+    assert "Panel Line 1" not in text, "PTU can see HTC's Production Unit by name"
+    assert "Panel Foamer 1" not in text, "PTU can see HTC's equipment"
+
+    # The COUNTS, not only the listing. Dropping the plant scope from the
+    # equipment query left every assertion above green: HTC's machine never
+    # renders in PTU's table, because the table is keyed by the units in
+    # scope - but it still reached the metrics, and it would still be NAMED in
+    # the unassigned-equipment notice. A leak does not have to appear in the
+    # table to be a leak, and this mutation survived until these three lines
+    # were added.
+    counts = {m.label: str(m.value) for m in at.metric}
+    units_seen = next((v for k, v in counts.items() if "production unit" in k.lower()), None)
+    equipment_seen = next((v for k, v in counts.items() if "equipment / machines" in k.lower()), None)
+    assert units_seen == "1", f"PTU's Production Unit count includes another company ({units_seen})"
+    assert equipment_seen == "1", f"PTU's equipment count includes another company ({equipment_seen})"
+
+
+def test_the_leak_check_can_fail(inventory):
+    """Negative control, and the reason it is not optional.
+
+    Without it, this test passes if the fixture only ever contains one
+    company's data - which is exactly how a real cross-company leak reached
+    the deployed Application Areas page in R2. The platform owner genuinely
+    sees both, so seeing both here proves the strings ARE reachable and the
+    company-scoped assertion above is measuring scope rather than absence."""
+    at = _run_as_platform_owner(PAGE_UNITS)
+    assert not at.exception, at.exception
+    text = _page_text(at)
+    assert "PU-KOR-001" in text and "PU-PH1-001" in text, (
+        "The platform owner cannot see both units, so the scoped test above is "
+        "asserting that strings are missing for some other reason."
+    )
+
+
+def test_unassigned_equipment_is_surfaced_not_hidden(inventory):
+    """A machine with no unit is legal during master-data setup - Charlie kept
+    that state - but it stops being acceptable at R3-WP4, where a run may not
+    complete unless its equipment resolves to a unit. The page says so rather
+    than leaving that work package to discover it."""
+    session = db.get_session()
+    machine = session.get(db.Machine, inventory["machines"]["ptu"])
+    machine.production_unit_id = None
+    session.commit()
+    session.close()
+
+    at = _run_as_platform_owner(PAGE_UNITS)
+    assert not at.exception, at.exception
+    labels = {m.label: str(m.value) for m in at.metric}
+    unassigned = next((v for k, v in labels.items() if "without a unit" in k.lower()), None)
+
+    session = db.get_session()
+    session.get(db.Machine, inventory["machines"]["ptu"]).production_unit_id = inventory["units"]["ptu"]
+    session.commit()
+    session.close()
+
+    assert unassigned == "1", (
+        f"Unassigned equipment is not surfaced on the page (metric read {unassigned!r})."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section 5 - the rename's own scanner
+#
+# Written at the moment of the rename, not afterwards. R1 renamed Product
+# Family to PU Material Family and shipped with nine files still saying the old
+# thing, and the suite was green throughout because the only scanner looked for
+# the term the rename had PRODUCED rather than the one it replaced. A rename
+# needs a scanner for the term it is removing, and it needs it on the same day.
+#
+# Pre-change measurement, taken before any edit: 77 user-visible strings across
+# 12 files. My conflict document to Charlie said nine files, counted by grep
+# over views/ alone - reports.py, app_rigid_foam.py and cascades.py also
+# carried labels. He asked for the count from an actual execution rather than
+# the quoted figure, and this is why.
+#
+# Post-change: 28 strings across 3 files, every one of them referring to
+# db.ProductionUnit.
+# ---------------------------------------------------------------------------
+
+PRODUCTION_UNIT_PHRASE = re.compile(r"production\s*units?\s*(?:/|\s+or\s+)?\s*cells?|production\s+units?", re.IGNORECASE)
+
+# The only files whose user-visible strings may say "Production Unit", because
+# they are the only ones that talk about db.ProductionUnit.
+UNIT_BEARING_FILES = {
+    "views/35_Production_Units.py",      # the page for the entity itself
+    "views/34_Application_Areas.py",     # states the ratified hierarchy
+    "app_rigid_foam.py",                 # the navigation entry for that page
+}
+
+
+def _user_visible_strings(path):
+    """String literals that reach a user, located by the AST.
+
+    Docstrings and bare string statements are excluded BY NODE IDENTITY rather
+    than by an allowlist or a "#" prefix. Every previous version of this idea
+    in this repository failed the same way - a scanner over raw text fails on
+    the comment that explains the rename it is enforcing."""
+    src = open(path, encoding="utf-8").read()
+    tree = _ast.parse(src)
+    prose = set()
+    for node in _ast.walk(tree):
+        if isinstance(node, (_ast.Module, _ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+            if _ast.get_docstring(node, clean=False) is not None and node.body \
+               and isinstance(node.body[0], _ast.Expr):
+                prose.add(id(node.body[0].value))
+        if isinstance(node, _ast.Expr) and isinstance(node.value, _ast.Constant) \
+           and isinstance(node.value.value, str):
+            prose.add(id(node.value))
+    return [
+        (node.lineno, node.value)
+        for node in _ast.walk(tree)
+        if isinstance(node, _ast.Constant) and isinstance(node.value, str)
+        and id(node) not in prose
+    ]
+
+
+def _scannable_files():
+    files = []
+    views_dir = os.path.join(APP_DIR, "views")
+    for name in sorted(os.listdir(views_dir)):
+        if name.endswith(".py"):
+            files.append(("views/" + name, os.path.join(views_dir, name)))
+    for name in sorted(os.listdir(APP_DIR)):
+        if name.endswith(".py") and name != "version.py":
+            files.append((name, os.path.join(APP_DIR, name)))
+    return files
+
+
+def test_no_machine_surface_calls_itself_a_production_unit():
+    """Charlie's naming ruling: "Do not label db.Machine as Production Unit,
+    Production Unit / Cell or Production Unit or Cell."
+
+    Enforced as "no file outside the three that serve db.ProductionUnit may put
+    that phrase in front of a user". A scanner cannot tell which entity a
+    sentence means, but it can tell which file the sentence is in, and only
+    three files have any business saying it."""
+    offenders = []
+    for rel, path in _scannable_files():
+        if rel in UNIT_BEARING_FILES:
+            continue
+        for lineno, value in _user_visible_strings(path):
+            if PRODUCTION_UNIT_PHRASE.search(value):
+                offenders.append(f"{rel}:{lineno}: {value[:80]!r}")
+    assert not offenders, (
+        "User-visible strings still present db.Machine as a Production Unit:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_rename_scanner_can_fail():
+    """Negative control, with the planted string written as an independent
+    literal rather than generated from PRODUCTION_UNIT_PHRASE - Charlie's rule
+    after the R2 phrase-list control was found reading the list under test."""
+    planted = [
+        "Production Unit / Cell *",
+        "Production Unit or Cell",
+        "Production Units/Cells",
+        "production unit(s) or cell(s)",
+    ]
+    for text in planted:
+        assert PRODUCTION_UNIT_PHRASE.search(text), (
+            f"The scanner does not recognise {text!r}, which is a form the codebase "
+            "actually used before the rename."
+        )
+    for allowed in ("Equipment / Machine", "Equipment / Machines", "Machine", "Production Method"):
+        assert not PRODUCTION_UNIT_PHRASE.search(allowed), (
+            f"The scanner fires on {allowed!r}, which is the correct wording."
+        )
+
+
+def test_the_unit_bearing_files_actually_use_the_phrase():
+    """The allowlist is only safe while every entry earns its place. A file
+    that stops mentioning Production Units should leave the list, otherwise the
+    list slowly becomes a place to hide a mislabel."""
+    for rel in sorted(UNIT_BEARING_FILES):
+        path = os.path.join(APP_DIR, rel)
+        assert os.path.exists(path), f"{rel} is on the allowlist and does not exist"
+        found = any(PRODUCTION_UNIT_PHRASE.search(v) for _, v in _user_visible_strings(path))
+        assert found, (
+            f"{rel} is allowed to say 'Production Unit' and no longer does - remove it "
+            "from UNIT_BEARING_FILES rather than leaving an unused exemption."
+        )

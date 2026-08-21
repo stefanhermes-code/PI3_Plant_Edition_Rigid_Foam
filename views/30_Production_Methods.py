@@ -84,9 +84,10 @@ st.title("Production Methods")
 render_function_action_intro(
     function_text=(
         "This shows which Production Methods are activated at a plant. Each activated method's "
-        "card shows a concise count of Production Units, Product Grades, and Recipes within that "
-        "method - a Product Grade can legitimately span more than one method (via its Production "
-        "Unit assignments), so a grade may be counted under more than one method here."
+        "card shows a concise count of Equipment / Machines, Product Grades, and Recipes within that "
+        "method - a Product Grade can legitimately span more than one method (via its "
+        "Equipment / Machine assignments), so a grade may be counted under more than one "
+        "method here."
     ),
     action_text=(
         "Pick a plant, then activate every Production Method it actually runs using the checkboxes "
@@ -185,7 +186,7 @@ else:
                 else 0
             )
             c1, c2, c3 = st.columns(3)
-            c1.metric("Production Units", units_count)
+            c1.metric("Equipment / Machines", units_count)
             c2.metric("Product Grades", len(grade_ids_for_method))
             c3.metric("Recipes", recipes_count)
             st.divider()
