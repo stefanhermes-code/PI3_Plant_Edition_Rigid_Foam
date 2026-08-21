@@ -8389,6 +8389,85 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.79.5, 2026-08-21: APP-100 aligned. The controlled master is now on one
+wording standard end to end.
+Charlie's R3 APP-110 Acceptance and APP-100 Ruling to JC v1, section 3.
+
+WHAT CHARLIE RULED
+
+APP-100 was the last record still carrying its import text:
+
+  "Thermal insulation products used in the building envelope or building
+   services. (WP1 Controlled Master Data, 04_Applications)"
+
+It was not wrong and carried none of the overruled phrasings, which is why it
+was raised for ruling in the APP-110 acknowledgement rather than corrected
+there. He ruled:
+
+  "APP-100 should be aligned with the same downstream-application wording
+   standard. The current source tag is useful as provenance, but it should not
+   serve as the user-facing description of a controlled Application Area."
+
+A provenance tag answers "where did this record come from". A description
+answers "should I classify this grade here". The reader is asking the second
+question and the tag does not answer it.
+
+Migration 0020, his wording verbatim, description only.
+
+WHY IT IS 0020 AND NOT 0019
+
+He wrote "expected to be 0019 if still free". It was not. 0019 had been
+written, proved, applied and ledgered eleven minutes earlier as the R3-WP1
+Production Unit inventory completion. His standing rule is to take the next
+number and never renumber an existing artifact, so this is 0020 and 0019 is
+untouched. test_0020_aligns_app100_and_changes_nothing_else asserts the
+artifact records that, because a migration number that moves without
+explanation reads as an error later.
+
+EVIDENCE
+
+Negative control first: the exit check confirmed to fail on the un-migrated
+clone. Disposable schema r3_probe_app100, re-run for idempotency with table
+fingerprint 0bbc157f identical across both passes, diffed against live -
+exactly one row differed and only in description, every other column
+byte-identical. Applied live, ledger row 20, checksum 5a0ef1b2a184. Probe
+schema dropped in the same call. Deployed wording read back from the
+Application Areas page.
+
+Mutations run and killed: widening 0020 to also write sort_order fails the
+scope check; seeding APP-100 with its original source tag fails the provenance
+scanner.
+
+THREE NEW GUARDS, AND WHY EACH CAN FAIL
+
+  - No active description may be a provenance tag. Its negative control plants
+    APP-100's actual former text as an independent literal, not a string read
+    from PROVENANCE_MARKERS - Charlie's rule, accepted in section 2 of the same
+    document, after the phrase-list control was found reading the list it was
+    controlling.
+  - Every active Application Area must have a description. This is the exact
+    condition that made the phrase scanner vacuous at v0.79.3, now held as a
+    check in its own right rather than as a fixture detail.
+  - The APP-100 wording used by every picker and page test is pinned to the
+    text 0020 writes, parsed from the artifact, so the fixture cannot drift.
+
+CHARLIE'S QA RULING, RECORDED
+
+Accepted into the R3 evidence pack: a negative control must use an independent
+literal or independently constructed state, not data derived from the rule
+under test; every guard must have a demonstrated fail state and the fixture
+must be shown to reach it; a repository test on in-memory SQLite does not prove
+a deployed SQL migration changed the live master; controlled migrations need
+artifact and checksum, disposable-schema proof, live read-back, and browser
+evidence where the result is user-visible.
+
+He also settled the protocol point the APP-110 work got wrong: a technical
+return is due at a gate or on a conflict, but an acknowledgement is a different
+document and must be filed BEFORE the instruction is acted on. This migration
+was not written until that acknowledgement was filed.
+
+Full regression: 1029 passed, 6 skipped, 0 failed. Was 1024 / 6 at v0.79.4.
+
 v0.79.4, 2026-08-21: R3-WP1. Every machine now belongs to a Production Unit,
 and a scope check that could not see past a comma.
 Charlie's Package C Acceptance and Consolidated R3 Release v3, section 3.
@@ -9580,4 +9659,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.79.4"
+APP_VERSION = "0.79.5"

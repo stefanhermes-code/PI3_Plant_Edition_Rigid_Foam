@@ -101,6 +101,12 @@ RETIRED_BUT_TAGGED = "APP-360"
 # Charlie's ruled APP-110 wording, migration 0018. Held here as a constant and
 # checked against the artifact by test_seeded_app110_wording_matches_0018, so
 # the fixture cannot drift away from what the migration actually writes.
+APP100_RULED_DESCRIPTION = (
+    "Rigid PU insulation for manufactured building-envelope products such as "
+    "insulation boards and panels. Use APP-210 for cold-room wall or ceiling "
+    "panels and APP-110 for roof spray foam."
+)
+
 APP110_RULED_DESCRIPTION = (
     "Rigid polyurethane foam spray-applied in place to roofs or comparable "
     "building surfaces for thermal insulation. Use APP-110 when the intended "
@@ -121,6 +127,8 @@ APP110_RULED_DESCRIPTION = (
 # phrased the ruled way, and test_the_overruled_rule_scanner_can_fail plants
 # an offender to prove the scanner still bites.
 def _seed_description(controlled_id, name):
+    if controlled_id == "APP-100":
+        return APP100_RULED_DESCRIPTION
     if controlled_id == "APP-110":
         return APP110_RULED_DESCRIPTION
     return (
@@ -1189,6 +1197,124 @@ def test_0018_aligns_app110_and_changes_nothing_else():
 # v3 release, "end product" added by his APP-110 ruling of 21 August 2026.
 # Removing one from the list under test now fails here, loudly.
 PHRASES_THAT_MUST_BE_CAUGHT = ("leaves the plant", "leaving the plant", "end product")
+
+
+# A source tag answers "where did this record come from". A description
+# answers "should I classify this grade here". APP-100 carried the first in
+# place of the second until Charlie ruled on it, 21 Aug 2026: "The current
+# source tag is useful as provenance, but it should not serve as the
+# user-facing description of a controlled Application Area."
+#
+# Provenance lives in the migration record. These markers must not come back
+# into the master's user-facing text - the import that put one there will run
+# again the next time a vocabulary is loaded from a spreadsheet.
+PROVENANCE_MARKERS = ("WP1 Controlled Master Data", "04_Applications", "Controlled Master Data")
+
+
+def test_no_active_description_is_a_provenance_tag(seeded):
+    session = db.get_session()
+    offenders = [
+        f"{a.controlled_id}: {a.description!r}"
+        for a in session.query(db.Application).filter(db.Application.is_active.is_(True)).all()
+        if a.description and any(m in a.description for m in PROVENANCE_MARKERS)
+    ]
+    session.close()
+    assert not offenders, (
+        "An Application Area description is a source tag rather than a "
+        "description:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_provenance_scanner_can_fail(seeded):
+    """Negative control, with its planted text written as an independent
+    literal rather than read from PROVENANCE_MARKERS - Charlie's rule after
+    the phrase-list control was found reading the list it was controlling."""
+    session = db.get_session()
+    area = session.query(db.Application).filter(
+        db.Application.controlled_id == "APP-100").one()
+    original = area.description
+    area.description = (
+        "Thermal insulation products used in the building envelope or building "
+        "services. (WP1 Controlled Master Data, 04_Applications)"
+    )
+    session.commit()
+    caught = [
+        a.controlled_id
+        for a in session.query(db.Application).filter(db.Application.is_active.is_(True)).all()
+        if a.description and any(m in a.description for m in PROVENANCE_MARKERS)
+    ]
+    area.description = original
+    session.commit()
+    session.close()
+    assert "APP-100" in caught, (
+        "APP-100's original source-tag description was planted and the scanner "
+        "did not see it."
+    )
+
+
+def test_every_active_area_has_a_description(seeded):
+    """The condition that made the phrase scanner vacuous, held as a check in
+    its own right. A master with an empty description is not merely untidy -
+    it is a record that teaches nothing and a scan that finds nothing."""
+    session = db.get_session()
+    blank = [
+        a.controlled_id
+        for a in session.query(db.Application).filter(db.Application.is_active.is_(True)).all()
+        if not (a.description or "").strip()
+    ]
+    session.close()
+    assert not blank, "Active Application Areas with no description: " + ", ".join(blank)
+
+
+def test_0020_aligns_app100_and_changes_nothing_else():
+    """Charlie's APP-100 ruling, 21 August 2026, section 3. Scope read off the
+    artifact for the same reason as 0018.
+
+    Note the number. He wrote "expected to be 0019 if still free"; it was not -
+    R3-WP1's Production Unit inventory had taken it - so this is 0020 under his
+    standing rule that an existing artifact is never renumbered."""
+    path = os.path.join(MIGRATIONS_DIR, "0020_r3_app100_description_alignment.sql")
+    assert os.path.exists(path), "migration 0020 is missing"
+    sql = open(path, encoding="utf-8").read()
+
+    code = "\n".join(l for l in sql.splitlines() if not l.lstrip().startswith("--"))
+    statements = [x.strip() for x in code.split(";")
+                  if x.strip().lower().startswith("update applications")]
+    assert len(statements) == 1, f"0020 must contain exactly one UPDATE, found {len(statements)}"
+    stmt = statements[0]
+    assert "APP-100" in stmt, "0020's UPDATE does not target APP-100"
+    assert _set_targets(stmt) == ["description"], (
+        f"0020 writes something other than description: {_set_targets(stmt)}"
+    )
+    for forbidden in ("alter table", "insert into applications", "delete from"):
+        assert forbidden not in code.lower(), (
+            f"0020 contains {forbidden!r} - it must change description text only"
+        )
+    assert "0019" in sql, (
+        "0020 must record why it is not 0019 - a migration number that moves "
+        "without explanation reads as an error later."
+    )
+
+
+def test_seeded_app100_wording_matches_0020(seeded):
+    from_artifact = _description_written_by(
+        "0020_r3_app100_description_alignment.sql", "APP-100"
+    )
+    assert from_artifact == APP100_RULED_DESCRIPTION, (
+        "The APP-100 wording in this test file has drifted from migration 0020.\n"
+        f"  artifact: {from_artifact!r}\n"
+        f"  fixture:  {APP100_RULED_DESCRIPTION!r}"
+    )
+    session = db.get_session()
+    app100 = session.query(db.Application).filter(
+        db.Application.controlled_id == "APP-100").one()
+    name, active, tag, desc = (
+        app100.name, app100.is_active, app100.pu_material_family, app100.description)
+    session.close()
+    assert name == "Building insulation", "0020 was scoped to description; the name moved"
+    assert active is True, "0020 was scoped to description; the active state moved"
+    assert tag == "Rigid", "0020 was scoped to description; the family tag moved"
+    assert desc == APP100_RULED_DESCRIPTION
 
 
 def test_the_overruled_rule_scanner_can_fail(seeded):
