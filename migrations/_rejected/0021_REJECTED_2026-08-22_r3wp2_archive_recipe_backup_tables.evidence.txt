@@ -1,0 +1,83 @@
+REJECTED MIGRATION ATTEMPT - EVIDENCE RECORD
+0021_r3wp2_archive_recipe_backup_tables, first attempt
+22 August 2026
+
+AUTHORITY
+
+Charlie's "R3-WP2 Migration Conformance Ruling to JC v1", 22 August 2026,
+option A approved:
+
+  "Migration 0021 is treated as a rejected pre-release migration attempt. It
+   may be rolled back completely, including its ledger row, because it has not
+   been committed, pushed, accepted at a gate or released as part of an
+   application baseline. The rejected artifact and its original checksum remain
+   preserved in the R3 evidence pack."
+
+  "This does not change the standing rule that an accepted or released
+   migration is immutable. It defines the earlier point in the process: a
+   migration that fails QA before release may be rejected and fully rolled back
+   under an explicit ruling."
+
+WHY IT WAS REJECTED
+
+tests/test_schema_compatibility.py::test_migrations_are_schema_agnostic:
+
+  "Object names must be unqualified so the same artifacts apply to rigid_foam
+   and to a disposable test schema. A hard-coded schema name would make
+   'applies cleanly to a pre-change database' untestable."
+
+This artifact writes "rigid_foam._backup_recipe_versions_20260819" and
+"rigid_foam._backup_recipe_components_20260819" in four places. It was the only
+artifact in the repository breaking that rule; the other twenty conform.
+
+The fault was avoidable and specific. A relocation must name its DESTINATION -
+that is inherent to ALTER TABLE ... SET SCHEMA. It does not need to name the
+SOURCE, which resolves through search_path like every other migration's
+objects. The consequence showed itself during the proof: the disposable-schema
+run had to use a hand-written equivalent rather than the artifact itself,
+because the artifact could only ever address rigid_foam. That was the signal,
+and it was worked around instead of followed.
+
+Charlie: "Option B would weaken a working QA rule to accommodate one avoidable
+artifact defect. Option C would knowingly carry a non-conforming migration and
+a red regression suite into later work. Neither is acceptable."
+
+STATE AS APPLIED (the rejected attempt)
+
+  Rejected checksum   7556859e0d27aeaaf50880cc546c3b7e887d98e6415d0868676815ca7581d99f
+  Ledger row          21, version 0021_r3wp2_archive_recipe_backup_tables
+  Applied at          2026-08-22 01:24:06.289408
+  Ledger rows before rollback   21
+
+  Table locations after the attempt:
+    rigid_foam_archive._backup_recipe_components_20260819
+    rigid_foam_archive._backup_recipe_versions_20260819
+    rigid_foam holds no _backup_% tables
+
+  Row counts and fingerprints, unchanged by the move and therefore the same
+  values the rollback must restore and the corrected artifact must reproduce:
+    _backup_recipe_versions_20260819      1 row   67b920085b8aedf9d6a39329b7084a52
+    _backup_recipe_components_20260819   14 rows  b4188655a41548cb3c4132931a202bcf
+
+  production_method_id on the archived recipe-version backup: 10 (PM-100),
+  carrying no constraint.
+
+  Regression at the time of rejection: 1051 passed, 6 skipped, 1 FAILED -
+  test_migrations_are_schema_agnostic. Never committed, never pushed.
+
+WHAT WAS NOT WRONG
+
+The data movement itself. Both tables reached the correct destination with
+unchanged row counts and fingerprints, and the unconstrained
+production_method_id was preserved. Charlie: "The archive move itself is sound.
+The problem is the migration artifact."
+
+The rollback and re-application therefore change nothing about the intended
+outcome. They change the artifact that produces it.
+
+ROLLBACK AND RE-APPLICATION
+
+Recorded in the conformance closeout filed with Charlie. That document carries
+the rollback verification, the ledger state before and after row 21 was
+removed, the corrected artifact's checksum, and the regression result - and it
+names which checksum became the authoritative 0021.

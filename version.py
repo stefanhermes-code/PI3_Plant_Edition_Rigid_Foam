@@ -8389,6 +8389,124 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.80.2, 2026-08-22: R3-WP2. The backup tables leave the runtime schema - on
+the second attempt, after the first was rejected and rolled back.
+Charlie's R3 Release v3 section 3, and his R3-WP2 Migration Conformance Ruling.
+
+WHY IT HAD TO COME BEFORE THE DEPENDENCY WORK
+
+R3-WP3 re-measures the Production Method dependency inventory and expects nine
+foreign-key paths across nine runtime tables. The two backup tables distorted
+that count in BOTH directions at once:
+
+  - they sat in rigid_foam, so anything enumerating runtime tables counted
+    them;
+  - they carry NO constraints at all, so
+    _backup_recipe_versions_20260819.production_method_id is an integer holding
+    a live Production Method id with nothing declaring the relationship, and an
+    FK-based count cannot see it.
+
+Too high by two tables and blind to a real reference simultaneously.
+
+THE FIRST ATTEMPT WAS REJECTED
+
+It worked, and it was wrong. The move was sound - both tables reached the
+archive with unchanged row counts and fingerprints - but the ARTIFACT
+hard-coded the source schema, breaking a standing test that has held for every
+other migration:
+
+  "Object names must be unqualified so the same artifacts apply to rigid_foam
+   and to a disposable test schema."
+
+It was the only artifact in the repository breaking it. The fault was specific
+and avoidable: a relocation must name its DESTINATION, which makes qualifying
+the SOURCE look natural. It is not - the source resolves through search_path
+like everything else.
+
+The tell was visible during the first proof and got worked around. Because the
+artifact could only ever address rigid_foam, the disposable-schema run had to
+use a hand-written EQUIVALENT rather than the artifact itself. An artifact that
+cannot be run against a probe has not been proved. That shortcut was the
+defect announcing itself, and it was treated as friction instead.
+
+Raised before commit rather than fixed quietly, because two of Charlie's rules
+pointed opposite ways: an applied artifact is immutable and corrections carry
+forward, but nothing was wrong with the DATA, so no later artifact had anything
+to correct.
+
+WHAT CHARLIE RULED
+
+Option A, with controls. Migration 0021 is a REJECTED PRE-RELEASE ATTEMPT: it
+may be rolled back completely, ledger row included, because it was never
+committed, pushed, accepted at a gate or released in a baseline. He was
+explicit that this does not weaken the immutability rule - it defines the
+earlier point in the process. Once corrected 0021 is accepted it is immutable
+in the normal way.
+
+  "Option B would weaken a working QA rule to accommodate one avoidable
+   artifact defect. Option C would knowingly carry a non-conforming migration
+   and a red regression suite into later work. Neither is acceptable."
+
+THE ROLLBACK, IN HIS ORDER
+
+Evidence preserved first: the rejected artifact and its checksum 7556859e0d27
+live in migrations/_rejected/ with a record of why it was rejected. That folder
+is outside the active set by construction - migrate.py discovers migrations
+with os.listdir, which does not recurse - and a test asserts nothing named
+REJECTED is in the active set.
+
+Then the database, then the ledger, in that order and not the other way. Both
+tables moved back to rigid_foam and verified against the pre-move evidence -
+names, row counts, fingerprints, the surviving production_method_id of 10, and
+the absence of any constraint - with the verification raising BEFORE the ledger
+was touched, so a failed check would have left row 21 alone. The empty archive
+schema was dropped, because it did not exist before 0021 and restoring the
+pre-0021 state means removing it. Ledger 21 rows before, 20 after.
+
+THE CORRECTED ARTIFACT
+
+Source unqualified, destination named. Checksum 50baeb17150e6. And this time
+the proof used THE ARTIFACT ITSELF on a disposable pre-change schema - negative
+control fired first, then two passes with identical fingerprints and zero
+tables left in the source. Only search_path differed between the probe run and
+the live run, which is the entire point of the correction.
+
+The exit check uses current_schema() rather than a literal, so the same
+assertion holds on a probe as on the real thing.
+
+BEFORE AND AFTER, UNCHANGED THROUGHOUT
+
+  _backup_recipe_versions_20260819     1 row   67b920085b8aedf9d6a39329b7084a52
+  _backup_recipe_components_20260819  14 rows  b4188655a41548cb3c4132931a202bcf
+
+Identical across the first attempt, the rollback, the probe runs and the live
+re-application. ALTER TABLE ... SET SCHEMA relocates the table itself rather
+than copying it: no second copy to diverge, no window where the data exists
+twice, nothing deleted - which matters most for a table whose whole purpose is
+to be a backup.
+
+A NEW TEST, AND A MUTATION THAT NEARLY LIED
+
+test_the_source_is_unqualified is the guard that would have caught the first
+attempt. The mutation reintroducing the exact rejected defect now fails three
+tests including the standing conformance one.
+
+It first appeared to SURVIVE. The mutation had not landed: the sed used "\n"
+inside a double-quoted shell string, where it is a literal backslash-n, so the
+anchor never matched and the file was never changed. A green result on an
+unapplied mutation is worth nothing, and it looks exactly like robustness.
+Charlie's standing rule - confirm the mutation lands on the intended path
+before a passing result counts as evidence - is now also a habit about the
+tooling, not only about the code.
+
+FIVE PROBE SCHEMAS CLEARED
+
+r2_probe through r2_probe4 and r3_probe held 26 partial clones of live tables
+between them, outside the runtime schema. Recorded, then dropped, along with
+every probe this work package created.
+
+Full regression: 1054 passed, 6 skipped, 0 failed. Was 1042 / 6 at v0.80.1.
+
 v0.80.1, 2026-08-21: the other half of the naming ruling - the assigned unit is
 now visible on the Equipment / Machine surfaces.
 Charlie's R3-WP1 naming ruling, section 4.
@@ -9825,4 +9943,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.80.1"
+APP_VERSION = "0.80.2"
