@@ -1428,6 +1428,22 @@ class ProductionRun(Base):
     # show what the run recorded; going through machine.production_unit here
     # would reintroduce exactly the derivation the column replaced.
     production_unit = relationship("ProductionUnit", foreign_keys=[production_unit_id])
+
+    # R3 (2026-08-22), migration 0023. The Application Area that applied AT THE
+    # TIME OF THE RUN, snapshotted from the run's own Product Grade.
+    #
+    # Same argument as production_unit_id above and it is worth stating twice,
+    # because the tempting read - foam_grade.application_id, live - is the one
+    # that breaks. Re-classify a Product Grade to another Application Area and
+    # every finished run would start reporting an end use it was never made
+    # for, and from R3 onwards would resolve a different set of process
+    # settings as well. Charlie's R-G3 condition is that "each completed run
+    # retains a row-by-row verified frozen Application Area".
+    #
+    # Nullable, because a grade may legitimately be unclassified while master
+    # data is being set up. Nothing is guessed for such a run.
+    application_id = Column(Integer, ForeignKey("applications.id"))
+    application = relationship("Application", foreign_keys=[application_id])
     # Phase 8 Decision 2 (2026-08-19): the machine-stream configuration that
     # applied when this run started, stamped once at run start and never
     # recomputed. Nullable, and null means Unresolved - A:B ratio derivation is
@@ -4631,6 +4647,24 @@ class ProcessSettingApplicability(Base):
     # dormant WP3c ProductionUnit asset-grouping table).
     production_method_id = Column(Integer, ForeignKey("production_methods.id"))
     machine_id = Column(Integer, ForeignKey("machines.id"))
+    # R3 (2026-08-22), migration 0024. The two tiers Charlie's resolution order
+    # names that this table could not express:
+    #
+    #   Machine > Production Unit / Cell > Application Area > Global
+    #
+    # application_id is the INHERITED DEFAULT tier - the rules that apply to an
+    # end use wherever it is made. production_unit_id is a line-specific
+    # override above it, and machine_id stays the equipment-specific override
+    # above that. Plan v5 is explicit that unit rows exist "only where a
+    # specific line requires an override", which is why nothing is fanned out
+    # across units by default.
+    #
+    # production_method_id above is now the LEGACY tier. It resolves between
+    # Application Area and Global during the transition and disappears with
+    # Production Method retirement. It is not a fifth level anybody should
+    # write to.
+    application_id = Column(Integer, ForeignKey("applications.id"))
+    production_unit_id = Column(Integer, ForeignKey("production_units.id"))
     applicable_to_planned = Column(Boolean, default=True)
     applicable_to_actual = Column(Boolean, default=True)
     # False for a measured-outcome/environment parameter (e.g. ambient
@@ -4672,6 +4706,12 @@ class ProcessSettingApplicability(Base):
         Index(
             "ix_psa_unique_active_scope",
             setting_definition_id,
+            # R3 / 0024: widened with the two new tiers in the SAME migration
+            # that added them. Adding scope columns without widening this index
+            # would reopen the very defect it was created for - two active rows
+            # at one scope, winner decided arbitrarily.
+            func.coalesce(application_id, -1),
+            func.coalesce(production_unit_id, -1),
             func.coalesce(production_method_id, -1),
             func.coalesce(machine_id, -1),
             unique=True,
@@ -4683,6 +4723,8 @@ class ProcessSettingApplicability(Base):
     setting_definition = relationship("ProcessSettingDefinition")
     production_method = relationship("ProductionMethod")
     machine = relationship("Machine")
+    application = relationship("Application")
+    production_unit = relationship("ProductionUnit")
 
 
 class ProcessParameterValue(Base):

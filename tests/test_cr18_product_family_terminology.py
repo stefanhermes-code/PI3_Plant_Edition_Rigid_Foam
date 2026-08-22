@@ -194,9 +194,15 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # fewer lines, so every "foam family" hit below moved up; one former
     # hit (in the removed PHASE_SETTING_FIELDS block's own docstring) no
     # longer exists at all, so the count dropped from 10 to 9.
+    # analytics.py shifted +35 below line 244 by R3 / migration 0024
+    # (2026-08-22): eligible_process_settings() gained the Application Area and
+    # Production Unit / Cell tiers, the docstring explaining Charlie's
+    # resolution order, and the loop that filters all four scope columns. The
+    # first three entries are above that function and did not move. Re-pointed,
+    # not softened.
     ("analytics.py", 15), ("analytics.py", 138), ("analytics.py", 233),
-    ("analytics.py", 541), ("analytics.py", 792), ("analytics.py", 1043),
-    ("analytics.py", 1181), ("analytics.py", 1702), ("analytics.py", 1877),
+    ("analytics.py", 576), ("analytics.py", 827), ("analytics.py", 1078),
+    ("analytics.py", 1216), ("analytics.py", 1737), ("analytics.py", 1912),
     # db.py shifted +132 lines by Phase 8 Decision 2 (2026-08-19): the
     # MachineStreamConfiguration / MachineStreamAssignment models, their
     # explanatory block comment, and ProductionRun.machine_stream_
@@ -221,9 +227,12 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # and the block comment explaining why the unit is a stored snapshot rather
     # than a join through machines.production_unit_id - 2287 -> 2306. Moved four
     # more lines by the same work package when ProductionRun gained the
-    # production_unit relationship and its comment - 2306 -> 2310. Re-pointed,
-    # not softened, per this block's own standing rule.
-    ("db.py", 2310),
+    # production_unit relationship and its comment - 2306 -> 2310. Seventh move,
+    # same day, migration 0023: ProductionRun gained application_id, its
+    # relationship and the block comment explaining why the Application Area is
+    # frozen on the run - 2310 -> 2326. Re-pointed, not softened, per this
+    # block's own standing rule.
+    ("db.py", 2326),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("views/16_Trend_Analysis.py", 228), ("views/16_Trend_Analysis.py", 411),
     ("views/17_Process_Property_Correlation.py", 109),

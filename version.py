@@ -8389,6 +8389,72 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.82.0, 2026-08-22: R3 process-setting applicability - the Application Area
+snapshot on a run, and the four-tier resolution. No rules moved yet, and that
+is a decision rather than an omission.
+Charlie's R3 handover v3 section 3, and Migration Plan v5 R3-WP2.
+
+TWO MIGRATIONS, LEDGER 23 AND 24
+
+0023 gives production_runs its own application_id. Same argument as the unit
+snapshot in 0022 and worth restating because the tempting read is the same one:
+foam_grades.application_id, live. Re-classify a Product Grade to another
+Application Area and every finished run starts reporting an end use it was
+never made for - and from now on would resolve a different set of process
+settings as well, since Application Area is about to become the default tier.
+Eight runs backfilled to APP-210, unit snapshot untouched, statuses NULL,
+every other field identical to R0 row by row. The test that carries it
+re-classifies the grade and asserts the recorded run does not follow; the
+mutation reading it through the grade fails that test.
+
+0024 adds application_id and production_unit_id to
+process_setting_applicabilities and rebuilds ix_psa_unique_active_scope over
+the full five-column scope IN THE SAME ARTIFACT. Adding scope columns without
+widening that index would have quietly reopened the exact defect it exists for
+- two active rows at one scope, winner arbitrary, Charlie's WP7 Phase 1
+closeout item 2.1.
+
+THE RESOLUTION ORDER, AND WHERE THE LEGACY TIER SITS
+
+  Machine (4) > Production Unit / Cell (3) > Application Area (2)
+              > legacy Production Method (1) > Global (0)
+
+Method sits directly BELOW the tier that replaces it. Put it above and a row
+re-pointed from Method to Application Area could change which rule wins, which
+is the one thing a re-pointing migration must not do. A test contests all five
+tiers against one definition and asserts which row wins at each step; swapping
+those two levels fails it.
+
+WHY NO ROW WAS CONVERTED
+
+The conversion needs an Application Area destination for every legacy
+Production Method. 43 of the 50 live rows - 34 method-only plus all 9
+machine-plus-method - belong to PM-800 at PTU Korat, whose master data Stefan
+confirmed is still being verified. The only evidence-backed destination today
+is PM-100 to APP-210, which is 3 rows.
+
+Converting 7 and leaving 43 is worse than converting none: the resolver would
+then arbitrate between two tiers on live rows nobody had checked. Plan v5
+R3-WP1 says what to do instead - "unresolved master-data details are returned
+as data issues before write" - so the schema and the order land now, every live
+row keeps resolving through the legacy tier exactly as before, and 0024 carries
+an exit check that refuses a half-converted state. That check is not vacuous: a
+contested pair was planted on the probe and it fired.
+
+A DEFECT FOUND WHILE MEASURING
+
+PTU Korat's only Product Grade, RF-Refrigerator-001, is assigned to no
+equipment. The Production Run form builds its grade list from the selected
+Equipment / Machine, so no production run can currently be created at PTU
+Korat at all. Named rather than fixed - assigning it is master data, and
+Charlie's rule is that master data comes from plant evidence or approved pilot
+data, not from what would be convenient for a migration.
+
+Full regression: 1120 passed, 6 skipped, 0 failed. Was 1090 / 6 at v0.81.1.
+
+The CR-18 terminology allowlist moved again: db.py 2310 -> 2326, and six
+analytics.py entries +35 where eligible_process_settings() grew.
+
 v0.81.1, 2026-08-22: the half v0.81.0 missed - the snapshot nobody could see,
 and three surfaces still calling the equipment a cell.
 
@@ -10066,4 +10132,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.81.1"
+APP_VERSION = "0.82.0"

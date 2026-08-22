@@ -1380,8 +1380,17 @@ with tab_method_settings:
                 "assigned one). Set the Equipment / Machine on the Production Runs tab first."
             )
         else:
+            # R3 / 0024. The scope comes from what the RUN RECORDED - its own
+            # Application Area and Production Unit / Cell snapshots - not from
+            # its Product Grade's current classification or its machine's
+            # current unit. A run reopened after either of those moved must
+            # still offer the settings it actually ran under.
             eligible = analytics.eligible_process_settings(
-                session, run.production_method_id, machine_id=run.machine_id
+                session,
+                run.production_method_id,
+                machine_id=run.machine_id,
+                application_id=run.application_id,
+                production_unit_id=run.production_unit_id,
             )
             # WP7 Phase 3 correction (2026-08-14, Charlie's closeout review,
             # findings #1/#2): this tab is for controllable Process Setting
@@ -2897,7 +2906,11 @@ with tab_runtime:
                 env_outcome_eligible = [
                     (definition, applicability)
                     for definition, applicability in analytics.eligible_process_settings(
-                        session, run.production_method_id, machine_id=run.machine_id
+                        session,
+                        run.production_method_id,
+                        machine_id=run.machine_id,
+                        application_id=run.application_id,
+                        production_unit_id=run.production_unit_id,
                     )
                     if definition.parameter_category in ("Environment", "Outcome")
                 ]

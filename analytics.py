@@ -241,7 +241,8 @@ def production_methods_used(session, foam_grade_id):
     return sorted(set(q.all()), key=lambda m: (m.sort_order or 0, m.name))
 
 
-def eligible_process_settings(session, production_method_id, machine_id=None):
+def eligible_process_settings(session, production_method_id=None, machine_id=None,
+                              application_id=None, production_unit_id=None):
     """WP7 Phase 1 (2026-08-13). Returns the method-aware
     ProcessSettingDefinition rows eligible for a given Production Method
     (and, optionally, a specific Machine / "Production Unit or Cell"),
@@ -264,24 +265,52 @@ def eligible_process_settings(session, production_method_id, machine_id=None):
     Returns a list of (ProcessSettingDefinition, ProcessSettingApplicability)
     tuples, ordered by definition.sort_order then definition.name. Both
     the definition and the applicability row must be active=True; retired
-    (active=False) rows never surface here, on either side."""
+    (active=False) rows never surface here, on either side.
+
+    R3 (2026-08-22, migration 0024). Charlie's resolution order for the
+    redesigned hierarchy is Machine, then Production Unit / Cell, then
+    Application Area, then Global, and this function now implements it:
+
+        Machine (4) > Production Unit / Cell (3) > Application Area (2)
+                    > legacy Production Method (1) > Global (0)
+
+    The legacy Method tier sits between Application Area and Global because
+    that is the tier Application Area REPLACES. Placing it above would mean a
+    row converted from Method to Application Area could change which rule wins,
+    which is the one thing a re-pointing migration must not do.
+
+    Nothing has been converted yet: the row conversion needs an Application
+    Area destination for every legacy Production Method, and 43 of the 50 live
+    rows belong to PM-800 at PTU Korat, whose master data is still being
+    verified. Until then every live row resolves through the legacy tier
+    exactly as it did before, which is why the transition is safe rather than
+    merely intended - and migration 0024 carries an exit check refusing a state
+    where one definition is contested by both tiers at once.
+
+    Every scope argument is optional and independent. A caller that knows only
+    the Production Method (an older call site, or a run whose grade is not yet
+    classified) gets exactly the previous behaviour."""
     query = (
         session.query(ProcessSettingApplicability)
         .join(ProcessSettingDefinition, ProcessSettingApplicability.setting_definition_id == ProcessSettingDefinition.id)
         .filter(ProcessSettingApplicability.active == True)  # noqa: E712
         .filter(ProcessSettingDefinition.active == True)  # noqa: E712
-        .filter(
-            (ProcessSettingApplicability.production_method_id == production_method_id)
-            | (ProcessSettingApplicability.production_method_id.is_(None))
-        )
     )
-    if machine_id is not None:
-        query = query.filter(
-            (ProcessSettingApplicability.machine_id == machine_id)
-            | (ProcessSettingApplicability.machine_id.is_(None))
-        )
-    else:
-        query = query.filter(ProcessSettingApplicability.machine_id.is_(None))
+    # One rule for all four scope columns: a row is a candidate when its value
+    # for that column is NULL (it does not care) or matches what the caller
+    # supplied. When the caller supplies nothing for a column, only rows that
+    # are NULL there can apply - otherwise a run with no Application Area would
+    # inherit some other end use's defaults.
+    for column, value in (
+        (ProcessSettingApplicability.production_method_id, production_method_id),
+        (ProcessSettingApplicability.machine_id, machine_id),
+        (ProcessSettingApplicability.application_id, application_id),
+        (ProcessSettingApplicability.production_unit_id, production_unit_id),
+    ):
+        if value is not None:
+            query = query.filter((column == value) | (column.is_(None)))
+        else:
+            query = query.filter(column.is_(None))
 
     # WP7 Phase 1 correction (Charlie's closeout review, 2026-08-14, item
     # 2.1): db.py's ix_psa_unique_active_scope partial unique index now
@@ -298,7 +327,13 @@ def eligible_process_settings(session, production_method_id, machine_id=None):
     # same-specificity tie (prevented by ix_psa_unique_active_scope, see
     # above) would keep the lowest-id row, per the ORDER BY.
     def _specificity(row):
+        # Charlie's order, with the legacy Method tier immediately below the
+        # Application Area tier it is being replaced by - see the docstring.
         if row.machine_id is not None:
+            return 4
+        if row.production_unit_id is not None:
+            return 3
+        if row.application_id is not None:
             return 2
         if row.production_method_id is not None:
             return 1
