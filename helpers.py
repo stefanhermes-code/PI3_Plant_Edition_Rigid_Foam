@@ -619,19 +619,60 @@ def grade_production_methods(grade):
     return sorted(seen.values(), key=lambda m: (m.sort_order, m.name))
 
 
+PRODUCTION_UNIT_OPERATION_MODES = ("Continuous", "Shot-by-shot")
+"""R3 (2026-08-22). The controlled vocabulary for
+db.ProductionUnit.operation_mode - what the pages offer. What makes it true is
+ck_production_units_operation_mode in migration 0025.
+
+Deliberately two values and no third. "Not characterised" is the absence of a
+value, not a value: a "Not specified" entry in a picker looks like an answer
+and would be stored as one."""
+
+
+def unit_uses_cycle_shot_operation(unit):
+    """Whether this Production Unit / Cell is characterised as shot-by-shot,
+    or None when it has not been characterised at all.
+
+    Three-valued on purpose. A unit that nobody has looked at yet must fall
+    through to its Production Method rather than assert "continuous", and a
+    boolean cannot say that."""
+    mode = getattr(unit, "operation_mode", None) if unit is not None else None
+    if mode is None:
+        return None
+    return mode == "Shot-by-shot"
+
+
 def run_uses_cycle_shot_operation(run):
     """Whether a Production Run's Cycle/Shot Data module should be exposed,
     per the config-driven declaration Charlie's WP7 Phase 2 Closeout Review
     requires (Material Gap 3: "absent conditional Cycle/Shot UI module") -
-    resolved from ProductionMethod.uses_cycle_shot_operation /
-    Machine.cycle_shot_operation_override, never inferred from a Method's
-    or Machine's name. A Machine's own override, when explicitly set
-    (True or False), takes precedence over its Production Method's default
-    - covers a plant running the same Method on one cycle/shot cell and
-    one continuous cell. Returns False for a run with no resolved
-    Machine/Method yet (never raises)."""
+    never inferred from a Method's, Machine's or Unit's name.
+
+    Resolution order, most specific first:
+
+        Machine.cycle_shot_operation_override   equipment-specific override
+        ProductionUnit.operation_mode           R3 / 0025, the line property
+        ProductionMethod.uses_cycle_shot_operation   the method default
+
+    The middle tier is new in R3. Charlie: "Capture continuous versus
+    shot-by-shot at Production Unit / Cell level." The machine override already
+    existed to cover "a plant running the same Method on one cycle/shot cell
+    and one continuous cell" - that sentence was describing a unit property
+    that had nowhere to live, and every such plant had to state it per machine.
+
+    THE UNIT COMES FROM THE RUN'S OWN SNAPSHOT, not from run.machine's current
+    unit. Reading it through the machine would mean re-assigning equipment to
+    another cell retroactively changed which modules a finished run offers -
+    the derivation migration 0022 exists to prevent.
+
+    Each tier is skipped when it says nothing: an unset machine override and an
+    uncharacterised unit both fall through rather than answering False. Returns
+    False for a run with nothing resolved yet (never raises)."""
     if run.machine is not None and run.machine.cycle_shot_operation_override is not None:
         return bool(run.machine.cycle_shot_operation_override)
+    unit_answer = unit_uses_cycle_shot_operation(getattr(run, "production_unit", None))
+    if unit_answer is not None:
+        return unit_answer
     if run.production_method is not None:
         return bool(run.production_method.uses_cycle_shot_operation)
     return False

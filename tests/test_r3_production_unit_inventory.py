@@ -493,36 +493,61 @@ def test_the_page_invents_no_master_data_fields():
     unknown = passed - columns
     assert not unknown, f"The page writes fields ProductionUnit does not have: {unknown}"
 
-    # The unit-level continuous/shot-by-shot property belongs to its own work
-    # package. Anticipating it here with a placeholder would put a field on
-    # screen that nothing reads.
+    # R3 (2026-08-22) note. Until v0.82.0 this test also asserted that no
+    # user-visible string on the page said "continuous" or "shot-by-shot",
+    # because that property belonged to a later work package. THIS IS THAT WORK
+    # PACKAGE. Migration 0025 created production_units.operation_mode and
+    # helpers.run_uses_cycle_shot_operation() reads it, so the field has earned
+    # its place and the scan is deleted rather than adjusted to pass - it
+    # recorded a decision, and the decision is over (working preferences 15a).
     #
-    # Scanned over USED string literals only. The first version scanned the raw
-    # source and failed on this page's own docstring, which explains why that
-    # property is deliberately absent - the same prose-versus-code trap the R1
-    # and R2 scanners hit. Prose is excluded by node identity, not by an
-    # allowlist.
-    prose = set()
-    for node in _ast.walk(tree):
-        if isinstance(node, (_ast.Module, _ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
-            if _ast.get_docstring(node, clean=False) is not None and node.body \
-               and isinstance(node.body[0], _ast.Expr):
-                prose.add(id(node.body[0].value))
-        if isinstance(node, _ast.Expr) and isinstance(node.value, _ast.Constant) \
-           and isinstance(node.value.value, str):
-            prose.add(id(node.value))
-    for node in _ast.walk(tree):
-        if isinstance(node, _ast.Constant) and isinstance(node.value, str) \
-           and id(node) not in prose:
-            lowered = node.value.lower()
-            for premature in ("continuous", "shot-by-shot", "shot by shot"):
-                # Word boundaries. A plain substring test fires on
-                # "discontinuous panel line", which is a legitimate unit type
-                # and the exact wording of a live record.
-                assert not re.search(rf"\b{re.escape(premature)}\b", lowered), (
-                    f"{premature!r} appears in a user-visible string on the page - that "
-                    "property belongs to the work package that implements it."
-                )
+    # What replaces it is not a weaker version of the same scan. It is
+    # test_the_page_offers_the_operation_mode_property below, which asserts the
+    # field is present and offers exactly the controlled vocabulary, and the
+    # resolution tests in tests/test_r3_production_unit_operation_mode.py.
+
+
+def test_the_page_offers_the_operation_mode_property(inventory):
+    """R3: continuous versus shot-by-shot, captured at unit level.
+
+    Asserts the vocabulary the picker offers rather than just that a control
+    exists - a field offering a free-typed value would satisfy "the field is
+    there" and defeat ck_production_units_operation_mode the moment somebody
+    typed something else."""
+    at = _run_as_platform_owner(PAGE_UNITS)
+    assert not at.exception, at.exception
+    pickers = [sb for sb in at.selectbox if str(sb.label) == "Operation mode"]
+    assert pickers, "The Production Units / Cells page has no Operation mode field"
+    for picker in pickers:
+        options = [str(o) for o in picker.options]
+        assert "Continuous" in options and "Shot-by-shot" in options, (
+            f"The operation-mode picker does not offer the controlled vocabulary: {options}"
+        )
+        # AppTest reports the FORMATTED labels, which is what the user reads.
+        # The empty value renders through format_func as the not-characterised
+        # entry; asserting the raw "" here would be asserting an implementation
+        # detail the user never sees.
+        assert "— not characterised —" in options, (
+            "There must be a way back to not-characterised. A unit somebody set by "
+            f"mistake cannot be corrected otherwise. Options: {options}"
+        )
+        assert len(options) == 3, (
+            f"The picker offers a value outside the controlled vocabulary: {options}"
+        )
+
+
+def test_no_live_unit_is_characterised_by_the_migration(inventory):
+    """Charlie's WP7 Phase 2 closeout rejected inferring cycle/shot operation
+    from a name, and BOTH live Production Methods are called "Discontinuous" -
+    exactly the trap that ruling was written about. How a real line runs is
+    plant fact. Migration 0025 adds the column and characterises nothing."""
+    session = db.get_session()
+    characterised = [u.controlled_id for u in session.query(db.ProductionUnit).all()
+                     if u.operation_mode is not None]
+    session.close()
+    assert not characterised, (
+        f"Unit(s) {characterised} were characterised without plant evidence."
+    )
 
 
 def test_the_page_shows_charlies_minimum(inventory):

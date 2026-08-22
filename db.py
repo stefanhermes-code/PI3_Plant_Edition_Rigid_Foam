@@ -3326,6 +3326,27 @@ class ProductionUnit(Base):
     controlled_id = Column(String(50))
     name = Column(String(200), nullable=False)
     unit_type = Column(String(200))  # e.g. "High-pressure metering unit"
+    # R3 (2026-08-22), migration 0025. Charlie: "Capture continuous versus
+    # shot-by-shot at Production Unit / Cell level."
+    #
+    # The application already resolved cycle/shot operation from
+    # ProductionMethod.uses_cycle_shot_operation with
+    # Machine.cycle_shot_operation_override on top. That machine override's own
+    # comment says what it was standing in for - "a plant running the same
+    # Production Method on one cycle/shot cell and one continuous cell". Cell.
+    # The property always belonged here; there was nowhere to put it. So the
+    # resolution is now Machine override, then this, then the Method default -
+    # see helpers.run_uses_cycle_shot_operation().
+    #
+    # NULL means NOT CHARACTERISED and inherits the Production Method. It does
+    # not mean continuous. Never set from a name: Charlie's WP7 Phase 2
+    # closeout rejected "PM-100 sounds discontinuous, so infer True", and both
+    # live Production Methods are called "Discontinuous", which is precisely
+    # the trap that ruling was written about.
+    #
+    # Vocabulary enforced by ck_production_units_operation_mode (0025), the
+    # same treatment as PU Material Family and Application Area.
+    operation_mode = Column(String(20))
     notes = Column(Text)
     created_at = Column(DateTime, default=dt.datetime.utcnow)
 

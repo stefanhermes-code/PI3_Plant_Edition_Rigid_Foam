@@ -33,9 +33,20 @@ WHAT IS DELIBERATELY NOT HERE
 
 No new master-data fields. Charlie: "Do not invent new master-data fields to
 fill the page." The form offers exactly the columns db.ProductionUnit already
-has - controlled_id, name, unit_type, notes - and nothing else. Continuous
-versus shot-by-shot belongs to its own work package and is not anticipated
-here with a disabled control or a placeholder.
+has and nothing else.
+
+R3 (2026-08-22) added one of those columns: operation_mode, continuous versus
+shot-by-shot, per Charlie's R3 handover. It appears here now because migration
+0025 created it and helpers.run_uses_cycle_shot_operation() reads it - which is
+the standard v0.80.0 held for. A field arrives when something reads it, not
+before.
+
+It is left EMPTY for both live units, and that is the rule rather than an
+oversight. Charlie's WP7 Phase 2 closeout rejected inferring cycle/shot from a
+name; both live Production Methods are called "Discontinuous", which is exactly
+the trap. Empty means "not characterised - inherit the Production Method", and
+the picker offers no third value saying so, because a "Not specified" option
+looks like an answer and gets stored as one.
 
 No CSV/Excel import tab, so this page carries two of CR-11's three tabs rather
 than three. A Production Unit has four fields and a plant; the two live rows
@@ -59,6 +70,7 @@ from access_control import can_use_page
 from auth import current_user, logout_button, require_login
 from db import Machine, Mixhead, Plant, ProductionUnit, Tool, get_session, init_db
 from helpers import (
+    PRODUCTION_UNIT_OPERATION_MODES,
     clickable_table,
     delete_with_confirm,
     page_setup,
@@ -173,6 +185,14 @@ with tab_create:
                 "Unit type",
                 help="What kind of unit it is, e.g. Discontinuous panel line.",
             )
+            u_mode = st.selectbox(
+                "Operation mode",
+                [""] + list(PRODUCTION_UNIT_OPERATION_MODES),
+                format_func=lambda m: "— not characterised —" if m == "" else m,
+                help="How this line runs. Leave it unset until somebody who knows the "
+                     "line can say - unset inherits the Production Method's setting, and "
+                     "it is what decides whether runs here capture Cycle / Shot data.",
+            )
             u_notes = st.text_area("Notes")
             st.caption(f"Plant: **{plant_for_unit.name}** (change above, outside this form)")
             submitted = st.form_submit_button("Save Production Unit / Cell")
@@ -195,6 +215,7 @@ with tab_create:
                             name=u_name.strip(),
                             controlled_id=u_code.strip() or None,
                             unit_type=u_type.strip() or None,
+                            operation_mode=u_mode or None,
                             notes=u_notes or None,
                         )
                     )
@@ -213,6 +234,7 @@ with tab_edit_delete:
                 "Unit code": u.controlled_id or "—",
                 "Production Unit / Cell": u.name,
                 "Unit type": u.unit_type or "—",
+                "Operation mode": u.operation_mode or "—",
                 "Equipment / Machines": (
                     ", ".join(m.name for m in machines_by_unit.get(u.id, [])) or "—"
                 ),
@@ -263,6 +285,16 @@ with tab_edit_delete:
                         "Unit type", value=selected_unit.unit_type or "",
                         key=f"edit_unit_type_{selected_unit.id}",
                     )
+                    _mode_options = [""] + list(PRODUCTION_UNIT_OPERATION_MODES)
+                    e_mode = st.selectbox(
+                        "Operation mode", _mode_options,
+                        index=(_mode_options.index(selected_unit.operation_mode)
+                               if selected_unit.operation_mode in _mode_options else 0),
+                        format_func=lambda m: "— not characterised —" if m == "" else m,
+                        key=f"edit_unit_mode_{selected_unit.id}",
+                        help="Decides whether runs on this unit capture Cycle / Shot data, "
+                             "unless a specific Equipment / Machine overrides it.",
+                    )
                     e_notes = st.text_area(
                         "Notes", value=selected_unit.notes or "",
                         key=f"edit_unit_notes_{selected_unit.id}",
@@ -298,6 +330,7 @@ with tab_edit_delete:
                             selected_unit.name = e_name.strip()
                             selected_unit.controlled_id = e_code.strip() or None
                             selected_unit.unit_type = e_type.strip() or None
+                            selected_unit.operation_mode = e_mode or None
                             selected_unit.notes = e_notes or None
                             session.commit()
                             st.success("Production Unit / Cell updated.")

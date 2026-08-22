@@ -8389,6 +8389,86 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.83.0, 2026-08-22: R3 - the applicability rules re-pointed, and continuous
+versus shot-by-shot captured at the unit.
+Charlie's R3 handover v3 section 3, and Migration Plan v5.
+
+0025 - THE UNIT PROPERTY, AND THE TIER IT JOINED
+
+The application already answered "does this run capture Cycle / Shot data",
+from ProductionMethod.uses_cycle_shot_operation with
+Machine.cycle_shot_operation_override on top. That override's own comment says
+what it was standing in for: "a plant running the same Production Method on one
+cycle/shot cell and one continuous cell". Cell. The property always belonged to
+the Production Unit and there was nowhere to put it, so every such plant had to
+restate it per machine.
+
+So this is a middle tier rather than a new mechanism:
+
+  Machine override > Production Unit / Cell > Production Method default
+
+Two things the tests hold. The unit comes from the RUN'S OWN SNAPSHOT, not from
+its machine's current unit - otherwise re-assigning equipment retroactively
+changes which modules a finished run offers, which is what 0022 exists to
+prevent. And an uncharacterised unit FALLS THROUGH rather than answering
+"continuous"; a two-valued read of a three-valued property would silently
+switch Cycle / Shot capture off for every method that had it on.
+
+Neither live unit is characterised, and that is a rule. Charlie's WP7 Phase 2
+closeout rejected inferring cycle/shot from a name, and both live Production
+Methods are called "Discontinuous" - exactly the trap. Empty means "not
+characterised"; the picker offers no third value saying so, because a "Not
+specified" entry looks like an answer and gets stored as one.
+
+The v0.80.0 test that kept this field OFF the Production Units page is deleted
+rather than adjusted. It recorded a decision - "not this work package" - and
+this is that work package.
+
+0026 - THE RE-POINTING
+
+  PM-100 Discontinuous Panel & Board Production   ->  APP-210
+  PM-800 Discontinuous Appliance & Cavity Foaming ->  APP-310
+
+37 method-only rows became Application Area defaults, the 9 machine-plus-method
+rows became Machine + Application Area, the 4 global rows were not touched, and
+no Production Unit / Cell reference was written anywhere - Charlie's "do not fan
+the 37 out across every Production Unit". Row count unchanged at 50.
+
+production_method_id is CLEARED on every converted row. Keeping both would make
+the row apply only where method AND area match, which is a Method + Application
+Area rule rather than the inherited default that was asked for.
+
+The mapping is resolved by looking rows up on controlled_id rather than by
+hard-coded ids, which is what stops an artifact passing on a probe and pointing
+at the wrong record live.
+
+WHAT COUNTS AS EVIDENCE FOR A CONVERSION
+
+Not row counts. A conversion that moved every row to the wrong Application Area
+produces identical counts. The evidence is what the RESOLVER RETURNS, compared
+before shape against after shape, and the fixture builds both shapes side by
+side rather than running the conversion to produce its own "after" - which
+would prove only that the conversion agrees with itself.
+
+All 9 dual-scope rules keep their dual condition: they win on machine 4, and
+without that machine the definition falls back to its default tier. And a
+converted default does NOT apply to a run with no Application Area, which is
+the real risk in this kind of migration - a scoped rule quietly becoming global.
+
+The check that refuses a method with no destination was proved non-vacuous by
+planting a PM-200 row on the probe, which fired it and rolled the probe back to
+its seeded state in the same stroke.
+
+A NOTE ON WHERE THE BEFORE-STATE WENT
+
+The pre-conversion snapshot of the 50 rows is kept as
+rigid_foam_archive._r3_0026_before. It was first created in rigid_foam by
+mistake and moved out immediately - R3-WP2 spent a whole work package getting
+backup tables out of the runtime schema, and putting a new one back would have
+undone that quietly.
+
+Full regression: 1148 passed, 6 skipped, 0 failed. Was 1120 / 6 at v0.82.0.
+
 v0.82.0, 2026-08-22: R3 process-setting applicability - the Application Area
 snapshot on a run, and the four-tier resolution. No rules moved yet, and that
 is a decision rather than an omission.
@@ -10132,4 +10212,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.82.0"
+APP_VERSION = "0.83.0"

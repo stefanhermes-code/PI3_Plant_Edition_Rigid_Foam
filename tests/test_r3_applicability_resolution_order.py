@@ -5,20 +5,25 @@ Charlie's R3 handover v3, section 3: "Process-setting applicability: Resolution
 order is Machine, then Production Unit / Cell, then Application Area, then
 Global."
 
-WHAT THIS WORK PACKAGE DELIBERATELY DOES NOT DO
+TWO MIGRATIONS, AND WHY THEY ARE SEPARATE
 
-It moves no rows. Converting the 37 method-only rows to Application Area
-defaults needs an Application Area destination for every legacy Production
-Method, and 43 of the 50 live rows belong to PM-800 at PTU Korat, whose master
-data is still being verified. Plan v5 R3-WP1 says what to do with that:
-"unresolved master-data details are returned as data issues before write."
+0024 is the schema half: the two scope columns and the widened uniqueness
+index. 0026 is the conversion: 37 method-only rows to Application Area
+defaults, 9 machine-plus-method rows to Machine + Application Area, 4 global
+rows untouched.
 
-Converting the 7 rows that CAN be evidenced and leaving 43 would be worse than
-converting none - the resolver would then have to arbitrate between the two
-tiers on live data, on rows nobody had checked. So the schema and the
-resolution order land first, every live row keeps resolving through the legacy
-Method tier exactly as before, and migration 0024 carries an exit check that
-refuses a half-converted state.
+They are separate artifacts because they fail differently. A schema change that
+goes wrong is caught by its own exit checks; a data conversion that goes wrong
+is caught by comparing behaviour before and after, which needs the schema to
+already exist. 0024 also carries an exit check refusing a half-converted state,
+which is what made it safe to apply the two at different times.
+
+    PM-100  Discontinuous Panel & Board Production   ->  APP-210
+    PM-800  Discontinuous Appliance & Cavity Foaming ->  APP-310
+
+Each plant running the method has exactly one Product Grade and that grade
+carries the Application Area. This is test data; a real deployment derives its
+own mapping the same way.
 
 WHY THE LEGACY TIER SITS WHERE IT DOES
 
@@ -197,9 +202,11 @@ def test_an_unrelated_area_does_not_inherit_another_areas_default(tiers):
 
 
 def test_a_caller_that_knows_only_the_method_gets_the_old_behaviour(tiers):
-    """The transition's safety property, stated as a test. Every live row is
-    still a legacy Method or Global row, and every live caller passes a method,
-    so nothing about today's resolution changed."""
+    """The legacy tier still resolves for a caller that supplies nothing else.
+
+    No live row uses it after 0026, but the column and the tier remain until
+    Production Method retirement, and a tier nothing exercises is a tier that
+    quietly stops working."""
     session = db.get_session()
     assert _winner(session, tiers,
                    production_method_id=tiers["method_id"]) == tiers["rows"]["method"]
@@ -310,4 +317,197 @@ def test_the_migration_guards_against_a_half_finished_conversion():
 
 def test_the_migration_is_schema_agnostic():
     for line in _migration_code().splitlines():
+        assert "rigid_foam." not in line, f"Migration hard-codes a schema name: {line.strip()!r}"
+
+
+# ---------------------------------------------------------------------------
+# Section 4 - the conversion (0026), and that it changed no behaviour
+#
+# Charlie asked for "before/after behaviour evidence for each of the 9
+# dual-scope rules". Row counts are not that evidence: a conversion that moved
+# every row to the wrong Application Area would produce identical counts. What
+# follows compares what the RESOLVER RETURNS, before shape against after shape.
+# ---------------------------------------------------------------------------
+
+CONVERSION = "0026_r3_applicability_repoint_to_application_area.sql"
+
+
+def _conversion_code():
+    sql = open(os.path.join(MIGRATIONS_DIR, CONVERSION), encoding="utf-8").read()
+    return "\n".join(l for l in sql.splitlines() if not l.lstrip().startswith("--"))
+
+
+@pytest.fixture()
+def before_and_after():
+    """The same rule set twice: once scoped the old way (Method, and Machine +
+    Method) and once the new way (Application Area, and Machine + Application
+    Area), on two independent definitions so neither can contest the other.
+
+    Built side by side rather than by mutating one into the other, because a
+    fixture that runs the conversion to produce its own "after" state proves
+    the conversion agrees with itself and nothing more."""
+    db.init_db()
+    _reset_schema()
+    u = uuid.uuid4().hex[:8]
+    session = db.get_session()
+
+    company = db.Company(name=f"CONV Co {u}", is_platform_owner=True)
+    session.add(company); session.flush()
+    plant = db.Plant(company_id=company.id, name=f"CONV Plant {u}")
+    session.add(plant); session.flush()
+    area = db.Application(controlled_id=f"APP-{u[:3]}", name=f"Area {u}",
+                          pu_material_family="Rigid")
+    session.add(area); session.flush()
+    method = db.ProductionMethod(controlled_id=f"PM-{u[:3]}", name=f"Method {u}")
+    session.add(method); session.flush()
+    machine = db.Machine(plant_id=plant.id, name=f"Machine {u}",
+                         production_method_id=method.id)
+    session.add(machine); session.flush()
+
+    old_def = db.ProcessSettingDefinition(name=f"Old-shape {u}", active=True, sort_order=10)
+    new_def = db.ProcessSettingDefinition(name=f"New-shape {u}", active=True, sort_order=20)
+    session.add_all([old_def, new_def]); session.flush()
+
+    rows = {}
+    for label, definition, kwargs in (
+        ("old_default", old_def, {"production_method_id": method.id}),
+        ("old_machine", old_def, {"production_method_id": method.id, "machine_id": machine.id}),
+        ("new_default", new_def, {"application_id": area.id}),
+        ("new_machine", new_def, {"application_id": area.id, "machine_id": machine.id}),
+    ):
+        row = db.ProcessSettingApplicability(
+            setting_definition_id=definition.id, active=True, **kwargs
+        )
+        session.add(row); session.flush()
+        rows[label] = row.id
+
+    session.commit()
+    ids = {"area_id": area.id, "method_id": method.id, "machine_id": machine.id,
+           "old_def": old_def.id, "new_def": new_def.id, "rows": rows}
+    session.close()
+    return ids
+
+
+def _winner_for(session, definition_id, **scope):
+    results = analytics.eligible_process_settings(session, **scope)
+    matching = [a for d, a in results if d.id == definition_id]
+    return matching[0].id if matching else None
+
+
+def test_the_default_tier_behaves_the_same_after_conversion(before_and_after):
+    """A run in the Application Area resolves the converted default exactly as
+    a run on the Production Method resolved the old one."""
+    ids = before_and_after
+    session = db.get_session()
+    old = _winner_for(session, ids["old_def"], production_method_id=ids["method_id"])
+    new = _winner_for(session, ids["new_def"], application_id=ids["area_id"])
+    session.close()
+    assert old == ids["rows"]["old_default"]
+    assert new == ids["rows"]["new_default"], (
+        "The converted Application Area default does not resolve where the Method "
+        "default used to."
+    )
+
+
+def test_the_nine_dual_scope_rules_keep_their_dual_condition(before_and_after):
+    """Machine + Method became Machine + Application Area. Both halves must
+    still be required: the rule applies on that machine, and not on another."""
+    ids = before_and_after
+    session = db.get_session()
+
+    old = _winner_for(session, ids["old_def"], production_method_id=ids["method_id"],
+                      machine_id=ids["machine_id"])
+    new = _winner_for(session, ids["new_def"], application_id=ids["area_id"],
+                      machine_id=ids["machine_id"])
+    assert old == ids["rows"]["old_machine"]
+    assert new == ids["rows"]["new_machine"], (
+        "The converted Machine + Application Area rule does not win on its own machine."
+    )
+
+    # And the other half of "dual": without the machine, the machine-scoped row
+    # must not apply. The definition falls back to its default tier.
+    assert _winner_for(session, ids["new_def"],
+                       application_id=ids["area_id"]) == ids["rows"]["new_default"]
+    session.close()
+
+
+def test_a_converted_rule_does_not_apply_outside_its_application_area(before_and_after):
+    """The conversion's real risk. A default that applied to one method must
+    not become a default that applies everywhere."""
+    ids = before_and_after
+    session = db.get_session()
+    assert _winner_for(session, ids["new_def"]) is None, (
+        "The converted Application Area default applies to a run with no Application "
+        "Area at all - it has become global."
+    )
+    session.close()
+
+
+# ---------------------------------------------------------------------------
+# Section 5 - the conversion artifact
+# ---------------------------------------------------------------------------
+
+def test_the_conversion_exists():
+    assert os.path.exists(os.path.join(MIGRATIONS_DIR, CONVERSION)), f"{CONVERSION} is missing"
+
+
+def test_the_conversion_maps_by_controlled_id_not_by_row_id():
+    """Hard-coded ids are the reason a migration can pass on a probe and point
+    at the wrong record live. The mapping is looked up by controlled_id, which
+    is also what makes the artifact readable."""
+    code = _conversion_code()
+    for controlled in ("'PM-100'", "'PM-800'", "'APP-210'", "'APP-310'"):
+        assert controlled in code, f"The mapping does not name {controlled}"
+    assert "application_id = " in code and "ap.id" in code, (
+        "The Application Area is not resolved by lookup."
+    )
+
+
+def test_the_conversion_clears_the_legacy_method_reference():
+    """A row keeping both would apply only where method AND area match - a
+    Method + Application Area rule, not the inherited default Charlie asked
+    for."""
+    code = " ".join(_conversion_code().split())
+    assert "production_method_id = null" in code.lower(), (
+        "Converted rows keep their Production Method reference."
+    )
+
+
+def test_the_conversion_writes_no_production_unit_reference():
+    """Charlie: "Do not fan the 37 Application Area defaults out across every
+    Production Unit." A unit row is supposed to mean "this line differs", and
+    it cannot mean that if every unit has one."""
+    code = _conversion_code().lower()
+    assert "set production_unit_id" not in code
+    assert "0026 writes none" in _conversion_code(), (
+        "The exit check asserting no unit reference was written has been removed."
+    )
+
+
+def test_the_conversion_refuses_a_method_with_no_destination():
+    """The check that stops a half conversion. Proved non-vacuous on the probe
+    by planting a PM-200 row, which fired it."""
+    code = _conversion_code()
+    assert "no Application Area destination" in code
+
+
+def test_the_conversion_keeps_the_row_count():
+    code = _conversion_code()
+    assert "must not add or remove rows" in code, (
+        "Nothing asserts that a re-pointing did not become a rewrite."
+    )
+    assert "insert into process_setting_applicabilities" not in code.lower()
+    assert "delete from process_setting_applicabilities" not in code.lower()
+
+
+def test_the_conversion_leaves_the_global_rows_alone():
+    """The 4 global rows are absent from every WHERE clause rather than
+    excluded by a condition somebody could edit. Asserted by the exit check
+    that counts them."""
+    code = _conversion_code()
+    assert "Expected exactly 4 global rows after conversion" in code
+
+
+def test_the_conversion_is_schema_agnostic():
+    for line in _conversion_code().splitlines():
         assert "rigid_foam." not in line, f"Migration hard-codes a schema name: {line.strip()!r}"
