@@ -219,9 +219,11 @@ ALLOWED_FOAM_FAMILY_HITS = {
     # name and for the two columns that moved off the record - 2272 -> 2287.
     # Sixth move, R3-WP4 (2026-08-22): ProductionRun gained production_unit_id
     # and the block comment explaining why the unit is a stored snapshot rather
-    # than a join through machines.production_unit_id - 2287 -> 2306. Re-pointed,
+    # than a join through machines.production_unit_id - 2287 -> 2306. Moved four
+    # more lines by the same work package when ProductionRun gained the
+    # production_unit relationship and its comment - 2306 -> 2310. Re-pointed,
     # not softened, per this block's own standing rule.
-    ("db.py", 2306),
+    ("db.py", 2310),
     ("helpers.py", 86), ("helpers.py", 87), ("helpers.py", 157),
     ("views/16_Trend_Analysis.py", 228), ("views/16_Trend_Analysis.py", 411),
     ("views/17_Process_Property_Correlation.py", 109),

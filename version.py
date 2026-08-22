@@ -8389,6 +8389,56 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.81.1, 2026-08-22: the half v0.81.0 missed - the snapshot nobody could see,
+and three surfaces still calling the equipment a cell.
+
+Found while collecting browser evidence for v0.81.0, which is the second
+release running where that is where the quiet half turned up. v0.80.0 renamed
+and built the page and left the Equipment surfaces not showing the unit;
+v0.81.0 stored, guarded and tested the run snapshot and left no screen showing
+it. The loud half of a work package is loud, and nothing fails without the
+other one.
+
+A RECORD NOBODY CAN SEE
+
+The production run listing now carries a Production Unit / Cell column, the
+Edit panel states what the run recorded, and both the Create and Edit forms say
+what will be recorded - or warn, naming the equipment, when it would be
+nothing and completion will therefore be refused. The warning appears while the
+user is looking at the run rather than only at the moment the guard blocks them;
+a guard first met as a refusal reads as arbitrary.
+
+All of it reads ProductionRun.production_unit, the run's own stored column.
+Reading run.machine.production_unit instead would look identical on screen
+today and rewrite every finished run the next time a machine moved, so the test
+that holds it moves a machine to a different unit and asserts the run still
+shows what it recorded. That mutation was run and it fails, which is the only
+reason the test is worth having.
+
+THREE STRINGS THAT CALLED THE EQUIPMENT A CELL
+
+The v0.80.0 sweep looked for "Production Unit" and could never have caught
+"equipment / machine or cell", which labels db.Machine as a cell using none of
+the forbidden words. Three of them: the Production Run edit panel's run-context
+caption, the Trend Analysis intro, and the Root-Cause Assistant intro. All
+three were split across implicit string concatenation - "equipment / machine
+or " + "cell changes" - so grep could not see them either, and they were found
+the same way the last two were: by testing the joined constant.
+
+A second scanner now holds it, with no file exempt. There is no legitimate
+reason for a string to join Machine and Cell with a slash or an "or"; a
+sentence that needs both says which is which. Its negative control plants the
+three the codebase actually carried.
+
+The Production Run page joins the Equipment page and helpers.py on
+PERMITTED_UNIT_STRINGS, seven strings listed exactly, for the same reason as
+before: the page must name the unit without naming the equipment as one, and a
+scanner cannot read that difference.
+
+Full regression: 1090 passed, 6 skipped, 0 failed. Was 1082 / 6 at v0.81.0.
+
+The CR-18 terminology allowlist moved a seventh time, db.py 2306 -> 2310.
+
 v0.81.0, 2026-08-22: R3-WP4. A production run records the Production Unit /
 Cell it ran in, and cannot be completed without one.
 Charlie's R3 Release v3 section 3, and his Historical Run Snapshot Ruling.
@@ -10016,4 +10066,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.81.0"
+APP_VERSION = "0.81.1"

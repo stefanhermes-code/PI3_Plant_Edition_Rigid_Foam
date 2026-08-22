@@ -548,6 +548,142 @@ def test_create_without_completing_is_allowed_and_snapshots_nothing(chain_withou
 
 
 # ---------------------------------------------------------------------------
+# Section 5b - the snapshot is VISIBLE, and it is the snapshot that is shown
+#
+# Added after the browser evidence for this release, not before it. The column
+# was stored, guarded and tested, and no screen showed it - the same quiet half
+# that v0.80.0 missed on the Equipment surfaces. A record nobody can see is a
+# record nobody can check, and the guard's refusal reads as arbitrary if the
+# user cannot see what is or is not recorded.
+#
+# The test that matters here is the second one. Showing the unit is easy to do
+# WRONG in a way that looks identical on screen today: read it off the run's
+# machine instead of the run's own column, and every display silently rewrites
+# itself the next time a machine moves. That is the exact failure the column
+# exists to prevent, so it gets a test that moves a machine.
+# ---------------------------------------------------------------------------
+
+def _dataframe_text(at):
+    """clickable_table() renders through st.dataframe, so listing text lives in
+    at.dataframe and NOT in at.markdown. str() on a DataFrame gives pandas'
+    truncated repr, which silently hides columns - so every cell is stringified
+    individually."""
+    out = []
+    for df in at.dataframe:
+        frame = df.value
+        for col in frame.columns:
+            out.append(str(col))
+            for cell in frame[col]:
+                out.append(str(cell))
+    return out
+
+
+def test_the_run_listing_shows_the_recorded_unit(chain_with_unit):
+    ids = chain_with_unit
+    at = _run()
+    assert not at.exception, f"Unhandled exception: {at.exception}"
+    cells = _dataframe_text(at)
+    assert "Production Unit / Cell" in cells, (
+        "The production run listing has no Production Unit / Cell column."
+    )
+    session = db.get_session()
+    unit = session.get(db.ProductionUnit, ids["unit_id"])
+    label = f"{unit.controlled_id} - {unit.name}"
+    session.close()
+    assert label in cells, f"The listing does not show the recorded unit {label!r}. Cells: {cells}"
+
+
+def test_the_listing_shows_the_snapshot_not_the_machines_current_unit(chain_with_unit):
+    """Move the equipment to a different Production Unit / Cell and touch
+    nothing else. The run must keep showing what it recorded.
+
+    This fails loudly against the tempting implementation - reading
+    run.machine.production_unit - which is why it is written as a move rather
+    than as a source-code assertion. The rule is about behaviour over time."""
+    ids = chain_with_unit
+    session = db.get_session()
+    original = session.get(db.ProductionUnit, ids["unit_id"])
+    original_label = f"{original.controlled_id} - {original.name}"
+    moved_to = db.ProductionUnit(
+        plant_id=ids["plant_id"], controlled_id="PU-WP4-MOVED", name="Somewhere Else",
+    )
+    session.add(moved_to); session.flush()
+    machine = session.get(db.Machine, ids["machine_id"])
+    machine.production_unit_id = moved_to.id
+    run = session.get(db.ProductionRun, ids["run_id"])
+    assert run.production_unit_id == ids["unit_id"], "The run's own column must not have moved"
+    session.commit()
+    moved_label = f"{moved_to.controlled_id} - {moved_to.name}"
+    session.close()
+
+    at = _run()
+    assert not at.exception, f"Unhandled exception: {at.exception}"
+    cells = _dataframe_text(at)
+    assert original_label in cells, (
+        "After the equipment moved, the run stopped showing the unit it recorded. The listing is "
+        "deriving from the machine instead of reading the run's own snapshot."
+    )
+    assert moved_label not in cells, (
+        f"The listing shows {moved_label!r} - the equipment's CURRENT unit - against a run that "
+        "recorded a different one. This is the history rewrite the column exists to prevent."
+    )
+
+
+def test_the_edit_panel_shows_the_recorded_unit(chain_with_unit):
+    ids = chain_with_unit
+    at = _open_edit(ids)
+    session = db.get_session()
+    unit = session.get(db.ProductionUnit, ids["unit_id"])
+    label = f"{unit.controlled_id} - {unit.name}"
+    session.close()
+    captions = [str(c.value) for c in at.caption]
+    assert any("Production Unit / Cell recorded on this run" in c and label in c for c in captions), (
+        f"The edit panel does not show the run's recorded unit. Captions: {captions}"
+    )
+
+
+def test_the_edit_panel_warns_before_the_refusal(chain_without_unit):
+    """The warning appears while the user is looking at the run, not only when
+    they try to complete it. A guard the user meets for the first time at the
+    moment it blocks them is a guard that reads as arbitrary."""
+    ids = chain_without_unit
+    at = _open_edit(ids)
+    captions = [str(c.value) for c in at.caption]
+    assert any("not assigned to a Production Unit / Cell" in c for c in captions), (
+        f"No warning shown on an editable run whose equipment has no unit. Captions: {captions}"
+    )
+    assert any(ids["machine_name"] in c for c in captions), (
+        "The warning does not name the equipment the user has to go and assign."
+    )
+
+
+def test_the_create_form_shows_what_will_be_recorded(chain_with_unit):
+    ids = chain_with_unit
+    at = _run()
+    machine_sb = next(sb for sb in at.selectbox if sb.key == "create_run_machine")
+    machine_sb.set_value(next(o for o in machine_sb.options if ids["machine_name"] in str(o)))
+    at.run()
+    assert not at.exception, f"Unhandled exception: {at.exception}"
+    captions = [str(c.value) for c in at.caption]
+    assert any("Production Unit / Cell that will be recorded" in c for c in captions), (
+        f"The create form does not show the unit it is about to record. Captions: {captions}"
+    )
+
+
+def test_the_create_form_warns_when_equipment_has_no_unit(chain_without_unit):
+    ids = chain_without_unit
+    at = _run()
+    machine_sb = next(sb for sb in at.selectbox if sb.key == "create_run_machine")
+    machine_sb.set_value(next(o for o in machine_sb.options if ids["machine_name"] in str(o)))
+    at.run()
+    assert not at.exception, f"Unhandled exception: {at.exception}"
+    captions = [str(c.value) for c in at.caption]
+    assert any("cannot be set to Completed" in c for c in captions), (
+        f"The create form gives no warning before the run is made. Captions: {captions}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Section 6 - the mutation control
 #
 # Charlie: "Also run a mutation or equivalent negative control proving the

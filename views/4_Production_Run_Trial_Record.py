@@ -124,6 +124,7 @@ from db import (
     ProductionOutputSummary,
     ProductionPhase,
     ProductionRun,
+    ProductionUnit,
     ProductionShot,
     QualityObservation,
     RawMaterialLotUse,
@@ -446,6 +447,19 @@ tab_runs, tab_setup, tab_method_settings, tab_runtime, tab_streams, tab_output, 
     ]
 )
 
+def _run_unit_label(run):
+    """The Production Unit / Cell a run RECORDED, for display only.
+
+    Reads run.production_unit (the stored snapshot). It deliberately does not
+    fall back to the run's machine when the snapshot is empty: an empty
+    snapshot is a real state that the completion guard acts on, and papering
+    over it on screen would hide the very thing the user has to go and fix."""
+    unit = getattr(run, "production_unit", None)
+    if unit is None:
+        return "—"
+    return f"{unit.controlled_id} - {unit.name}" if unit.controlled_id else unit.name
+
+
 # ---------------------------------------------------------------------------
 # Production Runs — overview/edit/delete + create
 # ---------------------------------------------------------------------------
@@ -470,6 +484,12 @@ with tab_runs:
                     "Block": r.block_reference if block_reference_applicable(r.production_method) else "—",
                     "Production Method": r.production_method.name if r.production_method else "—",
                     "Equipment / Machine": r.machine.name if r.machine else "—",
+                    # R3-WP4: the unit this run RECORDED, read from the run's own
+                    # stored column via ProductionRun.production_unit - never from
+                    # r.machine.production_unit, which would show today's master
+                    # data over a finished run and undo the whole point of the
+                    # snapshot. A record nobody can see is a record nobody trusts.
+                    "Production Unit / Cell": _run_unit_label(r),
                     # Phase 8 Decision 2: surfaced in the overview so an
                     # Unresolved run is visible without opening it.
                     "Machine stream": machine_stream.run_stream_summary(session, r)["label"],
@@ -494,8 +514,8 @@ with tab_runs:
                 st.caption(
                     "Run context is captured in order - Plant, then Production Method, then "
                     "Equipment / Machine, then Product Grade - because the Equipment / Machine "
-                    "or Cell you pick is what determines which Product Grades are producible "
-                    "on it."
+                    "you pick is what determines which Product Grades are producible on it. "
+                    "The Production Unit / Cell is not picked here; it follows the equipment."
                 )
                 # WP7 Phase 2 Closeout Correction v2 (2026-08-14, Charlie's
                 # material completion item 1): Plant / Production Method /
@@ -563,6 +583,27 @@ with tab_runs:
                     format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
                     key=f"edit_run_machine_{selected_run.id}",
                 )
+                # R3-WP4. Read-only, and two separate facts on purpose: what this
+                # run RECORDED, and what the currently selected equipment would
+                # record if it were saved now. They differ exactly when somebody
+                # has changed the equipment without saving, which is the moment
+                # the user needs to see it - and never offered as an editable
+                # field, because the unit is a property of the equipment.
+                st.caption(f"Production Unit / Cell recorded on this run: **{_run_unit_label(selected_run)}**")
+                _pending_unit = resolve_production_unit_id(
+                    session, machine.id if machine else None
+                )
+                if machine and _pending_unit is None:
+                    st.caption(
+                        f"⚠️ {machine.name} is not assigned to a Production Unit / Cell. "
+                        "This run can be saved, but it cannot be set to Completed until the "
+                        "equipment is assigned on the Production Units / Cells page."
+                    )
+                elif _pending_unit is not None and _pending_unit != selected_run.production_unit_id:
+                    st.caption(
+                        "Saving will record the Production Unit / Cell of the currently "
+                        "selected Equipment / Machine."
+                    )
                 with st.form(f"edit_run_form_{selected_run.id}"):
                     # Step 4: Product Grade - filtered to grades actually
                     # assigned to the chosen machine (Machine.foam_grades,
@@ -827,6 +868,24 @@ with tab_runs:
             format_func=lambda m: "— not selected —" if m is None else f"{m.name} ({m.oem or 'OEM —'})",
             key="create_run_machine",
         )
+        # R3-WP4. Shown before the run is saved so the resolved unit - or the
+        # absence of one, and what that will cost later - is never a surprise
+        # discovered at the moment somebody tries to complete the run.
+        if machine:
+            _create_unit_id = resolve_production_unit_id(session, machine.id)
+            if _create_unit_id is None:
+                st.caption(
+                    f"⚠️ {machine.name} is not assigned to a Production Unit / Cell. "
+                    "The run can be created, but it cannot be set to Completed until the "
+                    "equipment is assigned on the Production Units / Cells page."
+                )
+            else:
+                _create_unit = session.get(ProductionUnit, _create_unit_id)
+                st.caption(
+                    "Production Unit / Cell that will be recorded: "
+                    f"**{_create_unit.controlled_id + ' - ' if _create_unit.controlled_id else ''}"
+                    f"{_create_unit.name}**"
+                )
         grade_ids_in_scope = {g.id for g in grades}
         assignable_grades = (
             [g for g in machine.foam_grades if g.id in grade_ids_in_scope] if machine else []

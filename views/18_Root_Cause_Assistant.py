@@ -43,8 +43,8 @@ st.title("Root-Cause Assistant")
 render_function_action_intro(
     function_text=(
         "Given a logged quality issue, compares that run against the most recent prior run of the "
-        "same product grade and lists what was different - recipe version, equipment / machine or "
-        "cell, or recorded Actual process settings - as a starting "
+        "same product grade and lists what was different - recipe version, equipment / machine, "
+        "or recorded Actual process settings - as a starting "
         "point for your own investigation, not a diagnosis. PI3 can then help interpret that diff "
         "against expert notes and similar past cases."
     ),

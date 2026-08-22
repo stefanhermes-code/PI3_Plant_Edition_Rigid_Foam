@@ -1424,6 +1424,10 @@ class ProductionRun(Base):
     # COMPLETING such a run, and that is enforced at the state transition (see
     # run_completion_blocker in helpers.py) rather than by a NOT NULL here.
     production_unit_id = Column(Integer, ForeignKey("production_units.id"))
+    # Reads the STORED column, never the machine. It exists so surfaces can
+    # show what the run recorded; going through machine.production_unit here
+    # would reintroduce exactly the derivation the column replaced.
+    production_unit = relationship("ProductionUnit", foreign_keys=[production_unit_id])
     # Phase 8 Decision 2 (2026-08-19): the machine-stream configuration that
     # applied when this run started, stamped once at run start and never
     # recomputed. Nullable, and null means Unresolved - A:B ratio derivation is

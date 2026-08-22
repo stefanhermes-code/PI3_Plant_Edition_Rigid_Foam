@@ -626,6 +626,15 @@ def test_unassigned_equipment_is_surfaced_not_hidden(inventory):
 
 PRODUCTION_UNIT_PHRASE = re.compile(r"production\s*units?\s*(?:/|\s+or\s+)?\s*cells?|production\s+units?", re.IGNORECASE)
 
+# R3-WP4 found a second shape of the same mislabel, and PRODUCTION_UNIT_PHRASE
+# could never have caught it. The v0.80.0 sweep looked for "Production Unit".
+# Three strings said "equipment / machine or cell" instead - the machine
+# presented as a cell without the forbidden words appearing at all. All three
+# were split across implicit string concatenation ("equipment / machine or " +
+# "cell changes"), so grep could not see them either. Found only by testing the
+# JOINED constant, which is the same technique that found the last two.
+EQUIPMENT_AS_CELL_PHRASE = re.compile(r"machines?\s*(?:/|\s+or\s+)\s*cells?", re.IGNORECASE)
+
 # The only files whose user-visible strings may say "Production Unit", because
 # they are the only ones that talk about db.ProductionUnit.
 UNIT_BEARING_FILES = {
@@ -658,6 +667,28 @@ PERMITTED_UNIT_STRINGS = {
     "views/31_Production_Equipment.py": {
         "Production Unit / Cell",           # the listing column header
         "Production Unit / Cell: **",       # the edit panel's read-only caption
+    },
+    "views/4_Production_Run_Trial_Record.py": {
+        # R3-WP4. The run RECORDS a Production Unit / Cell, so the page has to
+        # name it - to show what was recorded, to say what will be recorded,
+        # and to warn before the completion guard refuses. None of these names
+        # the Equipment / Machine as a unit; the run-context sentence exists
+        # specifically to say they are different things.
+        "Production Unit / Cell",                        # the listing column header
+        "Production Unit / Cell recorded on this run: **",
+        "Production Unit / Cell that will be recorded: **",
+        "Run context is captured in order - Plant, then Production Method, then "
+        "Equipment / Machine, then Product Grade - because the Equipment / Machine "
+        "you pick is what determines which Product Grades are producible on it. "
+        "The Production Unit / Cell is not picked here; it follows the equipment.",
+        " is not assigned to a Production Unit / Cell. The run can be created, but "
+        "it cannot be set to Completed until the equipment is assigned on the "
+        "Production Units / Cells page.",
+        " is not assigned to a Production Unit / Cell. This run can be saved, but "
+        "it cannot be set to Completed until the equipment is assigned on the "
+        "Production Units / Cells page.",
+        "Saving will record the Production Unit / Cell of the currently selected "
+        "Equipment / Machine.",
     },
     "helpers.py": {
         # run_completion_blocker's three refusals. Each one contrasts the
@@ -734,6 +765,49 @@ def test_no_machine_surface_calls_itself_a_production_unit():
         "User-visible strings still present db.Machine as a Production Unit:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_no_surface_calls_equipment_a_cell():
+    """The other direction of Charlie's ruling. "Do not label db.Machine as
+    Production Unit, Production Unit / Cell or Production Unit or Cell" is about
+    the entity, not about a particular wording - and "equipment / machine or
+    cell" labels it just as plainly while containing none of those phrases.
+
+    No file is exempt from this one. There is no legitimate reason for any
+    string to join Machine and Cell with a slash or an "or"; a sentence that
+    needs both says which is which."""
+    offenders = []
+    for rel, path in _scannable_files():
+        for lineno, value in _user_visible_strings(path):
+            if EQUIPMENT_AS_CELL_PHRASE.search(value):
+                offenders.append(f"{rel}:{lineno}: {value[:80]!r}")
+    assert not offenders, (
+        "User-visible strings still present Equipment / Machine as a Cell:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_equipment_as_cell_scanner_can_fail():
+    """Negative control, written as independent literals - the three the
+    codebase actually carried, plus the slash form."""
+    for text in (
+        "recipe version, equipment / machine or cell, or recorded Actual process settings",
+        "the Equipment / Machine or Cell you pick",
+        "equipment / machine or cell changes, and quality-issue history",
+        "Machine / Cell",
+    ):
+        assert EQUIPMENT_AS_CELL_PHRASE.search(text), (
+            f"The scanner does not recognise {text!r}, which is a form the codebase used."
+        )
+    for allowed in (
+        "Production Unit / Cell",
+        "Equipment / Machine",
+        "equipment / machine or process settings behind them",
+        "Production Unit / Cell recorded on this run",
+    ):
+        assert not EQUIPMENT_AS_CELL_PHRASE.search(allowed), (
+            f"The scanner fires on {allowed!r}, which is correct wording."
+        )
 
 
 def test_the_rename_scanner_can_fail():
