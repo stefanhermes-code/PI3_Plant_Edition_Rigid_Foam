@@ -8389,6 +8389,62 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.80.1, 2026-08-21: the other half of the naming ruling - the assigned unit is
+now visible on the Equipment / Machine surfaces.
+Charlie's R3-WP1 naming ruling, section 4.
+
+WHAT WAS MISSING
+
+v0.80.0 did the loud half of his ruling: db.Machine stopped being labelled a
+Production Unit across 77 strings, and db.ProductionUnit got its page. It did
+not do the quiet half:
+
+  "Update the Equipment / Machine surfaces so the assigned Production Unit /
+   Cell is visible where it helps the user understand the relationship. The two
+   entities must be distinguishable in navigation, forms, filters, reports and
+   plant summaries."
+
+Renaming makes two things differently named. Showing the link is what makes
+them distinguishable - without it the Production Equipment page still cannot
+answer "which unit is this machine in", which is the question R3-WP4's run
+snapshot resolves through. Nothing failed without it, which is exactly why it
+was nearly missed; it was found while collecting the browser evidence for the
+release that was supposed to have closed the work.
+
+The equipment listing gains a Production Unit / Cell column, and the edit panel
+shows the assigned unit as a read-only caption. Read-only on purpose: the
+assignment is a property of the equipment, but offering it in two editable
+places invites two answers.
+
+The unit lookup is scoped to the plants already in scope, not queried globally.
+A unit name is another company's operational layout, and this page is reachable
+by a company user.
+
+THE SCANNER HAD TO LEARN THE DIFFERENCE
+
+The rename scanner refuses "Production Unit" in any user-visible string outside
+the three files that serve db.ProductionUnit. This change makes the Production
+Equipment page say it legitimately, so the scanner fired on the correct code.
+
+Both halves of the ruling are true at once here: db.Machine must never be
+LABELLED a Production Unit, and the unit it is ASSIGNED to must be visible.
+A scanner cannot read that difference. Exempting the whole file would have
+dropped the guard on the one file that carried 21 of the original 77 mislabels,
+so instead the two permitted strings are listed exactly, and a test refuses an
+exemption that has stopped being used.
+
+Mutations re-run against the narrowed rule: putting "Production Unit / Cell
+name" back on the machine name field fails the scanner, and dropping the plant
+scope from the unit lookup fails the scoping test.
+
+BROWSER EVIDENCE RETAKEN AT v0.80.1
+
+All six surfaces Charlie listed were re-captured after Stefan restarted the
+app, so every screenshot carries a version caption that matches the running
+code - see the v0.80.0 note on why that could not be assumed.
+
+Full regression: 1042 passed, 6 skipped, 0 failed. Was 1040 / 6 at v0.80.0.
+
 v0.80.0, 2026-08-21: the Production Unit / Cell gets its name back, and the
 page it never had.
 Charlie's R3-WP1 Production Unit / Equipment Naming Ruling, option A.
@@ -9769,4 +9825,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.80.0"
+APP_VERSION = "0.80.1"

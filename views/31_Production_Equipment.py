@@ -34,7 +34,7 @@ instead of two dependent dropdowns.
 
 Phase 8 Decision 2 (Machine-Stream Configuration, 2026-08-19): this page
 gained the controlled A/B-stream editor. It sits inside the Edit/Delete
-tab under the selected Production Unit / Cell rather than as a fourth
+tab under the selected Equipment / Machine rather than as a fourth
 CR-11 tab, because a configuration has no meaning without a machine - it
 is a versioned attribute of one machine, not a record type of its own.
 See the block comment above _render_machine_stream_configuration."""
@@ -56,6 +56,7 @@ from db import (
     MachineStreamConfiguration,
     Plant,
     ProductionRun,
+    ProductionUnit,
     get_session,
     init_db,
 )
@@ -560,10 +561,29 @@ with tab_edit_delete:
     if not machines:
         st.info("No Equipment / Machines recorded yet.")
     else:
+        # Charlie's naming ruling, 21 Aug 2026: "Update the Equipment / Machine
+        # surfaces so the assigned Production Unit / Cell is visible where it
+        # helps the user understand the relationship."
+        #
+        # Read once and indexed, not per row - and scoped to the plants already
+        # in scope above rather than queried globally, because a unit name is
+        # another company's operational layout.
+        _units_by_id = {
+            u.id: u for u in session.query(ProductionUnit)
+            .filter(ProductionUnit.plant_id.in_([p.id for p in plants])).all()
+        }
+
+        def _unit_label(machine):
+            unit = _units_by_id.get(machine.production_unit_id)
+            if unit is None:
+                return "— not assigned —"
+            return f"{unit.controlled_id} — {unit.name}" if unit.controlled_id else unit.name
+
         machine_rows = [
             {
                 "Plant": m.plant.name,
                 "Production Method": m.production_method.name if m.production_method else "—",
+                "Production Unit / Cell": _unit_label(m),
                 "Equipment / Machine": m.name,
                 "Code": m.machine_code or "—",
                 "OEM": m.oem or "—",
@@ -585,6 +605,11 @@ with tab_edit_delete:
 
         if selected_machine:
             st.markdown(f"**Edit Equipment / Machine: {selected_machine.name}**")
+            # Read-only here on purpose. The unit a machine belongs to is a
+            # property of the equipment, but naming it in two editable places
+            # invites two answers - it is set on the Production Units / Cells
+            # page and shown here.
+            st.caption(f"Production Unit / Cell: **{_unit_label(selected_machine)}**")
             if not page_usable:
                 st.caption("View-only access - editing and deleting is restricted for your role.")
             else:

@@ -648,6 +648,26 @@ UNIT_BEARING_FILES = {
     "app_rigid_foam.py",                 # the navigation entry for that page
 }
 
+# One file needs the phrase without being exempt from the rule.
+#
+# Charlie's ruling has two halves, and they pull in opposite directions on the
+# Production Equipment page: db.Machine must never be LABELLED a Production
+# Unit, and the unit a machine is ASSIGNED to must be visible there. So the
+# page legitimately says "Production Unit / Cell" while never using it as the
+# name of the equipment.
+#
+# A scanner cannot read that difference, and exempting the whole file would
+# drop the guard on the one file that carried 21 of the 77 mislabels. So the
+# permitted strings are listed exactly, each earning its place, and
+# test_the_equipment_page_exceptions_are_all_used refuses an entry that has
+# stopped being used - the same discipline as the file allowlist above.
+PERMITTED_UNIT_STRINGS = {
+    "views/31_Production_Equipment.py": {
+        "Production Unit / Cell",           # the listing column header
+        "Production Unit / Cell: **",       # the edit panel's read-only caption
+    },
+}
+
 
 def _user_visible_strings(path):
     """String literals that reach a user, located by the AST.
@@ -699,7 +719,10 @@ def test_no_machine_surface_calls_itself_a_production_unit():
     for rel, path in _scannable_files():
         if rel in UNIT_BEARING_FILES:
             continue
+        permitted = PERMITTED_UNIT_STRINGS.get(rel, set())
         for lineno, value in _user_visible_strings(path):
+            if value in permitted:
+                continue
             if PRODUCTION_UNIT_PHRASE.search(value):
                 offenders.append(f"{rel}:{lineno}: {value[:80]!r}")
     assert not offenders, (
@@ -740,4 +763,38 @@ def test_the_unit_bearing_files_actually_use_the_phrase():
         assert found, (
             f"{rel} is allowed to say 'Production Unit' and no longer does - remove it "
             "from UNIT_BEARING_FILES rather than leaving an unused exemption."
+        )
+
+
+def test_the_equipment_page_shows_the_assigned_unit():
+    """The other half of Charlie's ruling: "Update the Equipment / Machine
+    surfaces so the assigned Production Unit / Cell is visible where it helps
+    the user understand the relationship."
+
+    Easy to leave undone, because the rename half is loud and this half is
+    quiet - nothing fails without it. It is what makes the two entities
+    distinguishable rather than merely differently named."""
+    src = open(os.path.join(APP_DIR, "views", "31_Production_Equipment.py"), encoding="utf-8").read()
+    assert "ProductionUnit" in src, (
+        "The Production Equipment page does not read db.ProductionUnit at all, so it "
+        "cannot be showing which unit a machine belongs to."
+    )
+    assert '"Production Unit / Cell": _unit_label(m)' in src, (
+        "The equipment listing has no Production Unit / Cell column."
+    )
+    assert "plants" in src.split("_units_by_id", 1)[1][:400], (
+        "The unit lookup on the equipment page is not scoped to the plants in scope - "
+        "a unit name is another company's operational layout."
+    )
+
+
+def test_the_equipment_page_exceptions_are_all_used():
+    """An allowlist entry that no longer matches anything is a hole waiting for
+    a mislabel to fall into it."""
+    for rel, permitted in PERMITTED_UNIT_STRINGS.items():
+        found = {v for _, v in _user_visible_strings(os.path.join(APP_DIR, rel))}
+        unused = permitted - found
+        assert not unused, (
+            f"{rel} no longer contains {unused} - remove the exemption rather than "
+            "leaving it standing."
         )
