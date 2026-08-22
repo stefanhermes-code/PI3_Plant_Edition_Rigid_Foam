@@ -8389,6 +8389,79 @@ Full regression: 951 passed, 6 skipped, 0 failed of 957 collected.
 
 The CR-18 terminology allowlist moved a fifth time, db.py 2272 -> 2287.
 
+v0.81.0, 2026-08-22: R3-WP4. A production run records the Production Unit /
+Cell it ran in, and cannot be completed without one.
+Charlie's R3 Release v3 section 3, and his Historical Run Snapshot Ruling.
+
+A SNAPSHOT, NOT A JOIN
+
+production_runs.production_unit_id is a stored record of the unit that applied
+at the time of the run. The obvious implementation - join through
+machines.production_unit_id whenever a run is displayed - is the one thing the
+ruling forbids, because the day a machine is reassigned to another cell every
+finished run would quietly start claiming it ran somewhere it did not. The
+column exists to stop that.
+
+It follows the equipment only while the run is still being edited, which is a
+correction to that run, and it is exactly the same reasoning that already
+re-derives the production_method_id snapshot on edit. It never follows a later
+change to master data.
+
+Migration 0022, ledger 22. Eight runs backfilled from their equipment, all to
+PU-PH1-001; one run correctly received nothing. Proved first on a disposable
+schema seeded with a planted unit-less machine, then applied, then compared
+row by row against rigid_foam_r0_baseline.production_runs - every other field
+identical, every status NULL before and after.
+
+THE GUARD IS AT THE TRANSITION, AND THAT IS WHY IT COULD BE TESTED
+
+Charlie was explicit that the eight NULL-status rows are not evidence the
+completion guard works, because they never exercise the state change. He was
+right, and it is the same shape as the vacuous tests found in R2: a condition
+that no fixture ever reaches is a condition nobody has checked.
+
+So run_completion_blocker() sits on the save handler of both the create and
+the edit form, and tests/test_r3wp4_production_run_unit_snapshot.py drives the
+real Streamlit forms: equipment with no unit, set to Completed, refused, with
+the database read afterwards to prove nothing was written. Then the same
+fixture with the guard bypassed, reaching Completed - because "refused" and
+"refused for some unrelated reason the fixture happens to trip" look identical
+from a green test. A separate control proves the bypass actually reaches the
+page before any conclusion is drawn from it, after the day lost to a mutation
+that silently never applied.
+
+The source-level mutation was run too: both guard branches replaced with
+"elif False" killed three tests.
+
+FOUR REFUSALS, FOUR SENTENCES
+
+No equipment selected, equipment with no unit, a run carrying no snapshot, and
+a snapshot that disagrees with the equipment are four different problems needing
+four different people to do four different things. A test asserts the messages
+are distinct, which is what stops them collapsing into one polite and useless
+line later. Writing that test also caught a fixture defect in itself: asking
+for both chain fixtures in one test let the second wipe the first's rows, since
+each rebuilds the schema.
+
+test_production_runs_do_not_carry_a_unit_yet is deleted, as its own docstring
+instructed, and replaced by the snapshot tests rather than edited to pass.
+
+THE SCANNER FIRED ON CORRECT CODE AGAIN
+
+The same conflict v0.80.1 hit. The refusal messages have to name both the
+Equipment / Machine and the Production Unit / Cell in order to tell the user
+which is missing from which - and the R3-WP1 scanner cannot tell that from a
+mislabel. Exempting helpers.py wholesale would have dropped the guard on the
+file that now carries the phrase most often, so the three messages are listed
+exactly, and the unused-exemption test (renamed, since it was never really
+about the Equipment page) refuses any that stops being used. Proved narrow: a
+planted "Production Unit or Cell *" in helpers.py still fails the scan.
+
+Full regression: 1082 passed, 6 skipped, 0 failed. Was 1054 / 6 at v0.80.2.
+
+The CR-18 terminology allowlist moved a sixth time, db.py 2287 -> 2306.
+Re-pointed, not softened, per that block's own standing rule.
+
 v0.80.2, 2026-08-22: R3-WP2. The backup tables leave the runtime schema - on
 the second attempt, after the first was rejected and rolled back.
 Charlie's R3 Release v3 section 3, and his R3-WP2 Migration Conformance Ruling.
@@ -9943,4 +10016,4 @@ Full regression: 847 passed, 6 skipped, 0 failed of 853 collected across 69
 files. Was 832 / 6 / 838 at v0.72.1.
 """
 
-APP_VERSION = "0.80.2"
+APP_VERSION = "0.81.0"

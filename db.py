@@ -1405,6 +1405,25 @@ class ProductionRun(Base):
     batch_reference = Column(String(200))
     block_reference = Column(String(200))
     machine_id = Column(Integer, ForeignKey("machines.id"))  # which foaming line actually ran this
+
+    # R3-WP4 (2026-08-22), Charlie's Historical Run Snapshot Ruling. The
+    # Production Unit / Cell that applied AT THE TIME OF THE RUN.
+    #
+    # This is a SNAPSHOT, not a derivation. The unit is resolved from the run's
+    # Equipment / Machine when the run is created or its equipment changes, and
+    # then it stays put: a later reassignment of that machine to another unit
+    # must never rewrite what a finished run says happened. Charlie: "the stored
+    # Production Unit / Cell is a run record, not a value continuously derived
+    # from the machine master."
+    #
+    # That is the whole reason this is a column rather than a join through
+    # machines.production_unit_id - the join would silently rewrite history.
+    #
+    # Nullable on purpose. A run created against equipment that has no unit yet
+    # is legal while master data is being set up; what is NOT legal is
+    # COMPLETING such a run, and that is enforced at the state transition (see
+    # run_completion_blocker in helpers.py) rather than by a NOT NULL here.
+    production_unit_id = Column(Integer, ForeignKey("production_units.id"))
     # Phase 8 Decision 2 (2026-08-19): the machine-stream configuration that
     # applied when this run started, stamped once at run start and never
     # recomputed. Nullable, and null means Unresolved - A:B ratio derivation is

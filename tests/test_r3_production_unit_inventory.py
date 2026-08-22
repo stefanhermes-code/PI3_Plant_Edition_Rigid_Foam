@@ -190,20 +190,6 @@ def test_no_machine_to_unit_association_table():
     )
 
 
-def test_production_runs_do_not_carry_a_unit_yet():
-    """R3-WP4's column, not R3-WP1's. If it appears early the backfill loses its
-    controlled before/after evidence, because the column would already be
-    populated by whatever wrote it first.
-
-    Delete this test in R3-WP4 and replace it with the snapshot tests - do not
-    edit it to pass."""
-    run_cols = {c.name for c in db.ProductionRun.__table__.columns}
-    assert "production_unit_id" not in run_cols, (
-        "production_runs.production_unit_id exists already. It belongs to R3-WP4 "
-        "under migration control, with row-by-row backfill evidence."
-    )
-
-
 # ---------------------------------------------------------------------------
 # Section 3 - the inventory state, and proof each check can fail
 # ---------------------------------------------------------------------------
@@ -661,10 +647,29 @@ UNIT_BEARING_FILES = {
 # permitted strings are listed exactly, each earning its place, and
 # test_the_equipment_page_exceptions_are_all_used refuses an entry that has
 # stopped being used - the same discipline as the file allowlist above.
+# R3-WP4 adds a second such file for the same reason. helpers.py's completion
+# guard has to TELL the user that their Equipment / Machine is not assigned to a
+# Production Unit / Cell - a sentence that names both entities and, in naming
+# them, distinguishes them. It is the opposite of the mislabel the rule exists
+# to catch, and the scanner cannot read that difference any more than it could
+# on the Equipment page. So the three messages are listed exactly, and
+# test_the_permitted_strings_are_all_used refuses any that stops being used.
 PERMITTED_UNIT_STRINGS = {
     "views/31_Production_Equipment.py": {
         "Production Unit / Cell",           # the listing column header
         "Production Unit / Cell: **",       # the edit panel's read-only caption
+    },
+    "helpers.py": {
+        # run_completion_blocker's three refusals. Each one contrasts the
+        # equipment with the unit; none of them names the equipment as a unit.
+        " is not assigned to a Production Unit / Cell, so this run cannot be "
+        "completed. Assign it on the Production Units / Cells page, then "
+        "reselect the equipment here.",
+        "This run carries no Production Unit / Cell. Reselect its "
+        "Equipment / Machine so the unit is recorded, then complete it.",
+        "This run's recorded Production Unit / Cell no longer matches its "
+        "Equipment / Machine. Reselect the equipment to refresh the "
+        "recorded unit before completing the run.",
     },
 }
 
@@ -788,9 +793,13 @@ def test_the_equipment_page_shows_the_assigned_unit():
     )
 
 
-def test_the_equipment_page_exceptions_are_all_used():
+def test_the_permitted_strings_are_all_used():
     """An allowlist entry that no longer matches anything is a hole waiting for
-    a mislabel to fall into it."""
+    a mislabel to fall into it.
+
+    Renamed in R3-WP4 - it was written for the Production Equipment page alone
+    and has always been generic; helpers.py is now a second entry and the old
+    name would have read as though it were not covered."""
     for rel, permitted in PERMITTED_UNIT_STRINGS.items():
         found = {v for _, v in _user_visible_strings(os.path.join(APP_DIR, rel))}
         unused = permitted - found

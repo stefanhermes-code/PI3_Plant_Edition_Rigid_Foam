@@ -1633,3 +1633,82 @@ def render_ask_pi3_section(
                 tool_log=tool_log,
                 disabled=disabled,
             )
+
+
+# ---------------------------------------------------------------------------
+# R3-WP4 - the Production Unit / Cell snapshot on a production run
+#
+# Charlie's Historical Run Snapshot Ruling, 22 August 2026. Two rules, and the
+# second is the one that is easy to get wrong:
+#
+#   - Equipment / Machine is the only thing the user picks. The Production Unit
+#     / Cell is RESOLVED from it and stored separately on the run. There is no
+#     second independent picker.
+#   - The stored value is a RECORD, not a derivation. It updates while the run
+#     is still editable and its equipment changes; it does NOT follow a later
+#     reassignment of that equipment in master data.
+#
+# The completion guard lives at the STATE TRANSITION rather than as a check
+# over existing rows - also his ruling, and it is what makes the guard testable
+# at all. Eight live runs carry a NULL status and would never exercise a
+# transition, so a guard written as an assertion over them could not fail.
+# ---------------------------------------------------------------------------
+
+def resolve_production_unit_id(session, machine_id):
+    """The Production Unit / Cell that the given Equipment / Machine currently
+    belongs to, or None.
+
+    "Currently" is the point. This is called when a run is created or its
+    equipment is changed, and the answer is then STORED. It is never called to
+    render a saved run - doing that would turn the snapshot back into a
+    derivation and rewrite history the next time a machine moved."""
+    if not machine_id:
+        return None
+    from db import Machine
+    machine = session.get(Machine, machine_id)
+    return getattr(machine, "production_unit_id", None) if machine else None
+
+
+def run_completion_blocker(session, machine_id, production_unit_id):
+    """Why this run may not be set to Completed, or None if it may.
+
+    Charlie: "Completion is allowed only when the selected Equipment / Machine
+    resolves to a Production Unit / Cell and the run carries the corresponding
+    production_unit_id. If either condition is missing or inconsistent, block
+    the transition to Completed and give a clear validation message."
+
+    Both halves matter and they fail differently. Equipment with no unit is a
+    master-data gap the user can go and fix. A stored value that disagrees with
+    the equipment means the run was edited in a way that left the snapshot
+    stale, which is a different problem and deserves a different sentence."""
+    if not machine_id:
+        return (
+            "Select the Equipment / Machine this run was produced on before "
+            "marking it Completed."
+        )
+
+    resolved = resolve_production_unit_id(session, machine_id)
+    if resolved is None:
+        from db import Machine
+        machine = session.get(Machine, machine_id)
+        name = getattr(machine, "name", None) or "the selected equipment"
+        return (
+            f"{name} is not assigned to a Production Unit / Cell, so this run "
+            "cannot be completed. Assign it on the Production Units / Cells "
+            "page, then reselect the equipment here."
+        )
+
+    if production_unit_id is None:
+        return (
+            "This run carries no Production Unit / Cell. Reselect its "
+            "Equipment / Machine so the unit is recorded, then complete it."
+        )
+
+    if production_unit_id != resolved:
+        return (
+            "This run's recorded Production Unit / Cell no longer matches its "
+            "Equipment / Machine. Reselect the equipment to refresh the "
+            "recorded unit before completing the run."
+        )
+
+    return None

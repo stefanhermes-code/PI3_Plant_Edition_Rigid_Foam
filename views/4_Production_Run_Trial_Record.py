@@ -136,6 +136,8 @@ from db import (
     init_db,
 )
 from helpers import (
+    resolve_production_unit_id,
+    run_completion_blocker,
     activated_methods_for_plant,
     block_reference_applicable,
     clickable_table,
@@ -693,15 +695,34 @@ with tab_runs:
                     )
                     save = st.form_submit_button("Save changes", disabled=not page_usable)
                     if save and page_usable:
+                        # R3-WP4. The unit follows the EQUIPMENT while the run is
+                        # still editable - changing a run's machine is a correction
+                        # to that run, the same reasoning that re-derives the
+                        # production method snapshot below. What it must never
+                        # follow is a later reassignment of that machine in master
+                        # data, and it does not: this only runs when somebody edits
+                        # and saves this run.
+                        _edit_unit_id = resolve_production_unit_id(
+                            session, machine.id if machine else None
+                        )
+                        _edit_completion_block = (
+                            run_completion_blocker(
+                                session, machine.id if machine else None, _edit_unit_id
+                            )
+                            if status == "Completed" else None
+                        )
                         if not grade:
                             st.error("Select a Equipment / Machine that has a Product Grade assigned first.")
                         elif not current_version:
                             st.error("This product grade has no recipe version yet — add one on the Recipes page first.")
+                        elif _edit_completion_block:
+                            st.error(_edit_completion_block)
                         else:
                             selected_run.foam_grade_id = grade.id
                             selected_run.plant_id = plant.id
                             selected_run.recipe_version_id = current_version.id
                             selected_run.machine_id = machine.id if machine else None
+                            selected_run.production_unit_id = _edit_unit_id
                             # Production Method Hierarchy architecture change
                             # (2026-08-09): this snapshot is deliberately
                             # re-derived on every edit (not left as whatever
@@ -864,10 +885,24 @@ with tab_runs:
 
             submitted = st.form_submit_button("Save production run", disabled=not page_usable)
             if submitted and page_usable:
+                # R3-WP4: the unit is RESOLVED from the chosen equipment, never
+                # picked. Resolved once here and stored on the run.
+                _resolved_unit_id = resolve_production_unit_id(session, machine.id if machine else None)
+                # And the completion guard, at the transition rather than over
+                # existing rows - Charlie's ruling. A run may be CREATED against
+                # equipment with no unit; it may not be created as Completed.
+                _completion_block = (
+                    run_completion_blocker(
+                        session, machine.id if machine else None, _resolved_unit_id
+                    )
+                    if status == "Completed" else None
+                )
                 if not grade:
                     st.error("Select a Equipment / Machine that has a Product Grade assigned first.")
                 elif not current_version:
                     st.error("This product grade has no recipe version yet — add one on the Recipes page first.")
+                elif _completion_block:
+                    st.error(_completion_block)
                 else:
                     run = ProductionRun(
                         plant_id=plant.id,
@@ -881,6 +916,7 @@ with tab_runs:
                         batch_reference=_generate_batch_reference(session, run_date, plant_ids),
                         block_reference=block_reference,
                         machine_id=machine.id if machine else None,
+                        production_unit_id=_resolved_unit_id,
                         production_method_id=method.id if method else None,
                         operator_or_team_reference=operator,
                         notes=notes,
